@@ -134,7 +134,8 @@ __global__ void load_balancing_prepare_iteration(const __grid_constant__
   // alternate codepath in the case of a small related_var/total_var ratio
   if (!full_refresh && fj.pb.related_variables.size() > 0 &&
       fj.pb.n_variables / fj.work_ids_for_related_vars[*fj.selected_var] >=
-        fj.settings->parameters.old_codepath_total_var_to_relvar_ratio_threshold) {
+        fj.settings->parameters.old_codepath_total_var_to_relvar_ratio_threshold &&
+      fj.settings->load_balancing_mode != fj_load_balancing_mode_t::ALWAYS_ON) {
     auto range = fj.pb.range_for_related_vars(*fj.selected_var);
 
     for (i_t i = blockIdx.x + range.first; i < range.second; i += gridDim.x) {
@@ -533,8 +534,8 @@ __launch_bounds__(TPB_loadbalance, 16) __global__
 
       auto& score_info = candidate.score;
 
-      f_t base_feas    = 0;
-      f_t bonus_robust = 0;
+      int32_t base_feas    = 0;
+      int32_t bonus_robust = 0;
 
       // same as for the binary var kernel, compute each score compoenent per thread
       // and merge then via a wapr reduce
@@ -650,7 +651,7 @@ __global__ void load_balancing_sanity_checks(const __grid_constant__
     if (!(score_1 == score_1.invalid() && score_2 == score_2.invalid()) &&
         !(v.pb.integer_equal(score_1.base, score_2.base) &&
           v.pb.integer_equal(score_1.bonus, score_2.bonus))) {
-      printf("(iter %d) [%d, int:%d]: delta %g/%g was %f/%f, is %f/%f\n",
+      printf("(iter %d) [%d, int:%d]: delta %g/%g was %d/%d, is %d/%d\n",
              *v.iterations,
              var_idx,
              v.pb.is_integer_var(var_idx),

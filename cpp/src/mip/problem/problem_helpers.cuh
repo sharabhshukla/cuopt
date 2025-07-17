@@ -27,10 +27,55 @@
 
 #include <cuda_runtime_api.h>
 #include <thrust/functional.h>
+#include <thrust/gather.h>
 #include <thrust/logical.h>
 #include <thrust/sort.h>
 
 namespace cuopt::linear_programming::detail {
+
+template <typename T>
+struct cusparse_data_type {
+  static_assert(sizeof(T) == 0, "cusparse_data_type mapping not defined for this type");
+};
+template <typename T>
+struct cusparse_index_type {
+  static_assert(sizeof(T) == 0, "cusparse_index_type mapping not defined for this type");
+};
+
+template <>
+struct cusparse_data_type<__half> {
+  static constexpr cudaDataType value = CUDA_R_16F;
+};
+template <>
+struct cusparse_data_type<__nv_bfloat16> {
+  static constexpr cudaDataType value = CUDA_R_16BF;
+};
+template <>
+struct cusparse_data_type<float> {
+  static constexpr cudaDataType value = CUDA_R_32F;
+};
+template <>
+struct cusparse_data_type<double> {
+  static constexpr cudaDataType value = CUDA_R_64F;
+};
+template <>
+struct cusparse_data_type<int8_t> {
+  static constexpr cudaDataType value = CUDA_R_8I;
+};
+template <>
+struct cusparse_data_type<int32_t> {
+  static constexpr cudaDataType value = CUDA_R_32I;
+};
+
+template <>
+struct cusparse_index_type<int32_t> {
+  static constexpr cusparseIndexType_t value = CUSPARSE_INDEX_32I;
+};
+template <>
+struct cusparse_index_type<int64_t> {
+  static constexpr cusparseIndexType_t value = CUSPARSE_INDEX_64I;
+};
+
 template <typename f_t>
 struct transform_bounds_functor {
   __device__ thrust::tuple<f_t, f_t> operator()(const thrust::tuple<char, f_t>& input) const
@@ -305,6 +350,60 @@ static bool check_bounds_sanity(const detail::problem_t<i_t, f_t>& problem)
 {
   return check_var_bounds_sanity<i_t, f_t>(problem) &&
          check_constraint_bounds_sanity<i_t, f_t>(problem);
+}
+
+static void check_cusparse_status(cusparseStatus_t status)
+{
+  if (status != CUSPARSE_STATUS_SUCCESS) {
+    throw std::runtime_error("CUSPARSE error: " + std::string(cusparseGetErrorString(status)));
+  }
+}
+
+template <typename i_t, typename f_t>
+static void csrsort_cusparse(rmm::device_uvector<f_t>& values,
+                             rmm::device_uvector<i_t>& indices,
+                             rmm::device_uvector<i_t>& offsets,
+                             i_t rows,
+                             i_t cols,
+                             const raft::handle_t* handle_ptr)
+{
+  auto stream = offsets.stream();
+  cusparseHandle_t handle;
+  cusparseCreate(&handle);
+  cusparseSetStream(handle, stream);
+
+  i_t nnz = values.size();
+  i_t m   = rows;
+  i_t n   = cols;
+
+  cusparseMatDescr_t matA;
+  cusparseCreateMatDescr(&matA);
+  cusparseSetMatIndexBase(matA, CUSPARSE_INDEX_BASE_ZERO);
+  cusparseSetMatType(matA, CUSPARSE_MATRIX_TYPE_GENERAL);
+
+  size_t pBufferSizeInBytes = 0;
+  check_cusparse_status(cusparseXcsrsort_bufferSizeExt(
+    handle, m, n, nnz, offsets.data(), indices.data(), &pBufferSizeInBytes));
+  rmm::device_uvector<uint8_t> pBuffer(pBufferSizeInBytes, stream);
+  cuopt_assert(((intptr_t)pBuffer.data() % 128) == 0,
+               "CUSPARSE buffer size is not aligned to 128 bytes");
+  rmm::device_uvector<i_t> P(nnz, stream);
+  thrust::sequence(handle_ptr->get_thrust_policy(), P.begin(), P.end());
+
+  check_cusparse_status(cusparseXcsrsort(
+    handle, m, n, nnz, matA, offsets.data(), indices.data(), P.data(), pBuffer.data()));
+
+  // apply the permutation to the values
+  rmm::device_uvector<f_t> values_sorted(nnz, stream);
+  thrust::gather(
+    handle_ptr->get_thrust_policy(), P.begin(), P.end(), values.begin(), values_sorted.begin());
+  thrust::copy(
+    handle_ptr->get_thrust_policy(), values_sorted.begin(), values_sorted.end(), values.begin());
+
+  cusparseDestroyMatDescr(matA);
+  cusparseDestroy(handle);
+
+  check_csr_representation(values, offsets, indices, handle_ptr, cols, rows);
 }
 
 }  // namespace cuopt::linear_programming::detail

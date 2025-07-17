@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -100,55 +100,8 @@ convert_probe_tuple(std::tuple<std::vector<int>, std::vector<double>, std::vecto
   return std::make_pair(std::move(probe_first), std::move(probe_second));
 }
 
-std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>
-bounds_probe_results(detail::bound_presolve_t<int, double>& bnd_prb_0,
-                     detail::bound_presolve_t<int, double>& bnd_prb_1,
-                     detail::problem_t<int, double>& problem,
-                     const std::pair<std::vector<thrust::pair<int, double>>,
-                                     std::vector<thrust::pair<int, double>>>& probe)
-{
-  auto& probe_first  = std::get<0>(probe);
-  auto& probe_second = std::get<1>(probe);
-  rmm::device_uvector<double> b_lb_0(problem.n_variables, problem.handle_ptr->get_stream());
-  rmm::device_uvector<double> b_ub_0(problem.n_variables, problem.handle_ptr->get_stream());
-  rmm::device_uvector<double> b_lb_1(problem.n_variables, problem.handle_ptr->get_stream());
-  rmm::device_uvector<double> b_ub_1(problem.n_variables, problem.handle_ptr->get_stream());
-  bnd_prb_0.solve(problem, probe_first);
-  bnd_prb_0.set_updated_bounds(problem.handle_ptr, make_span(b_lb_0), make_span(b_ub_0));
-  bnd_prb_1.solve(problem, probe_second);
-  bnd_prb_1.set_updated_bounds(problem.handle_ptr, make_span(b_lb_1), make_span(b_ub_1));
-
-  auto h_lb_0 = host_copy(b_lb_0);
-  auto h_ub_0 = host_copy(b_ub_0);
-  auto h_lb_1 = host_copy(b_lb_1);
-  auto h_ub_1 = host_copy(b_ub_1);
-  return std::make_tuple(
-    std::move(h_lb_0), std::move(h_ub_0), std::move(h_lb_1), std::move(h_ub_1));
-}
-
-std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>
-multi_probe_results(
-  detail::multi_probe_t<int, double>& prb,
-  detail::problem_t<int, double>& problem,
-  const std::tuple<std::vector<int>, std::vector<double>, std::vector<double>>& probe_tuple)
-{
-  prb.solve(problem, probe_tuple);
-  rmm::device_uvector<double> m_lb_0(problem.n_variables, problem.handle_ptr->get_stream());
-  rmm::device_uvector<double> m_ub_0(problem.n_variables, problem.handle_ptr->get_stream());
-  rmm::device_uvector<double> m_lb_1(problem.n_variables, problem.handle_ptr->get_stream());
-  rmm::device_uvector<double> m_ub_1(problem.n_variables, problem.handle_ptr->get_stream());
-  prb.set_updated_bounds(problem.handle_ptr, make_span(m_lb_0), make_span(m_ub_0), 0);
-  prb.set_updated_bounds(problem.handle_ptr, make_span(m_lb_1), make_span(m_ub_1), 1);
-
-  auto h_lb_0 = host_copy(m_lb_0);
-  auto h_ub_0 = host_copy(m_ub_0);
-  auto h_lb_1 = host_copy(m_lb_1);
-  auto h_ub_1 = host_copy(m_ub_1);
-  return std::make_tuple(
-    std::move(h_lb_0), std::move(h_ub_0), std::move(h_lb_1), std::move(h_ub_1));
-}
-
-uint32_t test_multi_probe(std::string path, unsigned long seed = std::random_device{}())
+uint32_t test_probing_cache_determinism(std::string path,
+                                        unsigned long seed = std::random_device{}())
 {
   auto memory_resource = make_async();
   rmm::mr::set_current_device_resource(memory_resource.get());
@@ -160,6 +113,7 @@ uint32_t test_multi_probe(std::string path, unsigned long seed = std::random_dev
   problem_checking_t<int, double>::check_problem_representation(op_problem);
   detail::problem_t<int, double> problem(op_problem);
   mip_solver_settings_t<int, double> default_settings{};
+  default_settings.mip_scaling = false;  // we're not checking scaling determinism here
   detail::pdhg_solver_t<int, double> pdhg_solver(problem.handle_ptr, problem);
   detail::pdlp_initial_scaling_strategy_t<int, double> scaling(&handle_,
                                                                problem,
@@ -171,51 +125,46 @@ uint32_t test_multi_probe(std::string path, unsigned long seed = std::random_dev
                                                                problem.reverse_constraints,
                                                                true);
   detail::mip_solver_t<int, double> solver(problem, default_settings, scaling, cuopt::timer_t(0));
-  detail::bound_presolve_t<int, double> bnd_prb_0(solver.context);
-  detail::bound_presolve_t<int, double> bnd_prb_1(solver.context);
-  detail::multi_probe_t<int, double> multi_probe_prs(solver.context);
+  detail::bound_presolve_t<int, double> bnd_prb(solver.context);
 
-  auto probe_tuple       = select_k_random(problem, 100, seed);
-  auto bounds_probe_vals = convert_probe_tuple(probe_tuple);
+  // rely on the iteration limit
+  compute_probing_cache(bnd_prb, problem, timer_t(std::numeric_limits<double>::max()));
+  std::vector<std::pair<int, std::array<detail::cache_entry_t<int, double>, 2>>> cached_values(
+    bnd_prb.probing_cache.probing_cache.begin(), bnd_prb.probing_cache.probing_cache.end());
+  std::sort(cached_values.begin(), cached_values.end(), [](const auto& a, const auto& b) {
+    return a.first < b.first;
+  });
 
-  auto [bnd_lb_0, bnd_ub_0, bnd_lb_1, bnd_ub_1] =
-    bounds_probe_results(bnd_prb_0, bnd_prb_1, problem, bounds_probe_vals);
-  auto [m_lb_0, m_ub_0, m_lb_1, m_ub_1] =
-    multi_probe_results(multi_probe_prs, problem, probe_tuple);
+  std::vector<int> probed_indices;
+  std::vector<double> intervals;
+  std::vector<int> interval_types;
 
-  auto bnd_min_act_0 = host_copy(bnd_prb_0.upd.min_activity);
-  auto bnd_max_act_0 = host_copy(bnd_prb_0.upd.max_activity);
-  auto bnd_min_act_1 = host_copy(bnd_prb_1.upd.min_activity);
-  auto bnd_max_act_1 = host_copy(bnd_prb_1.upd.max_activity);
+  std::vector<int> var_to_cached_bound_keys;
+  std::vector<double> var_to_cached_bound_lb;
+  std::vector<double> var_to_cached_bound_ub;
+  for (const auto& a : cached_values) {
+    probed_indices.push_back(a.first);
+    intervals.push_back(a.second[0].val_interval.val);
+    intervals.push_back(a.second[1].val_interval.val);
+    interval_types.push_back(a.second[0].val_interval.interval_type);
+    interval_types.push_back(a.second[1].val_interval.interval_type);
 
-  auto mlp_min_act_0 = host_copy(multi_probe_prs.upd_0.min_activity);
-  auto mlp_max_act_0 = host_copy(multi_probe_prs.upd_0.max_activity);
-  auto mlp_min_act_1 = host_copy(multi_probe_prs.upd_1.min_activity);
-  auto mlp_max_act_1 = host_copy(multi_probe_prs.upd_1.max_activity);
+    auto sorted_map = std::map<int, detail::cached_bound_t<double>>(
+      a.second[0].var_to_cached_bound_map.begin(), a.second[0].var_to_cached_bound_map.end());
+    for (const auto& [var_id, cached_bound] : sorted_map) {
+      var_to_cached_bound_keys.push_back(var_id);
+      var_to_cached_bound_lb.push_back(cached_bound.lb);
+      var_to_cached_bound_ub.push_back(cached_bound.ub);
+    }
+  }
 
   std::vector<uint32_t> hashes;
-  hashes.push_back(detail::compute_hash(bnd_min_act_0));
-  hashes.push_back(detail::compute_hash(bnd_min_act_1));
-  hashes.push_back(detail::compute_hash(bnd_max_act_0));
-  hashes.push_back(detail::compute_hash(bnd_max_act_1));
-  hashes.push_back(detail::compute_hash(bnd_lb_0));
-  hashes.push_back(detail::compute_hash(bnd_ub_0));
-  hashes.push_back(detail::compute_hash(bnd_lb_1));
-  hashes.push_back(detail::compute_hash(bnd_ub_1));
-
-  for (int i = 0; i < (int)bnd_min_act_0.size(); ++i) {
-    EXPECT_DOUBLE_EQ(bnd_min_act_0[i], mlp_min_act_0[i]);
-    EXPECT_DOUBLE_EQ(bnd_max_act_0[i], mlp_max_act_0[i]);
-    EXPECT_DOUBLE_EQ(bnd_min_act_1[i], mlp_min_act_1[i]);
-    EXPECT_DOUBLE_EQ(bnd_max_act_1[i], mlp_max_act_1[i]);
-  }
-
-  for (int i = 0; i < (int)bnd_lb_0.size(); ++i) {
-    EXPECT_DOUBLE_EQ(bnd_lb_0[i], m_lb_0[i]);
-    EXPECT_DOUBLE_EQ(bnd_ub_0[i], m_ub_0[i]);
-    EXPECT_DOUBLE_EQ(bnd_lb_1[i], m_lb_1[i]);
-    EXPECT_DOUBLE_EQ(bnd_ub_1[i], m_ub_1[i]);
-  }
+  hashes.push_back(detail::compute_hash(probed_indices));
+  hashes.push_back(detail::compute_hash(intervals));
+  hashes.push_back(detail::compute_hash(interval_types));
+  hashes.push_back(detail::compute_hash(var_to_cached_bound_keys));
+  hashes.push_back(detail::compute_hash(var_to_cached_bound_lb));
+  hashes.push_back(detail::compute_hash(var_to_cached_bound_ub));
 
   // return a composite hash of all the hashes to check for determinism
   return detail::compute_hash(hashes);
@@ -232,19 +181,24 @@ uint32_t test_multi_probe(std::string path, unsigned long seed = std::random_dev
 //   }
 // }
 
-TEST(presolve, multi_probe_deterministic)
+TEST(presolve, probing_cache_deterministic)
 {
-  std::vector<std::string> test_instances = {
-    "mip/50v-10-free-bound.mps", "mip/neos5-free-bound.mps", "mip/neos5.mps"};
+  std::vector<std::string> test_instances = {"mip/50v-10-free-bound.mps",
+                                             "mip/neos5-free-bound.mps",
+                                             "mip/neos5.mps",
+                                             "mip/gen-ip054.mps",
+                                             "mip/rmatr200-p5.mps"};
   for (const auto& test_instance : test_instances) {
     std::cout << "Running: " << test_instance << std::endl;
     unsigned long seed = std::random_device{}();
+    std::cerr << "Tested with seed " << seed << "\n";
     auto path          = make_path_absolute(test_instance);
     uint32_t gold_hash = 0;
     for (int i = 0; i < 10; ++i) {
-      auto hash = test_multi_probe(path, seed);
+      auto hash = test_probing_cache_determinism(path, seed);
       if (i == 0) {
         gold_hash = hash;
+        std::cout << "Gold hash: " << gold_hash << std::endl;
       } else {
         EXPECT_EQ(hash, gold_hash);
       }

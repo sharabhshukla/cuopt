@@ -770,6 +770,7 @@ void fj_t<i_t, f_t>::run_step_device(const rmm::cuda_stream_view& climber_stream
                        kernel_args,
                        0,
                        climber_stream);
+
       cudaLaunchCooperativeKernel((void*)handle_local_minimum_kernel<i_t, f_t>,
                                   grid_update_weights,
                                   blocks_update_weights,

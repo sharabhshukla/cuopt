@@ -184,7 +184,8 @@ __global__ void compute_step_sizes_from_movement_and_interaction(
 
   *step_size_strategy_view.step_size = step_size_;
   cuopt_assert(!isnan(step_size_), "step size can't be nan");
-  cuopt_assert(!isinf(step_size_), "step size can't be inf");
+  cuopt_assert(!isinf(step_size_),
+               "step size can't be inf (ensure setup_device_symbols() has been called)");
 }
 
 template <typename i_t, typename f_t>

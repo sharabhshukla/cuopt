@@ -108,6 +108,11 @@ struct fp_config_t {
   bool check_distance_cycle              = true;
   int first_stage_kk                     = 70;
   double cycle_distance_reduction_ration = 0.1;
+  double bounds_prop_timer_min           = 2.;
+  double lp_run_time_after_feasible_min  = 3.;
+  double linproj_time_limit              = 5.;
+  double fj_cycle_escape_time_limit      = 3.;
+  double lp_verify_time_limit            = 5.;
 };
 
 template <typename i_t, typename f_t>
@@ -116,7 +121,6 @@ class feasibility_pump_t {
   feasibility_pump_t() = delete;
   feasibility_pump_t(mip_solver_context_t<i_t, f_t>& context,
                      fj_t<i_t, f_t>& fj,
-                     //                     fj_tree_t<i_t, f_t>& fj_tree_,
                      constraint_prop_t<i_t, f_t>& constraint_prop_,
                      lb_constraint_prop_t<i_t, f_t>& lb_constraint_prop_,
                      line_segment_search_t<i_t, f_t>& line_segment_search_,
@@ -149,7 +153,6 @@ class feasibility_pump_t {
   mip_solver_context_t<i_t, f_t>& context;
   // keep a reference from upstream local search
   fj_t<i_t, f_t>& fj;
-  // fj_tree_t<i_t, f_t>& fj_tree;
   line_segment_search_t<i_t, f_t>& line_segment_search;
   cycle_queue_t<i_t, f_t> cycle_queue;
   constraint_prop_t<i_t, f_t>& constraint_prop;

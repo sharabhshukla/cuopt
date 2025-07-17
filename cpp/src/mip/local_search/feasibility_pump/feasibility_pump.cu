@@ -221,7 +221,7 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   const double lp_tolerance =
     get_tolerance_from_ratio(ratio_of_set_integers, context.settings.tolerances.absolute_tolerance);
   temp_p.check_problem_representation(true);
-  f_t time_limit     = longer_lp_run ? 5. : 1.;
+  f_t time_limit     = longer_lp_run ? config.linproj_time_limit : config.linproj_time_limit / 5.0;
   time_limit         = std::min(time_limit, timer.remaining_time());
   static f_t lp_time = 0;
   static i_t n_calls = 0;
@@ -260,8 +260,9 @@ bool feasibility_pump_t<i_t, f_t>::round(solution_t<i_t, f_t>& solution)
 {
   bool result;
   CUOPT_LOG_DEBUG("Rounding the point");
-  timer_t bounds_prop_timer(std::min(2., timer.remaining_time()));
-  const f_t lp_run_time_after_feasible = std::min(3., timer.remaining_time() / 20.);
+  timer_t bounds_prop_timer(std::min(config.bounds_prop_timer_min, timer.remaining_time()));
+  const f_t lp_run_time_after_feasible =
+    std::min(config.lp_run_time_after_feasible_min, timer.remaining_time() / 20.);
   result = constraint_prop.apply_round(solution, lp_run_time_after_feasible, bounds_prop_timer);
   cuopt_func_call(solution.test_variable_bounds(true));
   // copy the last rounding
@@ -290,9 +291,9 @@ bool feasibility_pump_t<i_t, f_t>::run_fj_cycle_escape(solution_t<i_t, f_t>& sol
   fj.settings.update_weights         = true;
   fj.settings.feasibility_run        = true;
   fj.settings.n_of_minimums_for_exit = 5000;
-  fj.settings.time_limit             = std::min(3., timer.remaining_time());
-  fj.settings.termination            = fj_termination_flags_t::FJ_TERMINATION_TIME_LIMIT;
-  is_feasible                        = fj.solve(solution);
+  fj.settings.time_limit  = std::min(config.fj_cycle_escape_time_limit, timer.remaining_time());
+  fj.settings.termination = fj_termination_flags_t::FJ_TERMINATION_TIME_LIMIT;
+  is_feasible             = fj.solve(solution);
   // if FJ didn't change the solution, take last incumbent solution
   if (!is_feasible && cycle_queue.check_cycle(solution)) {
     CUOPT_LOG_DEBUG("cycle detected after FJ, taking last incumbent of fj");
@@ -542,9 +543,8 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
       // if the solution is almost on polytope
       else if (last_distances[0] < distance_to_check_for_feasible) {
         // run the linear projection with full precision to check if it actually is feasible
-        const f_t lp_verify_time_limit = 5.;
         relaxed_lp_settings_t lp_settings;
-        lp_settings.time_limit            = lp_verify_time_limit;
+        lp_settings.time_limit            = config.lp_verify_time_limit;
         lp_settings.tolerance             = solution.problem_ptr->tolerances.absolute_tolerance;
         lp_settings.return_first_feasible = true;
         lp_settings.save_state            = true;

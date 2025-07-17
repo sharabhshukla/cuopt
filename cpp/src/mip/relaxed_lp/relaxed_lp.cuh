@@ -29,6 +29,7 @@ namespace cuopt::linear_programming::detail {
 struct relaxed_lp_settings_t {
   double tolerance             = 1e-4;
   double time_limit            = 1.0;
+  int iteration_limit          = std::numeric_limits<int>::max();
   bool check_infeasibility     = true;
   bool return_first_feasible   = false;
   bool save_state              = true;

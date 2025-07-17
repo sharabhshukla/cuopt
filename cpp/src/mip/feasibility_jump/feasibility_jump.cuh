@@ -135,8 +135,8 @@ struct fj_move_t {
 // as we dont need them to be floating point per the FJ2 scoring scheme
 // sizeof(fj_staged_score_t) <= 8 is needed to allow for atomic loads
 struct fj_staged_score_t {
-  float base{-std::numeric_limits<float>::infinity()};
-  float bonus{-std::numeric_limits<float>::infinity()};
+  int32_t base{std::numeric_limits<int32_t>::lowest()};
+  int32_t bonus{std::numeric_limits<int32_t>::lowest()};
 
   HDI bool operator<(fj_staged_score_t other) const noexcept
   {
@@ -154,7 +154,7 @@ struct fj_staged_score_t {
 
   HDI static fj_staged_score_t invalid()
   {
-    return {-std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
+    return {std::numeric_limits<int32_t>::lowest(), std::numeric_limits<int32_t>::lowest()};
   }
   HDI static fj_staged_score_t zero() { return {0, 0}; }
 

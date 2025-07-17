@@ -108,6 +108,7 @@ mip_solution_t<i_t, f_t> run_mip(detail::problem_t<i_t, f_t>& problem,
   CUOPT_LOG_INFO("Objective offset %f scaling_factor %f",
                  problem.presolve_data.objective_offset,
                  problem.presolve_data.objective_scaling_factor);
+  CUOPT_LOG_INFO("Model fingerprint: 0x%x", problem.get_fingerprint());
   cuopt_assert(problem.original_problem_ptr->get_n_variables() == scaled_problem.n_variables,
                "Size mismatch");
   cuopt_assert(problem.original_problem_ptr->get_n_constraints() == scaled_problem.n_constraints,

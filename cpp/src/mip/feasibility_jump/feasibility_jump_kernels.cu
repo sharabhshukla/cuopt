@@ -79,7 +79,7 @@ DI thrust::pair<f_t, f_t> move_objective_score(
 }
 
 template <typename i_t, typename f_t>
-DI std::pair<f_t, f_t> feas_score_constraint(
+DI std::pair<int32_t, int32_t> feas_score_constraint(
   const typename fj_t<i_t, f_t>::climber_data_t::view_t& fj,
   i_t var_idx,
   f_t delta,
@@ -167,7 +167,7 @@ DI std::pair<f_t, f_t> feas_score_constraint(
     }
   }
 
-  return {base_feas, bonus_robust};
+  return {round(base_feas), round(bonus_robust)};
 }
 
 template <typename i_t, typename f_t>

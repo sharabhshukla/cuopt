@@ -258,6 +258,10 @@ static bool time_limit_reached(const std::chrono::high_resolution_clock::time_po
   auto elapsed =
     std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
 
+  if (elapsed >= (seconds * 1000.0)) {
+    CUOPT_LOG_ERROR("**** PDLP Time limit reached: %f *****", seconds);
+  }
+
   return elapsed >= (seconds * 1000.0);
 }
 

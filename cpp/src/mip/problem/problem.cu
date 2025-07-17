@@ -296,6 +296,8 @@ problem_t<i_t, f_t>::problem_t(const problem_t<i_t, f_t>& problem_, bool no_deep
 template <typename i_t, typename f_t>
 void problem_t<i_t, f_t>::compute_transpose_of_problem()
 {
+  csrsort_cusparse(coefficients, variables, offsets, n_constraints, n_variables, handle_ptr);
+
   RAFT_CUBLAS_TRY(raft::linalg::detail::cublassetpointermode(
     handle_ptr->get_cublas_handle(), CUBLAS_POINTER_MODE_DEVICE, handle_ptr->get_stream()));
   RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsesetpointermode(
@@ -1147,6 +1149,7 @@ problem_t<i_t, f_t> problem_t<i_t, f_t>::get_problem_after_fixing_vars(
   cuopt_assert(n_variables == assignment.size(), "Assignment size issue");
   problem_t<i_t, f_t> problem(*this, true);
   CUOPT_LOG_DEBUG("Fixing %d variables", variables_to_fix.size());
+  CUOPT_LOG_DEBUG("Model fingerprint before fixing: 0x%x", get_fingerprint());
   // we will gather from this and scatter back to the original problem
   variable_map.resize(assignment.size() - variables_to_fix.size(), handle_ptr->get_stream());
   // compute variable map to recover the assignment later
@@ -1195,6 +1198,7 @@ problem_t<i_t, f_t> problem_t<i_t, f_t>::get_problem_after_fixing_vars(
     time_taken,
     total_time_taken / total_calls,
     total_time_taken);
+  CUOPT_LOG_DEBUG("Model fingerprint after fixing: 0x%x", problem.get_fingerprint());
   return problem;
 }
 
@@ -1586,6 +1590,25 @@ template <typename i_t, typename f_t>
 f_t problem_t<i_t, f_t>::get_user_obj_from_solver_obj(f_t solver_obj)
 {
   return presolve_data.objective_scaling_factor * (solver_obj + presolve_data.objective_offset);
+}
+
+template <typename i_t, typename f_t>
+uint32_t problem_t<i_t, f_t>::get_fingerprint() const
+{
+  // CSR representation should be unique and sorted at this point
+
+  std::vector<uint32_t> hashes = {
+    detail::compute_hash(coefficients, handle_ptr->get_stream()),
+    detail::compute_hash(variables, handle_ptr->get_stream()),
+    detail::compute_hash(offsets, handle_ptr->get_stream()),
+    detail::compute_hash(objective_coefficients, handle_ptr->get_stream()),
+    detail::compute_hash(variable_lower_bounds, handle_ptr->get_stream()),
+    detail::compute_hash(variable_upper_bounds, handle_ptr->get_stream()),
+    detail::compute_hash(constraint_lower_bounds, handle_ptr->get_stream()),
+    detail::compute_hash(constraint_upper_bounds, handle_ptr->get_stream()),
+    detail::compute_hash(variable_types, handle_ptr->get_stream()),
+  };
+  return detail::compute_hash(hashes);
 }
 
 #if MIP_INSTANTIATE_FLOAT

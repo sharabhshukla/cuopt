@@ -183,38 +183,6 @@ static bool run_fj_check_objective(std::string test_instance, int iter_limit, do
   return !solution.get_feasible() ? false : solution.get_user_objective() <= obj_target;
 }
 
-static bool run_fj_check_determinism(std::string test_instance, int iter_limit)
-{
-  int seed = std::getenv("FJ_SEED") ? std::stoi(std::getenv("FJ_SEED")) : 42;
-
-  detail::fj_settings_t fj_settings;
-  fj_settings.time_limit             = 30.;
-  fj_settings.mode                   = detail::fj_mode_t::EXIT_NON_IMPROVING;
-  fj_settings.n_of_minimums_for_exit = 20000 * 1000;
-  fj_settings.update_weights         = true;
-  fj_settings.feasibility_run        = false;
-  fj_settings.termination         = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
-  fj_settings.iteration_limit     = iter_limit;
-  fj_settings.load_balancing_mode = detail::fj_load_balancing_mode_t::ALWAYS_OFF;
-  fj_settings.seed                = seed;
-  cuopt::seed_generator::set_seed(fj_settings.seed);
-
-  auto state     = run_fj(test_instance, fj_settings);
-  auto& solution = state.solution;
-
-  CUOPT_LOG_DEBUG("%s: Solution generated with FJ: is_feasible %d, objective %g (raw %g)",
-                  test_instance.c_str(),
-                  solution.get_feasible(),
-                  solution.get_user_objective(),
-                  solution.get_objective());
-
-  static auto first_val = solution.get_user_objective();
-
-  if (abs(solution.get_user_objective() - first_val) > 1) exit(0);
-
-  return true;
-}
-
 static bool run_fj_check_feasible(std::string test_instance)
 {
   detail::fj_settings_t fj_settings;
@@ -249,6 +217,38 @@ static bool run_fj_check_feasible(std::string test_instance)
   // TODO: check neither worsens nor defeasibizes the solution
   EXPECT_TRUE(new_solution.get_feasible() == previous_feasible) << "FJ feasibility lost";
   EXPECT_LE(new_solution.get_user_objective(), previous_obj) << "FJ objective worsened";
+
+  return true;
+}
+
+static bool run_fj_check_determinism(std::string test_instance, int iter_limit)
+{
+  int seed = std::getenv("FJ_SEED") ? std::stoi(std::getenv("FJ_SEED")) : 42;
+
+  detail::fj_settings_t fj_settings;
+  fj_settings.time_limit             = 30.;
+  fj_settings.mode                   = detail::fj_mode_t::EXIT_NON_IMPROVING;
+  fj_settings.n_of_minimums_for_exit = 20000 * 1000;
+  fj_settings.update_weights         = true;
+  fj_settings.feasibility_run        = false;
+  fj_settings.termination         = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
+  fj_settings.iteration_limit     = iter_limit;
+  fj_settings.load_balancing_mode = detail::fj_load_balancing_mode_t::ALWAYS_ON;
+  fj_settings.seed                = seed;
+  cuopt::seed_generator::set_seed(fj_settings.seed);
+
+  auto state     = run_fj(test_instance, fj_settings);
+  auto& solution = state.solution;
+
+  CUOPT_LOG_DEBUG("%s: Solution generated with FJ: is_feasible %d, objective %g (raw %g)",
+                  test_instance.c_str(),
+                  solution.get_feasible(),
+                  solution.get_user_objective(),
+                  solution.get_objective());
+
+  static auto first_val = solution.get_user_objective();
+
+  if (abs(solution.get_user_objective() - first_val) > 1) exit(0);
 
   return true;
 }
@@ -311,12 +311,14 @@ static bool run_fj_check_feasible(std::string test_instance)
 
 TEST(mip_solve, feasibility_jump_determinism)
 {
-  for (const auto& instance : {
-         //"thor50dday.mps",
-         //"gen-ip054.mps",
-         "50v-10.mps",
-         //"seymour1.mps",
-       }) {
+  for (const auto& instance : {//"thor50dday.mps",
+                               //"gen-ip054.mps",
+                               //"50v-10.mps",
+                               //"seymour1.mps",
+                               //"rmatr200-p5.mps"
+                               //"tr12-30.mps",
+                               //"sct2.mps",
+                               "uccase9.mps"}) {
     // for (int i = 0; i < 10; i++)
     while (true) {
       run_fj_check_determinism(instance, 1000);

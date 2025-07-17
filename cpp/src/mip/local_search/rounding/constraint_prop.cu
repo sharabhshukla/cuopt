@@ -920,7 +920,8 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
       sol, orig_sol.problem_ptr, var_probe_vals, &set_count, unset_integer_vars, probing_config);
     if (!(n_failed_repair_iterations >= max_n_failed_repair_iterations) && rounding_ii &&
         !timeout_happened) {
-      timer_t repair_timer{std::min(timer.remaining_time() / 5, timer.elapsed_time() / 3)};
+      // timer_t repair_timer{std::min(timer.remaining_time() / 5, timer.elapsed_time() / 3)};
+      timer_t repair_timer{timer.remaining_time() / 5};
       save_bounds(sol);
       // update bounds and run repair procedure
       bool bounds_repaired =
@@ -994,6 +995,7 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
     lp_settings.tolerance             = orig_sol.problem_ptr->tolerances.absolute_tolerance;
     lp_settings.save_state            = false;
     lp_settings.return_first_feasible = true;
+    lp_settings.iteration_limit       = 13000;
     run_lp_with_vars_fixed(*orig_sol.problem_ptr,
                            orig_sol,
                            orig_sol.problem_ptr->integer_indices,
@@ -1015,8 +1017,9 @@ bool constraint_prop_t<i_t, f_t>::apply_round(
   raft::common::nvtx::range fun_scope("constraint prop round");
 
   // this is second timer that can continue but without recovery mode
-  const f_t max_time_for_bounds_prop = 5.;
-  max_timer                          = timer_t{max_time_for_bounds_prop};
+  f_t max_time_for_bounds_prop = 5.;
+  max_time_for_bounds_prop     = timer.remaining_time() / 10.0;
+  max_timer                    = timer_t{max_time_for_bounds_prop};
   if (check_brute_force_rounding(sol)) { return true; }
   recovery_mode      = false;
   rounding_ii        = false;
