@@ -235,8 +235,7 @@ uint32_t test_multi_probe(std::string path, unsigned long seed = std::random_dev
 
 TEST(presolve, multi_probe_deterministic)
 {
-  rmm::cuda_stream spin_stream_1;
-  launch_spin_kernel_stream(spin_stream_1);
+  spin_stream_raii_t spin_stream_1;
 
   std::vector<std::string> test_instances = {
     "mip/50v-10-free-bound.mps",

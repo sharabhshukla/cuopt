@@ -84,11 +84,16 @@ struct fj_state_t {
   double incumbent_violation;
 };
 
+enum local_search_mode_t {
+  FP = 0,
+  STAGED_FP,
+  FJ_LINE_SEGMENT,
+  FJ_ON_ZERO,
+  FJ_ANNEALING,
+};
+
 // Helper function to setup MIP solver and run FJ with given settings and initial solution
-static uint32_t run_fp(std::string test_instance,
-                       const detail::fj_settings_t& fj_settings,
-                       fj_tweaks_t tweaks                   = {},
-                       std::vector<double> initial_solution = {})
+static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
 {
   const raft::handle_t handle_{};
   std::cout << "Running: " << test_instance << std::endl;
@@ -124,57 +129,69 @@ static uint32_t run_fp(std::string test_instance,
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
   problem.tolerances = settings.get_tolerances();
 
-  // only compute the LP optimal once
-  static rmm::device_uvector<double> lp_optimal_solution(0, problem.handle_ptr->get_stream());
+  rmm::device_uvector<double> lp_optimal_solution(0, problem.handle_ptr->get_stream());
 
-  if (lp_optimal_solution.size() == 0) {
-    lp_optimal_solution.resize(problem.n_variables, problem.handle_ptr->get_stream());
-    detail::lp_state_t<int, double>& lp_state = problem.lp_state;
-    // resize because some constructor might be called before the presolve
-    lp_state.resize(problem, problem.handle_ptr->get_stream());
-    detail::relaxed_lp_settings_t lp_settings{};
-    lp_settings.time_limit            = std::numeric_limits<double>::max();
-    lp_settings.tolerance             = 1e-6;
-    lp_settings.return_first_feasible = false;
-    lp_settings.save_state            = false;
-    // lp_settings.iteration_limit       = 5;
-    auto lp_result =
-      detail::get_relaxed_lp_solution(problem, lp_optimal_solution, lp_state, lp_settings);
-    EXPECT_EQ(lp_result.get_termination_status(), pdlp_termination_status_t::Optimal);
-    clamp_within_var_bounds(lp_optimal_solution, &problem, problem.handle_ptr);
-  }
+  lp_optimal_solution.resize(problem.n_variables, problem.handle_ptr->get_stream());
+  detail::lp_state_t<int, double>& lp_state = problem.lp_state;
+  // resize because some constructor might be called before the presolve
+  lp_state.resize(problem, problem.handle_ptr->get_stream());
+  detail::relaxed_lp_settings_t lp_settings{};
+  lp_settings.time_limit            = std::numeric_limits<double>::max();
+  lp_settings.tolerance             = 1e-6;
+  lp_settings.return_first_feasible = false;
+  lp_settings.save_state            = false;
+  // lp_settings.iteration_limit       = 5;
+  auto lp_result =
+    detail::get_relaxed_lp_solution(problem, lp_optimal_solution, lp_state, lp_settings);
+  EXPECT_EQ(lp_result.get_termination_status(), pdlp_termination_status_t::Optimal);
+  clamp_within_var_bounds(lp_optimal_solution, &problem, problem.handle_ptr);
 
   // return detail::compute_hash(lp_optimal_solution);
 
   detail::local_search_t<int, double> local_search(solver.context, lp_optimal_solution);
 
   detail::solution_t<int, double> solution(problem);
+  solution.assign_random_within_bounds();
+  solution.compute_feasibility();
 
   printf("Model fingerprint: 0x%x\n", problem.get_fingerprint());
   printf("LP optimal hash: 0x%x\n", detail::compute_hash(lp_optimal_solution));
+  printf("running mode: %d\n", mode);
 
   local_search.fp.config.bounds_prop_timer_min          = std::numeric_limits<double>::max();
   local_search.fp.config.lp_run_time_after_feasible_min = std::numeric_limits<double>::max();
   local_search.fp.config.linproj_time_limit             = std::numeric_limits<double>::max();
   local_search.fp.config.fj_cycle_escape_time_limit     = std::numeric_limits<double>::max();
   local_search.fp.config.lp_verify_time_limit           = std::numeric_limits<double>::max();
-  // local_search.fp.timer = timer_t{std::numeric_limits<double>::max()};
+  local_search.fp.timer                                 = timer_t{600};
 
-  bool is_feasible = false;
-  int iterations   = 0;
-  while (true) {
-    is_feasible = local_search.fp.run_single_fp_descent(solution);
-    printf("fp_loop it %d, is_feasible %d\n", iterations, is_feasible);
-    // if feasible return true
-    if (is_feasible) {
-      break;
+  if (mode == local_search_mode_t::STAGED_FP) {
+    timer_t timer(std::numeric_limits<double>::max());
+    bool early_exit = false;
+    local_search.run_staged_fp(solution, timer, early_exit);
+  } else if (mode == local_search_mode_t::FP) {
+    bool is_feasible = false;
+    int iterations   = 0;
+    while (true) {
+      is_feasible = local_search.fp.run_single_fp_descent(solution);
+      printf("fp_loop it %d, is_feasible %d\n", iterations, is_feasible);
+      // if feasible return true
+      if (is_feasible) {
+        break;
+      }
+      // if not feasible, it means it is a cycle
+      else {
+        is_feasible = local_search.fp.restart_fp(solution);
+        if (is_feasible) { break; }
+      }
+      iterations++;
     }
-    // if not feasible, it means it is a cycle
-    else {
-      is_feasible = local_search.fp.restart_fp(solution);
-      if (is_feasible) { break; }
-    }
-    iterations++;
+  } else if (mode == local_search_mode_t::FJ_LINE_SEGMENT) {
+    local_search.run_fj_line_segment(solution, timer);
+  } else if (mode == local_search_mode_t::FJ_ON_ZERO) {
+    local_search.run_fj_on_zero(solution, timer);
+  } else if (mode == local_search_mode_t::FJ_ANNEALING) {
+    local_search.run_fj_annealing(solution, timer);
   }
 
   std::vector<uint32_t> hashes;
@@ -185,23 +202,12 @@ static uint32_t run_fp(std::string test_instance,
   // return {host_copy(solution_vector, problem.handle_ptr->get_stream()), iterations};
 }
 
-static uint32_t run_fp_check_determinism(std::string test_instance, int iter_limit)
+static uint32_t run_fp_check_determinism(std::string test_instance, local_search_mode_t mode)
 {
   int seed = std::getenv("FJ_SEED") ? std::stoi(std::getenv("FJ_SEED")) : 42;
+  cuopt::seed_generator::set_seed(seed);
 
-  detail::fj_settings_t fj_settings;
-  fj_settings.time_limit             = 30.;
-  fj_settings.mode                   = detail::fj_mode_t::EXIT_NON_IMPROVING;
-  fj_settings.n_of_minimums_for_exit = 20000 * 1000;
-  fj_settings.update_weights         = true;
-  fj_settings.feasibility_run        = false;
-  fj_settings.termination         = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
-  fj_settings.iteration_limit     = iter_limit;
-  fj_settings.load_balancing_mode = detail::fj_load_balancing_mode_t::ALWAYS_ON;
-  fj_settings.seed                = seed;
-  cuopt::seed_generator::set_seed(fj_settings.seed);
-
-  return run_fp(test_instance, fj_settings);
+  return run_fp(test_instance, mode);
 
   //    auto state     = run_fp(test_instance, fj_settings);
   //    auto& solution = state.solution;
@@ -217,23 +223,25 @@ static uint32_t run_fp_check_determinism(std::string test_instance, int iter_lim
   //    if (abs(solution.get_user_objective() - first_val) > 1) exit(0);
 }
 
-TEST(local_search, feasibility_pump_determinism)
+class LocalSearchTestParams : public testing::TestWithParam<std::tuple<local_search_mode_t>> {};
+
+TEST_P(LocalSearchTestParams, local_search_operator_determinism)
 {
   cuopt::default_logger().set_pattern("[%n] [%-6l] %v");
 
-  rmm::cuda_stream spin_stream_1;
-  rmm::cuda_stream spin_stream_2;
-  launch_spin_kernel_stream(spin_stream_1);
-  launch_spin_kernel_stream(spin_stream_2);
+  spin_stream_raii_t spin_stream_1;
+  spin_stream_raii_t spin_stream_2;
+
+  auto mode = std::get<0>(GetParam());
 
   for (const auto& instance : {
          //"thor50dday.mps",
          //"gen-ip054.mps",
-         "50v-10.mps",
+         //"50v-10.mps",
          //"seymour1.mps",
-         //"rmatr200-p5.mps"
+         //"rmatr200-p5.mps",
          //"tr12-30.mps",
-         //"sct2.mps",
+         "sct2.mps",
          //"uccase9.mps"
        }) {
     // for (int i = 0; i < 10; i++)
@@ -245,7 +253,7 @@ TEST(local_search, feasibility_pump_determinism)
     std::cerr << "Tested with seed " << seed << "\n";
     uint32_t gold_hash = 0;
     for (int i = 0; i < 10; ++i) {
-      uint32_t hash = run_fp_check_determinism(instance, 1000);
+      uint32_t hash = run_fp_check_determinism(instance, mode);
       if (i == 0) {
         gold_hash = hash;
         printf("Gold hash: 0x%x\n", gold_hash);
@@ -256,5 +264,13 @@ TEST(local_search, feasibility_pump_determinism)
     }
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(LocalSearchTests,
+                         LocalSearchTestParams,
+                         testing::Values(std::make_tuple(local_search_mode_t::FP),
+                                         std::make_tuple(local_search_mode_t::STAGED_FP),
+                                         std::make_tuple(local_search_mode_t::FJ_LINE_SEGMENT),
+                                         std::make_tuple(local_search_mode_t::FJ_ON_ZERO),
+                                         std::make_tuple(local_search_mode_t::FJ_ANNEALING)));
 
 }  // namespace cuopt::linear_programming::test

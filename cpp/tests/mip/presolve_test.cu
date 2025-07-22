@@ -184,8 +184,7 @@ uint32_t test_probing_cache_determinism(std::string path,
 
 TEST(presolve, probing_cache_deterministic)
 {
-  rmm::cuda_stream spin_stream_1;
-  launch_spin_kernel_stream(spin_stream_1);
+  spin_stream_raii_t spin_stream_1;
 
   std::vector<std::string> test_instances = {"mip/50v-10-free-bound.mps",
                                              "mip/neos5-free-bound.mps",

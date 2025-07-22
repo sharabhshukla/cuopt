@@ -167,7 +167,8 @@ template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fj_line_segment(solution_t<i_t, f_t>& solution, timer_t timer)
 {
   rmm::device_uvector<f_t> starting_point(solution.assignment, solution.handle_ptr->get_stream());
-  bool feas = line_segment_search.search_line_segment(solution,
+  line_segment_search.settings.recombiner_mode = false;
+  bool feas                                    = line_segment_search.search_line_segment(solution,
                                                       starting_point,
                                                       lp_optimal_solution,
                                                       /*n_points_to_search=*/5,
