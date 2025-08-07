@@ -754,6 +754,10 @@ bool constraint_prop_t<i_t, f_t>::run_repair_procedure(problem_t<i_t, f_t>& prob
                                                        const raft::handle_t* handle_ptr)
 {
   CUOPT_LOG_DEBUG("Running repair procedure");
+
+  // CHANGE
+  timer = timer_t(std::numeric_limits<f_t>::infinity());
+
   // select the first probing value
   i_t select = 0;
   multi_probe.set_updated_bounds(problem, select, handle_ptr);
@@ -761,9 +765,10 @@ bool constraint_prop_t<i_t, f_t>::run_repair_procedure(problem_t<i_t, f_t>& prob
   repair_stats.repair_attempts++;
   f_t repair_start_time                = timer.remaining_time();
   i_t n_of_repairs_needed_for_feasible = 0;
+  i_t iter_limit                       = 100;
   do {
     n_of_repairs_needed_for_feasible++;
-    if (timer.check_time_limit()) {
+    if (timer.check_time_limit() || iter_limit-- <= 0) {
       CUOPT_LOG_DEBUG("Time limit is reached in repair loop!");
       f_t repair_end_time = timer.remaining_time();
       repair_stats.total_time_spent_on_repair += repair_start_time - repair_end_time;
@@ -831,6 +836,10 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
   i_t seed                 = cuopt::seed_generator::get_seed();
   CUOPT_LOG_DEBUG("seed 0x%x", seed);
   std::mt19937 rng(seed);
+
+  // CHANGE
+  timer = timer_t(std::numeric_limits<f_t>::infinity());
+
   lb_restore.resize(sol.problem_ptr->n_variables, sol.handle_ptr->get_stream());
   ub_restore.resize(sol.problem_ptr->n_variables, sol.handle_ptr->get_stream());
   assignment_restore.resize(sol.problem_ptr->n_variables, sol.handle_ptr->get_stream());
@@ -881,23 +890,23 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
   }
   // do the sort if the problem is not ii. crossing bounds might cause some issues on the sort order
   else {
-    CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x, sol 0x%x before sort\n",
-                    detail::compute_hash(unset_integer_vars),
-                    sol.get_hash());
+    // CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x, sol 0x%x before sort\n",
+    //                 detail::compute_hash(unset_integer_vars),
+    //                 sol.get_hash());
     // this is a sort to have initial shuffling, so that stable sort within will keep the order and
     // some randomness will be achieved
     sort_by_interval_and_frac(sol, make_span(unset_integer_vars), rng);
-    CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x sol 0x%x after sort\n",
-                    detail::compute_hash(unset_integer_vars),
-                    sol.get_hash());
+    // CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x sol 0x%x after sort\n",
+    //                 detail::compute_hash(unset_integer_vars),
+    //                 sol.get_hash());
   }
   set_host_bounds(sol);
   size_t set_count               = 0;
   bool timeout_happened          = false;
   i_t n_failed_repair_iterations = 0;
   while (set_count < unset_integer_vars.size()) {
-    CUOPT_LOG_DEBUG("n_set_vars %d vars to set %lu", set_count, unset_integer_vars.size());
-    CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x\n", detail::compute_hash(unset_integer_vars));
+    // CUOPT_LOG_DEBUG("n_set_vars %d vars to set %lu", set_count, unset_integer_vars.size());
+    // CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x\n", detail::compute_hash(unset_integer_vars));
     update_host_assignment(sol);
     if (max_timer.check_time_limit()) {
       CUOPT_LOG_DEBUG("Second time limit is reached returning nearest rounding!");
@@ -933,7 +942,7 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
                n_vars_to_set,
                sol.handle_ptr->get_stream());
 
-    printf("host_vars_to_set hash 0x%x\n", detail::compute_hash(host_vars_to_set));
+    // printf("host_vars_to_set hash 0x%x\n", detail::compute_hash(host_vars_to_set));
 
     auto var_probe_vals =
       generate_bulk_rounding_vector(sol, orig_sol, host_vars_to_set, probing_config);
@@ -1012,7 +1021,9 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
        multi_probe.infeas_constraints_count_1 == 0) &&
       !timeout_happened) {
     relaxed_lp_settings_t lp_settings;
-    lp_settings.time_limit            = lp_run_time_after_feasible;
+    lp_settings.time_limit = lp_run_time_after_feasible;
+    // CHANGE
+    lp_settings.time_limit            = 600;
     lp_settings.tolerance             = orig_sol.problem_ptr->tolerances.absolute_tolerance;
     lp_settings.save_state            = false;
     lp_settings.return_first_feasible = true;
@@ -1056,17 +1067,17 @@ bool constraint_prop_t<i_t, f_t>::apply_round(
   f_t bounds_prop_end_time = max_timer.remaining_time();
   repair_stats.total_time_spent_on_bounds_prop += bounds_prop_start_time - bounds_prop_end_time;
 
-  CUOPT_LOG_DEBUG(
-    "repair_success %lu repair_attempts %lu intermediate_repair_success %lu total_repair_loops %lu "
-    "total_time_spent_on_repair %f total_time_spent_bounds_prop_after_repair %f "
-    "total_time_spent_on_bounds_prop %f",
-    repair_stats.repair_success,
-    repair_stats.repair_attempts,
-    repair_stats.intermediate_repair_success,
-    repair_stats.total_repair_loops,
-    repair_stats.total_time_spent_on_repair,
-    repair_stats.total_time_spent_bounds_prop_after_repair,
-    repair_stats.total_time_spent_on_bounds_prop);
+  // CUOPT_LOG_DEBUG(
+  //   "repair_success %lu repair_attempts %lu intermediate_repair_success %lu total_repair_loops
+  //   %lu " "total_time_spent_on_repair %f total_time_spent_bounds_prop_after_repair %f "
+  //   "total_time_spent_on_bounds_prop %f",
+  //   repair_stats.repair_success,
+  //   repair_stats.repair_attempts,
+  //   repair_stats.intermediate_repair_success,
+  //   repair_stats.total_repair_loops,
+  //   repair_stats.total_time_spent_on_repair,
+  //   repair_stats.total_time_spent_bounds_prop_after_repair,
+  //   repair_stats.total_time_spent_on_bounds_prop);
   if (!sol_found) {
     sol.compute_feasibility();
     return false;

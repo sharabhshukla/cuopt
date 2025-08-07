@@ -56,6 +56,7 @@ local_search_t<i_t, f_t>::local_search_t(mip_solver_context_t<i_t, f_t>& context
 template <typename i_t, typename f_t>
 void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solution, timer_t timer)
 {
+  CUOPT_LOG_DEBUG("Running FJ fast sol");
   thrust::fill(solution.handle_ptr->get_thrust_policy(),
                solution.assignment.begin(),
                solution.assignment.end(),
@@ -67,6 +68,8 @@ void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solu
   fj.settings.feasibility_run        = true;
   fj.settings.termination            = fj_termination_flags_t::FJ_TERMINATION_TIME_LIMIT;
   fj.settings.time_limit             = std::min(30., timer.remaining_time());
+  // CHANGE
+  fj.settings.time_limit = std::numeric_limits<f_t>::infinity();
   while (!timer.check_time_limit()) {
     timer_t constr_prop_timer = timer_t(std::min(timer.remaining_time(), 2.));
     // do constraint prop on lp optimal solution
@@ -74,6 +77,9 @@ void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solu
     if (solution.compute_feasibility()) { return; }
     if (timer.check_time_limit()) { return; };
     fj.settings.time_limit = std::min(3., timer.remaining_time());
+    // CHANGE
+    fj.settings.time_limit      = std::numeric_limits<f_t>::infinity();
+    fj.settings.iteration_limit = 5000;
     // run fj on the solution
     fj.solve(solution);
     // TODO check if FJ returns the same solution
@@ -91,19 +97,20 @@ bool local_search_t<i_t, f_t>::run_local_search(solution_t<i_t, f_t>& solution,
 {
   raft::common::nvtx::range fun_scope("local search");
   fj_settings_t fj_settings;
-  if (timer.check_time_limit()) return false;
-  // adjust these time limits
-  if (!solution.get_feasible()) {
-    if (at_least_one_parent_feasible) {
-      fj_settings.time_limit = 1.;
-      timer                  = timer_t(1.);
-    } else {
-      fj_settings.time_limit = 0.5;
-      timer                  = timer_t(0.5);
-    }
-  } else {
-    fj_settings.time_limit = timer.remaining_time();
-  }
+  // if (timer.check_time_limit()) return false;
+  // // adjust these time limits
+  // if (!solution.get_feasible()) {
+  //   if (at_least_one_parent_feasible) {
+  //     fj_settings.time_limit = 1.;
+  //     timer                  = timer_t(1.);
+  //   } else {
+  //     fj_settings.time_limit = 0.5;
+  //     timer                  = timer_t(0.5);
+  //   }
+  // } else {
+  //   fj_settings.time_limit = timer.remaining_time();
+  // }
+  fj_settings.iteration_limit = 2500;
   fj_settings.update_weights  = false;
   fj_settings.feasibility_run = false;
   fj.set_fj_settings(fj_settings);
@@ -123,6 +130,7 @@ bool local_search_t<i_t, f_t>::run_fj_until_timer(solution_t<i_t, f_t>& solution
                                                   const weight_t<i_t, f_t>& weights,
                                                   timer_t timer)
 {
+  CUOPT_LOG_DEBUG("Running FJ until timer");
   bool is_feasible;
   fj.settings.n_of_minimums_for_exit = 1e6;
   fj.settings.mode                   = fj_mode_t::EXIT_NON_IMPROVING;
@@ -143,6 +151,8 @@ bool local_search_t<i_t, f_t>::run_fj_annealing(solution_t<i_t, f_t>& solution,
                                                 timer_t timer,
                                                 f_t baseline_objective)
 {
+  CUOPT_LOG_DEBUG("Running FJ annealing");
+
   auto prev_settings = fj.settings;
 
   // run in FEASIBLE_FIRST to priorize feasibility-improving moves
@@ -182,6 +192,7 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
                                                       bool perturb,
                                                       timer_t timer)
 {
+  CUOPT_LOG_DEBUG("Running FJ on LP optimal");
   raft::copy(solution.assignment.data(),
              lp_optimal_solution.data(),
              solution.assignment.size(),
@@ -197,12 +208,17 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
   bool is_feasible =
     constraint_prop.apply_round(solution, lp_run_time_after_feasible, bounds_prop_timer);
   if (!is_feasible) {
-    const f_t lp_run_time = 2.;
+    f_t lp_run_time = 2.;
+    // CHANGE
+    lp_run_time = 600;
     relaxed_lp_settings_t lp_settings;
-    lp_settings.time_limit = lp_run_time;
-    lp_settings.tolerance  = solution.problem_ptr->tolerances.absolute_tolerance;
+    lp_settings.time_limit      = lp_run_time;
+    lp_settings.iteration_limit = 13000;  // CHANGE
+    lp_settings.tolerance       = solution.problem_ptr->tolerances.absolute_tolerance;
+    CUOPT_LOG_DEBUG("FJ ON LP OPT: lp_time_limit %f", lp_settings.time_limit);
     run_lp_with_vars_fixed(
       *solution.problem_ptr, solution, solution.problem_ptr->integer_indices, lp_settings);
+    CUOPT_LOG_DEBUG("FJ ON LP OPT: exited", lp_settings.time_limit);
   } else {
     return is_feasible;
   }
@@ -213,6 +229,9 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
   fj.settings.feasibility_run        = true;
   fj.settings.termination            = fj_termination_flags_t::FJ_TERMINATION_TIME_LIMIT;
   fj.settings.time_limit             = std::min(30., timer.remaining_time());
+  // CHANGE
+  fj.settings.time_limit      = 600;    // CHANGE
+  fj.settings.iteration_limit = 50000;  // CHANGE
   fj.solve(solution);
   return solution.get_feasible();
 }
@@ -220,6 +239,7 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fj_on_zero(solution_t<i_t, f_t>& solution, timer_t timer)
 {
+  CUOPT_LOG_DEBUG("Running FJ on zero");
   thrust::fill(solution.handle_ptr->get_thrust_policy(),
                solution.assignment.begin(),
                solution.assignment.end(),

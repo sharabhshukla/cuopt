@@ -30,7 +30,7 @@ struct diversity_config_t {
   static constexpr double initial_infeasibility_weight       = 1000.;
   static constexpr double default_time_limit                 = 10.;
   static constexpr int initial_island_size                   = 3;
-  static constexpr int maximum_island_size                   = 8;
+  static constexpr int maximum_island_size                   = 4;  // CHANGE
   static constexpr bool use_avg_diversity                    = false;
   static constexpr double generation_time_limit_ratio        = 0.6;
   static constexpr double max_island_gen_time                = 600;

@@ -1490,6 +1490,8 @@ void pdlp_restart_strategy_t<i_t, f_t>::solve_bound_constrained_trust_region(
 
     // Perform the reduction
     // Convert raw pointer to thrust::device_ptr to write directly device side through reduce
+    // CHANGE
+    // use a deterministic reduce instead of thrust::reduce
     thrust::device_ptr<f_t> thrust_hrsp(high_radius_squared_.data());
     *thrust_hrsp = thrust::reduce(handle_ptr_->get_thrust_policy(),
                                   transformed_begin,

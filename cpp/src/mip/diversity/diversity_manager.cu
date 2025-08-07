@@ -74,6 +74,13 @@ diversity_manager_t<i_t, f_t>::diversity_manager_t(mip_solver_context_t<i_t, f_t
     mab_arm_stats_(recombiner_enum_t::SIZE),
     mab_rng_(cuopt::seed_generator::get_seed())
 {
+  fp_recombiner_config_t::max_n_of_vars_from_other =
+    fp_recombiner_config_t::initial_n_of_vars_from_other;
+  ls_recombiner_config_t::max_n_of_vars_from_other =
+    ls_recombiner_config_t::initial_n_of_vars_from_other;
+  bp_recombiner_config_t::max_n_of_vars_from_other =
+    bp_recombiner_config_t::initial_n_of_vars_from_other;
+
   // Read configuration ID from environment variable
   int max_config = -1;
   // Read max configuration value from environment variable
@@ -227,6 +234,7 @@ void diversity_manager_t<i_t, f_t>::generate_initial_solutions()
     diversity_config_t::generation_time_limit_ratio * timer.get_time_limit();
   const f_t max_island_gen_time = diversity_config_t::max_island_gen_time;
   f_t total_island_gen_time     = std::min(generation_time_limit, max_island_gen_time);
+  total_island_gen_time         = std::numeric_limits<f_t>::infinity();
   timer_t gen_timer(total_island_gen_time);
   f_t sol_time_limit = gen_timer.remaining_time();
   for (i_t i = 0; i < maximum_island_size && !skip_initial_island_generation; ++i) {
@@ -246,8 +254,7 @@ void diversity_manager_t<i_t, f_t>::generate_initial_solutions()
     }
     generate_add_solution(initial_sol_vector, sol_time_limit, !is_first_sol);
     if (is_first_sol && initial_sol_vector.back().get_feasible()) {
-      CUOPT_LOG_DEBUG("First FP/FJ solution found at %f with objective %f",
-                      timer.elapsed_time(),
+      CUOPT_LOG_DEBUG("First FP/FJ solution found with objective %f",
                       initial_sol_vector.back().get_user_objective());
     }
     population.run_solution_callbacks(initial_sol_vector.back());
@@ -308,8 +315,11 @@ void diversity_manager_t<i_t, f_t>::generate_quick_feasible_solution()
 {
   solution_t<i_t, f_t> solution(*problem_ptr);
   // min 1 second, max 10 seconds
-  const f_t generate_fast_solution_time =
+  f_t generate_fast_solution_time =
     std::min(diversity_config_t::max_fast_sol_time, std::max(1., timer.remaining_time() / 20.));
+
+  // CHANGE
+  generate_fast_solution_time = 10;
   timer_t sol_timer(generate_fast_solution_time);
   // do very short LP run to get somewhere close to the optimal point
   ls.generate_fast_solution(solution, sol_timer);
@@ -324,9 +334,7 @@ void diversity_manager_t<i_t, f_t>::generate_quick_feasible_solution()
     auto& feas_sol = initial_sol_vector.back().get_feasible()
                        ? initial_sol_vector.back()
                        : initial_sol_vector[initial_sol_vector.size() - 2];
-    CUOPT_LOG_INFO("Generated fast solution in %f seconds with objective %f",
-                   timer.elapsed_time(),
-                   feas_sol.get_user_objective());
+    CUOPT_LOG_INFO("Generated fast solution with objective %f", feas_sol.get_user_objective());
   }
   problem_ptr->handle_ptr->sync_stream();
 }
@@ -358,6 +366,8 @@ void diversity_manager_t<i_t, f_t>::run_fj_alone(solution_t<i_t, f_t>& solution)
   ls.fj.settings.termination     = fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
   ls.fj.settings.iteration_limit = 10000;
   ls.fj.settings.time_limit      = timer.remaining_time();
+  // CHANGE
+  ls.fj.settings.time_limit = std::numeric_limits<f_t>::infinity();
   // ls.fj.solve(solution);
   CUOPT_LOG_INFO("FJ alone finished!");
 }
@@ -366,10 +376,13 @@ void diversity_manager_t<i_t, f_t>::run_fj_alone(solution_t<i_t, f_t>& solution)
 template <typename i_t, typename f_t>
 solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
 {
-  population.timer        = timer;
-  const f_t time_limit    = timer.remaining_time();
-  const f_t lp_time_limit = std::min(diversity_config_t::max_time_on_lp,
-                                     time_limit * diversity_config_t::time_ratio_on_init_lp);
+  population.timer     = timer;
+  const f_t time_limit = timer.remaining_time();
+  f_t lp_time_limit    = std::min(diversity_config_t::max_time_on_lp,
+                               time_limit * diversity_config_t::time_ratio_on_init_lp);
+
+  // CHANGE
+  lp_time_limit = 600;
   // to automatically compute the solving time on scope exit
   auto timer_raii_guard =
     cuopt::scope_guard([&]() { stats.total_solve_time = timer.elapsed_time(); });
@@ -412,10 +425,12 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   lp_state.resize(*problem_ptr, problem_ptr->handle_ptr->get_stream());
   relaxed_lp_settings_t lp_settings;
   lp_settings.time_limit            = lp_time_limit;
+  lp_settings.iteration_limit       = std::numeric_limits<i_t>::max();
   lp_settings.tolerance             = context.settings.tolerances.absolute_tolerance;
   lp_settings.return_first_feasible = false;
   lp_settings.save_state            = true;
-  if (!settings.fj_only_run) {
+  if (!settings.fj_only_run || true) {  // CHANGE
+    CUOPT_LOG_DEBUG("Running root relaxation LP");
     auto lp_result =
       get_relaxed_lp_solution(*problem_ptr, lp_optimal_solution, lp_state, lp_settings);
     ls.lp_optimal_exists = true;
@@ -427,9 +442,10 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     } else if (lp_result.get_termination_status() == pdlp_termination_status_t::DualInfeasible) {
       CUOPT_LOG_ERROR("PDLP detected dual infeasibility, continuing anyway!");
       ls.lp_optimal_exists = false;
-    } else if (lp_result.get_termination_status() == pdlp_termination_status_t::TimeLimit) {
+    } else if (lp_result.get_termination_status() == pdlp_termination_status_t::TimeLimit ||
+               lp_result.get_termination_status() == pdlp_termination_status_t::IterationLimit) {
       CUOPT_LOG_DEBUG(
-        "Initial LP run exceeded time limit, continuing solver with partial LP result!");
+        "Initial LP run exceeded time/iteration limit, continuing solver with partial LP result!");
       // note to developer, in debug mode the LP run might be too slow and it might cause PDLP not
       // to bring variables within the bounds
     }
@@ -705,6 +721,7 @@ template <typename i_t, typename f_t>
 std::pair<solution_t<i_t, f_t>, bool> diversity_manager_t<i_t, f_t>::recombine(
   solution_t<i_t, f_t>& a, solution_t<i_t, f_t>& b)
 {
+  CUOPT_LOG_DEBUG("Recombining %d and %d", a.get_hash(), b.get_hash());
   i_t recombiner;
   if (run_only_ls_recombiner) {
     recombiner = recombiner_enum_t::LINE_SEGMENT;

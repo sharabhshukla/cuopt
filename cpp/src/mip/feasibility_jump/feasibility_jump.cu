@@ -1157,6 +1157,8 @@ i_t fj_t<i_t, f_t>::solve(solution_t<i_t, f_t>& solution)
     cuopt_assert(false, "Feasibility jump caused feasible solution to become infeasible");
   }
 
+  cuopt_func_call(solution.test_variable_bounds());
+
   return is_new_feasible;
 }
 

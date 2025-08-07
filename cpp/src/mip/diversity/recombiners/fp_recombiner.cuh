@@ -57,6 +57,7 @@ class fp_recombiner_t : public recombiner_t<i_t, f_t> {
     CUOPT_LOG_DEBUG("FP rec: Number of different variables %d MAX_VARS %d",
                     n_different_vars,
                     fp_recombiner_config_t::max_n_of_vars_from_other);
+    CUOPT_LOG_DEBUG("FP rec: offspring hash 0x%x", offspring.get_hash());
     i_t n_vars_from_other = n_different_vars;
     if (n_vars_from_other > (i_t)fp_recombiner_config_t::max_n_of_vars_from_other) {
       n_vars_from_other = fp_recombiner_config_t::max_n_of_vars_from_other;
@@ -73,10 +74,20 @@ class fp_recombiner_t : public recombiner_t<i_t, f_t> {
     }
     CUOPT_LOG_DEBUG(
       "n_vars_from_guiding %d n_vars_from_other %d", n_vars_from_guiding, n_vars_from_other);
+    CUOPT_LOG_DEBUG("FP rec: offspring hash 0x%x, vars to fix 0x%x",
+                    offspring.get_hash(),
+                    detail::compute_hash(vars_to_fix));
     this->compute_vars_to_fix(offspring, vars_to_fix, n_vars_from_other, n_vars_from_guiding);
+    CUOPT_LOG_DEBUG("FP rec post computevarstofix: offspring hash 0x%x, vars to fix 0x%x",
+                    offspring.get_hash(),
+                    detail::compute_hash(vars_to_fix));
     auto [fixed_problem, fixed_assignment, variable_map] = offspring.fix_variables(vars_to_fix);
+    CUOPT_LOG_DEBUG("FP rec: fixed_problem hash 0x%x assigned hash 0x%x",
+                    fixed_problem.get_fingerprint(),
+                    detail::compute_hash(fixed_assignment));
     fixed_problem.check_problem_representation(true);
     if (!guiding_solution.get_feasible() && !other_solution.get_feasible()) {
+      CUOPT_LOG_DEBUG("FP rec: running LP with infeasibility detection");
       relaxed_lp_settings_t lp_settings;
       lp_settings.time_limit = fp_recombiner_config_t::infeasibility_detection_time_limit;
       lp_settings.tolerance  = fixed_problem.tolerances.absolute_tolerance;

@@ -99,6 +99,14 @@ class recombiner_t {
                                                          cuopt::make_span(remaining_indices),
                                                          n_remaining.data());
     i_t remaining_variables = this->n_remaining.value(a.handle_ptr->get_stream());
+    // Sort the indices to resolve nondeterministic order due to atomicAdd
+    thrust::sort(a.handle_ptr->get_thrust_policy(),
+                 this->remaining_indices.data(),
+                 this->remaining_indices.data() + remaining_variables);
+
+    CUOPT_LOG_DEBUG("remaining indices hash 0x%x, size %d",
+                    detail::compute_hash(this->remaining_indices),
+                    remaining_variables);
 
     auto vec_remaining_indices =
       host_copy(this->remaining_indices.data(), remaining_variables, a.handle_ptr->get_stream());
@@ -177,6 +185,9 @@ class recombiner_t {
                            i_t n_vars_from_guiding)
   {
     vars_to_fix.resize(n_vars_from_guiding, offspring.handle_ptr->get_stream());
+    CUOPT_LOG_DEBUG("remaining indices hash 0x%x", detail::compute_hash(this->remaining_indices));
+    CUOPT_LOG_DEBUG("integer_indices hash 0x%x",
+                    detail::compute_hash(offspring.problem_ptr->integer_indices));
     // set difference needs two sorted arrays
     thrust::sort(offspring.handle_ptr->get_thrust_policy(),
                  this->remaining_indices.data(),

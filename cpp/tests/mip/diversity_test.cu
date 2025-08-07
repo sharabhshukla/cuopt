@@ -112,43 +112,58 @@ static uint32_t test_initial_population_determinism(std::string path,
   // run with FJ only on the initial population, no recombining
   diversity_manager.run_solver();
 
+  // recombine a few solutions, observe the output
+  auto pop_vector = diversity_manager.get_population_pointer()->population_to_vector();
+  // necessary because .resize() complains about constructors (since it may be used to grow the
+  // vector as well)
+  while (pop_vector.size() > 9) {
+    pop_vector.pop_back();
+  }
+
   std::vector<uint32_t> hashes;
+
+  static std::map<std::pair<int, int>, uint32_t> hash_map;
+
+  // diversity_manager.run_only_ls_recombiner = true;
+  diversity_manager.timer = timer_t(60000);
+  // diversity_manager.recombine_and_ls_with_all(pop_vector);
+  for (int i = 1; i < (int)pop_vector.size(); i++) {
+    for (int j = i + 1; j < (int)pop_vector.size(); j++) {
+      printf("recombining %d and %d\n", i, j);
+      auto [offspring, success] = diversity_manager.recombine(pop_vector[i], pop_vector[j]);
+      auto offspring_hash       = offspring.get_hash();
+      printf("for %d,%d: offspring hash: 0x%x, parent 1 hash: 0x%x, parent 2 hash: 0x%x\n",
+             i,
+             j,
+             offspring_hash,
+             pop_vector[i].get_hash(),
+             pop_vector[j].get_hash());
+      if (hash_map.find(std::make_pair(i, j)) == hash_map.end()) {
+        hash_map[std::make_pair(i, j)] = offspring_hash;
+      } else {
+        if (hash_map[std::make_pair(i, j)] != offspring_hash) {
+          printf("hash mismatch for %d,%d: %d != %d\n",
+                 i,
+                 j,
+                 hash_map[std::make_pair(i, j)],
+                 offspring_hash);
+          exit(1);
+        }
+      }
+      hashes.push_back(offspring_hash);
+    }
+  }
+  return detail::compute_hash(hashes);
 
   auto pop = diversity_manager.get_population_pointer();
   for (const auto& sol : pop->population_to_vector()) {
     hashes.push_back(sol.get_hash());
   }
 
-  return detail::compute_hash(hashes);
+  uint32_t final_hash = detail::compute_hash(hashes);
+  printf("final hash: 0x%x, pop size %d\n", final_hash, (int)pop->population_to_vector().size());
+  return final_hash;
 }
-
-// TEST(presolve, probing_cache_deterministic)
-// {
-//   spin_stream_raii_t spin_stream_1;
-
-//   std::vector<std::string> test_instances = {"mip/50v-10-free-bound.mps",
-//                                              "mip/neos5-free-bound.mps",
-//                                              "mip/neos5.mps",
-//                                              "mip/50v-10.mps",
-//                                              "mip/gen-ip054.mps",
-//                                              "mip/rmatr200-p5.mps"};
-//   for (const auto& test_instance : test_instances) {
-//     std::cout << "Running: " << test_instance << std::endl;
-//     unsigned long seed = std::random_device{}();
-//     std::cerr << "Tested with seed " << seed << "\n";
-//     auto path          = make_path_absolute(test_instance);
-//     uint32_t gold_hash = 0;
-//     for (int i = 0; i < 10; ++i) {
-//       auto hash = test_probing_cache_determinism(path, seed);
-//       if (i == 0) {
-//         gold_hash = hash;
-//         std::cout << "Gold hash: " << gold_hash << std::endl;
-//       } else {
-//         EXPECT_EQ(hash, gold_hash);
-//       }
-//     }
-//   }
-// }
 
 class DiversityTestParams : public testing::TestWithParam<std::tuple<std::string>> {};
 
@@ -164,11 +179,14 @@ TEST_P(DiversityTestParams, initial_population_deterministic)
   int seed =
     std::getenv("CUOPT_SEED") ? std::stoi(std::getenv("CUOPT_SEED")) : std::random_device{}();
   std::cerr << "Tested with seed " << seed << "\n";
-  auto path          = make_path_absolute(test_instance);
+  auto path     = make_path_absolute(test_instance);
+  test_instance = std::getenv("CUOPT_INSTANCE") ? std::getenv("CUOPT_INSTANCE") : test_instance;
+  path          = "/home/scratch.yboucher_gpu_1/collection/" + test_instance;
   uint32_t gold_hash = 0;
   for (int i = 0; i < 10; ++i) {
     cuopt::seed_generator::set_seed(seed);
     std::cout << "Running " << test_instance << " " << i << std::endl;
+    std::cout << "-------------------------------------------------------------\n";
     auto hash = test_initial_population_determinism(path, seed);
     if (i == 0) {
       gold_hash = hash;
@@ -181,13 +199,15 @@ TEST_P(DiversityTestParams, initial_population_deterministic)
 
 INSTANTIATE_TEST_SUITE_P(DiversityTest,
                          DiversityTestParams,
-                         testing::Values(std::make_tuple("mip/sct2.mps"),
-                                         // std::make_tuple("mip/thor50dday.mps"),
-                                         // std::make_tuple("mip/uccase9.mps"),
-                                         std::make_tuple("mip/neos5-free-bound.mps"),
-                                         std::make_tuple("mip/neos5.mps"),
-                                         std::make_tuple("mip/50v-10.mps"),
-                                         std::make_tuple("mip/rmatr200-p5.mps"),
-                                         std::make_tuple("mip/gen-ip054.mps")));
+                         testing::Values(std::make_tuple("fastxgemm-n2r6s0t2.mps")
+                                         // std::make_tuple("mip/sct2.mps")
+                                         // std::make_tuple("mip/thor50dday.mps")
+                                         // std::make_tuple("mip/uccase9.mps")
+                                         // std::make_tuple("mip/neos5-free-bound.mps")
+                                         // std::make_tuple("mip/neos5.mps")
+                                         // std::make_tuple("mip/50v-10.mps")
+                                         //  std::make_tuple("mip/rmatr200-p5.mps")
+                                         ));
+// std::make_tuple("mip/gen-ip054.mps")));
 
 }  // namespace cuopt::linear_programming::test

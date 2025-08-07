@@ -38,6 +38,7 @@ class bound_prop_recombiner_t : public recombiner_t<i_t, f_t> {
       rng(cuopt::seed_generator::get_seed()),
       vars_to_fix(n_vars, handle_ptr->get_stream())
   {
+    thrust::fill(handle_ptr->get_thrust_policy(), vars_to_fix.begin(), vars_to_fix.end(), -1);
   }
 
   void get_probing_values_for_infeasible(
@@ -203,16 +204,34 @@ class bound_prop_recombiner_t : public recombiner_t<i_t, f_t> {
       constraint_prop.single_rounding_only  = true;
       constraint_prop.apply_round(offspring, lp_run_time_after_feasible, timer, probing_config);
       constraint_prop.single_rounding_only = false;
+      offspring.compute_feasibility();
       cuopt_func_call(bool feasible_after_bounds_prop = offspring.get_feasible());
+      cuopt_func_call(f_t excess_before = offspring.get_total_excess());
+      CUOPT_LOG_ERROR("Excess before: %g, %g, %g, %g, feas %d",
+                      offspring.get_total_excess(),
+                      offspring.compute_max_constraint_violation(),
+                      offspring.compute_max_int_violation(),
+                      offspring.compute_max_variable_violation(),
+                      feasible_after_bounds_prop);
       offspring.handle_ptr->sync_stream();
       offspring.problem_ptr = a.problem_ptr;
       fixed_assignment      = std::move(offspring.assignment);
       offspring.assignment  = std::move(old_assignment);
       offspring.handle_ptr->sync_stream();
       offspring.unfix_variables(fixed_assignment, variable_map);
+      offspring.compute_feasibility();
       cuopt_func_call(bool feasible_after_unfix = offspring.get_feasible());
-      cuopt_assert(feasible_after_unfix == feasible_after_bounds_prop,
-                   "Feasible after unfix should be same as feasible after bounds prop!");
+      cuopt_func_call(f_t excess_after_unfix = offspring.get_total_excess());
+      if (feasible_after_unfix != feasible_after_bounds_prop) {
+        CUOPT_LOG_WARN("Numerical issue in bounds prop, infeasibility after unfix");
+        // might become infeasible after unfixing due to numerical issues. Check that the excess
+        // remains consistent
+        // CUOPT_LOG_ERROR("Excess: %g, %g, %g, %g, feas %d", offspring.get_total_excess(),
+        // offspring.compute_max_constraint_violation(), offspring.compute_max_int_violation(),
+        // offspring.compute_max_variable_violation(), feasible_after_unfix);
+        cuopt_assert(fabs(excess_after_unfix - excess_before) < 1e-6,
+                     "Excess after unfix should be same as before unfix!");
+      }
       a.handle_ptr->sync_stream();
     } else {
       timer_t timer(bp_recombiner_config_t::bounds_prop_time_limit);

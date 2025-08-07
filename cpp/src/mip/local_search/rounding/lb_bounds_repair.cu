@@ -410,7 +410,7 @@ bool lb_bounds_repair_t<i_t, f_t>::repair_problem(
   timer_t timer_,
   const raft::handle_t* handle_ptr_)
 {
-  CUOPT_LOG_DEBUG("Running bounds repair");
+  CUOPT_LOG_DEBUG("LB Running bounds repair");
   handle_ptr = handle_ptr_;
   timer      = timer_;
   resize(*problem);

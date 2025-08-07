@@ -67,6 +67,10 @@ feasibility_pump_t<i_t, f_t>::feasibility_pump_t(
     rng(cuopt::seed_generator::get_seed()),
     timer(20.)
 {
+  thrust::fill(context.problem_ptr->handle_ptr->get_thrust_policy(),
+               last_projection.begin(),
+               last_projection.end(),
+               (f_t)0);
 }
 
 template <typename Iter_T>
@@ -146,7 +150,7 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
                                                                 f_t ratio_of_set_integers,
                                                                 bool longer_lp_run)
 {
-  CUOPT_LOG_DEBUG("linear projection of fp");
+  CUOPT_LOG_DEBUG("FP: linear projection of fp, sol hash 0x%x", solution.get_hash());
   auto h_assignment            = solution.get_host_assignment();
   auto h_variable_upper_bounds = cuopt::host_copy(solution.problem_ptr->variable_upper_bounds,
                                                   solution.handle_ptr->get_stream());
@@ -162,6 +166,13 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   auto h_integer_indices =
     cuopt::host_copy(solution.problem_ptr->integer_indices, solution.handle_ptr->get_stream());
   f_t obj_offset = 0;
+  CUOPT_LOG_DEBUG("FP: h_integer_indices hash 0x%x", detail::compute_hash(h_integer_indices));
+  CUOPT_LOG_DEBUG("FP: h_assignment hash 0x%x", detail::compute_hash(h_assignment));
+  CUOPT_LOG_DEBUG("FP: h_variable_upper_bounds hash 0x%x",
+                  detail::compute_hash(h_variable_upper_bounds));
+  CUOPT_LOG_DEBUG("FP: h_variable_lower_bounds hash 0x%x",
+                  detail::compute_hash(h_variable_lower_bounds));
+  CUOPT_LOG_DEBUG("FP: h_last_projection hash 0x%x", detail::compute_hash(h_last_projection));
   // for each integer add the variable and the distance constraints
   for (auto i : h_integer_indices) {
     if (solution.problem_ptr->integer_equal(h_assignment[i], h_variable_upper_bounds[i])) {
@@ -198,6 +209,7 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
         constr_indices, constr_coeffs_2, h_assignment[i], (f_t)default_cont_upper);
     }
   }
+  CUOPT_LOG_DEBUG("FP: before adjust h_assignment hash 0x%x", detail::compute_hash(h_assignment));
   adjust_objective_with_original(solution, obj_coefficients, longer_lp_run);
   // commit all the changes that were done by the host
   if (h_variables.size() > 0) { temp_p.insert_variables(h_variables); }
@@ -231,12 +243,17 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   lp_settings.time_limit          = time_limit;
   lp_settings.tolerance           = lp_tolerance;
   lp_settings.check_infeasibility = false;
-  auto solver_response            = get_relaxed_lp_solution(temp_p, solution, lp_settings);
+
+  // CHANGE
+  CUOPT_LOG_DEBUG("FP: lp_time_limit %f", lp_settings.time_limit);
+  CUOPT_LOG_DEBUG("FP: linproj sol hash 0x%x", solution.get_hash());
+  lp_settings.time_limit = 600;
+  auto solver_response   = get_relaxed_lp_solution(temp_p, solution, lp_settings);
   cuopt_func_call(solution.test_variable_bounds(false));
   last_lp_time = old_remaining - timer.remaining_time();
   lp_time += last_lp_time;
   n_calls++;
-  CUOPT_LOG_DEBUG("lp_time %f average lp_time %f", last_lp_time, lp_time / n_calls);
+  // CUOPT_LOG_DEBUG("lp_time %f average lp_time %f", last_lp_time, lp_time / n_calls);
   solution.assignment.resize(solution.problem_ptr->n_variables, solution.handle_ptr->get_stream());
   raft::copy(last_projection.data(),
              solution.assignment.data(),
@@ -286,6 +303,7 @@ void feasibility_pump_t<i_t, f_t>::perturbate(solution_t<i_t, f_t>& solution)
 template <typename i_t, typename f_t>
 bool feasibility_pump_t<i_t, f_t>::run_fj_cycle_escape(solution_t<i_t, f_t>& solution)
 {
+  CUOPT_LOG_DEBUG("Running FJ cycle escape");
   bool is_feasible;
   fj.settings.mode                   = fj_mode_t::EXIT_NON_IMPROVING;
   fj.settings.update_weights         = true;
@@ -308,14 +326,16 @@ bool feasibility_pump_t<i_t, f_t>::run_fj_cycle_escape(solution_t<i_t, f_t>& sol
 template <typename i_t, typename f_t>
 bool feasibility_pump_t<i_t, f_t>::test_fj_feasible(solution_t<i_t, f_t>& solution, f_t time_limit)
 {
-  CUOPT_LOG_DEBUG("Running 20%% with %f time limit", time_limit);
+  CUOPT_LOG_DEBUG("Running 20%% FJ");
   bool is_feasible;
   fj.settings.mode                   = fj_mode_t::EXIT_NON_IMPROVING;
   fj.settings.update_weights         = true;
   fj.settings.feasibility_run        = true;
   fj.settings.n_of_minimums_for_exit = 5000;
   fj.settings.time_limit             = std::min(time_limit, timer.remaining_time());
-  fj.settings.termination            = fj_termination_flags_t::FJ_TERMINATION_TIME_LIMIT;
+  // CHANGE
+  fj.settings.time_limit  = std::numeric_limits<f_t>::infinity();
+  fj.settings.termination = fj_termination_flags_t::FJ_TERMINATION_TIME_LIMIT;
   cuopt_func_call(solution.test_variable_bounds(true));
   is_feasible = fj.solve(solution);
   cuopt_func_call(solution.test_variable_bounds(true));
@@ -497,6 +517,8 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
              solution.assignment.data(),
              solution.assignment.size(),
              solution.handle_ptr->get_stream());
+
+  CUOPT_LOG_DEBUG("FP: starting FP descent, sol hash 0x%x", solution.get_hash());
   while (true) {
     if (timer.check_time_limit()) {
       CUOPT_LOG_DEBUG("FP time limit reached!");
@@ -529,7 +551,7 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
         cuopt::default_logger().flush();
         f_t remaining_time_end_fp = timer.remaining_time();
         total_fp_time_until_cycle = fp_fj_cycle_time_begin - remaining_time_end_fp;
-        CUOPT_LOG_DEBUG("total_fp_time_until_cycle: %f", total_fp_time_until_cycle);
+        // CUOPT_LOG_DEBUG("total_fp_time_until_cycle: %f", total_fp_time_until_cycle);
         return false;
       }
     }

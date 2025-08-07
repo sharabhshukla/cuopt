@@ -396,7 +396,8 @@ bool bounds_repair_t<i_t, f_t>::repair_problem(problem_t<i_t, f_t>& problem,
   curr_violation = best_violation;
   best_bounds.update_from(problem, handle_ptr);
   i_t no_candidate_in_a_row = 0;
-  while (h_n_violated_cstr > 0) {
+  i_t iter_limit            = 20;
+  while (h_n_violated_cstr > 0 && iter_limit-- > 0) {
     CUOPT_LOG_TRACE("Bounds repair loop: n_violated %d best_violation %f curr_violation %f",
                     h_n_violated_cstr,
                     best_violation,

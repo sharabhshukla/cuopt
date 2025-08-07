@@ -1169,6 +1169,9 @@ problem_t<i_t, f_t> problem_t<i_t, f_t>::get_problem_after_fixing_vars(
   RAFT_CHECK_CUDA(handle_ptr->get_stream());
   cuopt_assert(result_end - variable_map.data() == variable_map.size(),
                "Size issue in set_difference");
+  CUOPT_LOG_DEBUG("Fixing assignment hash 0x%x, vars to fix 0x%x",
+                  detail::compute_hash(assignment),
+                  detail::compute_hash(variables_to_fix));
   problem.fix_given_variables(*this, assignment, variables_to_fix, handle_ptr);
   RAFT_CHECK_CUDA(handle_ptr->get_stream());
   problem.remove_given_variables(*this, assignment, variable_map, handle_ptr);
@@ -1193,11 +1196,11 @@ problem_t<i_t, f_t> problem_t<i_t, f_t>::get_problem_after_fixing_vars(
   static int total_calls         = 0;
   total_time_taken += time_taken;
   total_calls++;
-  CUOPT_LOG_DEBUG(
-    "Time taken to fix variables: %f milliseconds, average: %f milliseconds total time: %f",
-    time_taken,
-    total_time_taken / total_calls,
-    total_time_taken);
+  // CUOPT_LOG_DEBUG(
+  //   "Time taken to fix variables: %f milliseconds, average: %f milliseconds total time: %f",
+  //   time_taken,
+  //   total_time_taken / total_calls,
+  //   total_time_taken);
   CUOPT_LOG_DEBUG("Model fingerprint after fixing: 0x%x", problem.get_fingerprint());
   return problem;
 }

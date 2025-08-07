@@ -89,7 +89,11 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
   // temporarily add timer
   auto start_time = std::chrono::high_resolution_clock::now();
   lp_solver.set_inside_mip(true);
+  CUOPT_LOG_DEBUG("prev primal hash 0x%x", detail::compute_hash(assignment));
+  CUOPT_LOG_DEBUG("prev dual hash 0x%x", detail::compute_hash(lp_state.prev_dual));
   auto solver_response = lp_solver.run_solver(start_time);
+  CUOPT_LOG_DEBUG("post LP primal hash 0x%x",
+                  detail::compute_hash(solver_response.get_primal_solution()));
 
   if (solver_response.get_primal_solution().size() != 0 &&
       solver_response.get_dual_solution().size() != 0 && settings.save_state) {
