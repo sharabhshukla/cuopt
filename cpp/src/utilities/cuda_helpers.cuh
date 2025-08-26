@@ -27,7 +27,14 @@
 #include <rmm/device_uvector.hpp>
 
 #if CUDART_VERSION >= 12080
-#include <nvtx3/nvToolsExtMem.h>
+// TODO: investigate why this is necessary? dependency conflict? file NVBUG if necessary
+#include <nvtx3/nvtx3.hpp>
+#ifndef NVTX_NULLPTR
+#define NVTX_NULLPTR nullptr
+#endif
+#ifndef NVTX_REINTERPRET_CAST
+#define NVTX_REINTERPRET_CAST(type, value) (reinterpret_cast<type>(value))
+#endif
 #include <nvtx3/nvToolsExtMemCudaRt.h>
 #endif
 
