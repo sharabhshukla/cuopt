@@ -159,7 +159,10 @@ f_t sgn(f_t x)
 template <typename f_t>
 f_t relative_gap(f_t obj_value, f_t lower_bound)
 {
-  if (!std::isfinite(obj_value)) return std::numeric_limits<f_t>::infinity();
+  // avoid raising a FPE
+  if (!std::isfinite(obj_value) || !std::isfinite(lower_bound)) {
+    return std::numeric_limits<f_t>::infinity();
+  }
   f_t user_mip_gap = obj_value == 0.0
                        ? (lower_bound == 0.0 ? 0.0 : std::numeric_limits<f_t>::infinity())
                        : std::abs(obj_value - lower_bound) / std::abs(obj_value);
@@ -172,9 +175,13 @@ f_t user_relative_gap(const lp_problem_t<i_t, f_t>& lp, f_t obj_value, f_t lower
 {
   f_t user_obj         = compute_user_objective(lp, obj_value);
   f_t user_lower_bound = compute_user_objective(lp, lower_bound);
-  f_t user_mip_gap     = user_obj == 0.0
-                           ? (user_lower_bound == 0.0 ? 0.0 : std::numeric_limits<f_t>::infinity())
-                           : std::abs(user_obj - user_lower_bound) / std::abs(user_obj);
+  // avoid raising a FPE
+  if (!std::isfinite(user_obj) || !std::isfinite(user_lower_bound)) {
+    return std::numeric_limits<f_t>::infinity();
+  }
+  f_t user_mip_gap = user_obj == 0.0
+                       ? (user_lower_bound == 0.0 ? 0.0 : std::numeric_limits<f_t>::infinity())
+                       : std::abs(user_obj - user_lower_bound) / std::abs(user_obj);
   if (std::isnan(user_mip_gap)) { return std::numeric_limits<f_t>::infinity(); }
   return user_mip_gap;
 }

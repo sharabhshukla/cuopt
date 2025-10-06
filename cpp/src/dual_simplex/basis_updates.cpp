@@ -13,6 +13,19 @@
 #include <cmath>
 #include <limits>
 
+#include <fenv.h>
+
+class fpe_disable {
+  int old_mask;
+
+ public:
+  explicit fpe_disable(int mask = FE_INVALID) : old_mask(fegetexcept()) { fedisableexcept(mask); }
+  ~fpe_disable() { feenableexcept(old_mask); }
+
+  fpe_disable(const fpe_disable&)            = delete;
+  fpe_disable& operator=(const fpe_disable&) = delete;
+};
+
 namespace cuopt::linear_programming::dual_simplex {
 
 template <typename i_t, typename f_t>
@@ -1620,6 +1633,8 @@ i_t basis_update_mpf_t<i_t, f_t>::b_solve(const sparse_vector_t<i_t, f_t>& rhs,
                                           sparse_vector_t<i_t, f_t>& Lsol,
                                           bool need_Lsol) const
 {
+  fpe_disable fpe_disabler;
+
   // assert(rhs.n > 0);
   const i_t m = L0_.m;
   solution    = rhs;
