@@ -48,6 +48,7 @@ class bound_prop_recombiner_t : public recombiner_t<i_t, f_t> {
     rmm::device_uvector<thrust::pair<f_t, f_t>>& probing_values,
     i_t n_vars_from_other)
   {
+    raft::common::nvtx::range fun_scope("get_probing_values_for_infeasible");
     auto guiding_view   = guiding.view();
     auto other_view     = other.view();
     auto offspring_view = offspring.view();
@@ -87,8 +88,9 @@ class bound_prop_recombiner_t : public recombiner_t<i_t, f_t> {
           f_t second_val      = round(avg_val) == other_val ? guiding_val : round(avg_val);
           probing_values[idx] = thrust::make_pair(other_val, second_val);
           // assign some floating value, so that they can be rounded by bounds prop
-          f_t lb = guiding_view.problem.variable_lower_bounds[idx];
-          f_t ub = guiding_view.problem.variable_upper_bounds[idx];
+          auto bounds = guiding_view.problem.variable_bounds[idx];
+          f_t lb      = get_lower(bounds);
+          f_t ub      = get_upper(bounds);
           if (integer_equal<f_t>(lb, ub, int_tol)) {
             cuopt_assert(false, "The var values must be different in A and B!");
           } else if (isfinite(lb)) {
@@ -110,6 +112,7 @@ class bound_prop_recombiner_t : public recombiner_t<i_t, f_t> {
                                        i_t n_vars_from_other,
                                        rmm::device_uvector<i_t>& variable_map)
   {
+    raft::common::nvtx::range fun_scope("get_probing_values_for_feasible");
     cuopt_assert(n_vars_from_other == offspring.problem_ptr->n_integer_vars,
                  "The number of vars from other should match!");
     auto guiding_view   = guiding.view();
@@ -181,7 +184,7 @@ class bound_prop_recombiner_t : public recombiner_t<i_t, f_t> {
     rmm::device_uvector<thrust::pair<f_t, f_t>> probing_values(a.problem_ptr->n_variables,
                                                                a.handle_ptr->get_stream());
     probing_config_t<i_t, f_t> probing_config(a.problem_ptr->n_variables, a.handle_ptr);
-    if (guiding_solution.get_feasible()) {
+    if (guiding_solution.get_feasible() && !a.problem_ptr->expensive_to_fix_vars) {
       this->compute_vars_to_fix(offspring, vars_to_fix, n_vars_from_other, n_vars_from_guiding);
       auto [fixed_problem, fixed_assignment, variable_map] = offspring.fix_variables(vars_to_fix);
       timer_t timer(bp_recombiner_config_t::bounds_prop_time_limit);

@@ -112,15 +112,14 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
 
   setup_device_symbols(op_problem.get_handle_ptr()->get_stream());
 
-  detail::pdhg_solver_t<int, double> pdhg_solver(problem.handle_ptr, problem);
   detail::pdlp_initial_scaling_strategy_t<int, double> scaling(&handle_,
                                                                problem,
                                                                10,
                                                                1.0,
-                                                               pdhg_solver,
                                                                problem.reverse_coefficients,
                                                                problem.reverse_offsets,
                                                                problem.reverse_constraints,
+                                                               nullptr,
                                                                true);
 
   auto settings       = mip_solver_settings_t<int, double>{};
@@ -158,18 +157,11 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
   printf("LP optimal hash: 0x%x\n", detail::compute_hash(lp_optimal_solution));
   printf("running mode: %d\n", mode);
 
-  local_search.fp.config.bounds_prop_timer_min          = std::numeric_limits<double>::max();
-  local_search.fp.config.lp_run_time_after_feasible_min = std::numeric_limits<double>::max();
-  local_search.fp.config.linproj_time_limit             = std::numeric_limits<double>::max();
-  local_search.fp.config.fj_cycle_escape_time_limit     = std::numeric_limits<double>::max();
-  local_search.fp.config.lp_verify_time_limit           = std::numeric_limits<double>::max();
-  local_search.fp.timer                                 = timer_t{600};
+  local_search.fp.timer = timer_t{600};
 
-  if (mode == local_search_mode_t::STAGED_FP) {
-    timer_t timer(std::numeric_limits<double>::max());
-    bool early_exit = false;
-    local_search.run_staged_fp(solution, timer, early_exit);
-  } else if (mode == local_search_mode_t::FP) {
+  detail::ls_config_t<int, double> ls_config{};
+
+  if (mode == local_search_mode_t::FP) {
     bool is_feasible = false;
     int iterations   = 0;
     while (true) {
@@ -187,11 +179,11 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
       iterations++;
     }
   } else if (mode == local_search_mode_t::FJ_LINE_SEGMENT) {
-    local_search.run_fj_line_segment(solution, timer);
+    local_search.run_fj_line_segment(solution, timer, ls_config);
   } else if (mode == local_search_mode_t::FJ_ON_ZERO) {
     local_search.run_fj_on_zero(solution, timer);
   } else if (mode == local_search_mode_t::FJ_ANNEALING) {
-    local_search.run_fj_annealing(solution, timer);
+    local_search.run_fj_annealing(solution, timer, ls_config);
   }
 
   std::vector<uint32_t> hashes;
@@ -237,12 +229,12 @@ TEST_P(LocalSearchTestParams, local_search_operator_determinism)
 
   for (const auto& instance : {
          //"thor50dday.mps",
-         //"gen-ip054.mps",
+         "gen-ip054.mps",
          //"50v-10.mps",
          //"seymour1.mps",
          //"rmatr200-p5.mps",
          //"tr12-30.mps",
-         "sct2.mps",
+         //"sct2.mps",
          //"uccase9.mps"
        }) {
     // for (int i = 0; i < 10; i++)
@@ -269,7 +261,6 @@ TEST_P(LocalSearchTestParams, local_search_operator_determinism)
 INSTANTIATE_TEST_SUITE_P(LocalSearchTests,
                          LocalSearchTestParams,
                          testing::Values(std::make_tuple(local_search_mode_t::FP),
-                                         std::make_tuple(local_search_mode_t::STAGED_FP),
                                          std::make_tuple(local_search_mode_t::FJ_LINE_SEGMENT),
                                          std::make_tuple(local_search_mode_t::FJ_ON_ZERO),
                                          std::make_tuple(local_search_mode_t::FJ_ANNEALING)));

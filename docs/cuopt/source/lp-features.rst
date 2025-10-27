@@ -11,9 +11,13 @@ The LP solver can be accessed in the following ways:
 
   Supported modeling languages:
    -  AMPL
-   -  PuLP 
+   -  GAMS
+   -  PuLP
+   -  JuMP
 
 - **C API**: A native C API that provides direct low-level access to cuOpt's LP capabilities, enabling integration into any application or system that can interface with C.
+
+- **Python SDK**: A Python package that provides direct access to cuOpt's LP capabilities through a simple, intuitive API. This allows for seamless integration into Python applications and workflows. For more information, see :doc:`cuopt-python/quick-start`.
 
 - **As a Self-Hosted Service**: cuOpt's LP solver can be deployed as a in your own infrastructure, enabling you to maintain full control while integrating it into your existing systems.
 
@@ -52,7 +56,7 @@ Warm Start
 
 A warm starts allow a user to provide an initial solution to help PDLP converge faster. The initial ``primal`` and ``dual`` solutions can be specified by the user.
 
-Alternatively, previously run solutions can be used to warm start a new solve to decrease solve time. `Examples <cuopt-server/lp-examples.html#warm-start>`_ are shared on the self-hosted page.
+Alternatively, previously run solutions can be used to warm start a new solve to decrease solve time. :ref:`Examples <warm-start>` are shared on the self-hosted page.
 
 PDLP Solver Mode
 ----------------
@@ -62,22 +66,48 @@ Users can control how the solver will operate by specifying the PDLP solver mode
 Method
 ------
 
-**Concurrent**: The default method for solving linear programs. When concurrent is selected, cuOpt runs two algorithms at the same time: PDLP on the GPU and dual simplex on the CPU. A solution is returned from the algorithm that finishes first.
+**Concurrent**: The default method for solving linear programs. When concurrent is selected, cuOpt runs three algorithms in parallel: PDLP on the GPU, barrier (interior-point) on the GPU, and dual simplex on the CPU. A solution is returned from the algorithm that finishes first.
 
-**PDLP**: Primal-Dual Hybrid Gradient for Linear Program is an algorithm for solving large-scale linear programming problems on the GPU. PDLP does not attempt to any matrix factorizations during the course of the solve. Select this method if your LP is so large that factorization will not fit into memory. By default PDLP solves to low relative tolerance and the solutions it returns do not lie at a vertex of the feasible region. Enable crossover to obtain a highly accurate basic solution from a PDLP solution.
+**PDLP**: Primal-Dual Hybrid Gradient for Linear Program is an algorithm for solving large-scale linear programming problems on the GPU. PDLP does not attempt any matrix factorizations during the course of the solve. Select this method if your LP is so large that factorization will not fit into memory. By default PDLP solves to low relative tolerance and the solutions it returns do not lie at a vertex of the feasible region. Enable crossover to obtain a highly accurate basic solution from a PDLP solution.
+
+.. note::
+   PDLP solves to 1e-4 relative accuracy by default.
+
+**Barrier**: The barrier method (also known as interior-point method) solves linear programs using a primal-dual predictor-corrector algorithm. This method uses GPU-accelerated sparse Cholesky and sparse LDLT solves via cuDSS, and GPU-accelerated sparse matrix-vector and matrix-matrix operations via cuSparse. Barrier is particularly effective for large-scale problems and can automatically apply techniques like folding, dualization, and dense column elimination to improve performance. This method solves the linear systems at each iteration using the augmented system or the normal equations (ADAT). Enable crossover to obtain a highly accurate basic solution from a barrier solution.
+
+.. note::
+   Barrier solves to 1e-8 relative accuracy by default.
 
 **Dual Simplex**: Dual simplex is the simplex method applied to the dual of the linear program. Dual simplex requires the basis factorization of linear program fit into memory. Select this method if your LP is small to medium sized, or if you require a high-quality basic solution.
+
+.. note::
+   Dual Simplex solves to 1e-6 absolute accuracy by default.
 
 
 Crossover
 ---------
 
-Crossover allows you to obtain a high-quality basic solution from the results of a PDLP solve. More details can be found `here <lp-milp-settings.html#crossover>`__.
+Crossover allows you to obtain a high-quality basic solution from the results of a PDLP or barrier solve. When enabled, crossover converts these solutions to a vertex solution (basic solution) with high accuracy. More details can be found :ref:`here <crossover>`.
 
 
-Logging Callback
-----------------
-With logging callback, users can fetch server-side logs for additional debugs and to get details on solver process details. `Examples <cuopt-server/examples/lp-examples.html#logging-callback>`__ are shared on the self-hosted page.
+Presolve
+--------
+
+Presolve procedure is applied to the problem before the solver is called. It can be used to reduce the problem size and improve solve time. It is enabled by default for MIP problems, and disabled by default for LP problems.
+Furthermore, for LP problems, when the dual solution is not needed, additional presolve procedures can be applied to further improve solve times. This is achived by turned off dual postsolve.
+
+
+Logging
+-------
+
+The CUOPT_LOG_FILE parameter can be set to write detailed solver logs for LP problems. This parameter is available in all APIs that allow setting solver parameters except the cuOpt service. For the service, see the logging callback below.
+
+Logging Callback in the Service
+-------------------------------
+
+In the cuOpt service API, the ``log_file`` value in ``solver_configs`` is ignored.
+
+If however you set the ``solver_logs`` flag on the ``/cuopt/request`` REST API call, users can fetch the log file content from the webserver at ``/cuopt/logs/{id}``. Using the logging callback feature through the cuOpt client is shown in :ref:`Examples <generic-example-with-normal-and-batch-mode>` on the self-hosted page.
 
 
 Infeasibility Detection
@@ -101,4 +131,4 @@ The user may specify a time limit to the solver. By default the solver runs unti
 Batch Mode
 ----------
 
-Users can submit a set of problems which will be solved in a batch. Problems will be solved at the same time in parallel to fully utilize the GPU. Checkout `self-hosted client <cuopt-server/examples/lp-examples.html#batch-mode>`_ example in thin client.
+Users can submit a set of problems which will be solved in a batch. Problems will be solved at the same time in parallel to fully utilize the GPU. Checkout :ref:`self-hosted client <generic-example-with-normal-and-batch-mode>` example in thin client.

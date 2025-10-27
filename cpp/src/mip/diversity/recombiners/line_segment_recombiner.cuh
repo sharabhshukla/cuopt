@@ -43,6 +43,7 @@ class line_segment_recombiner_t : public recombiner_t<i_t, f_t> {
                                                  i_t n_points_to_search,
                                                  i_t remaining_variables)
   {
+    raft::common::nvtx::range fun_scope("generate_delta_vector");
     CUOPT_LOG_DEBUG("LS rec: Number of different variables %d MAX_VARS %d",
                     remaining_variables,
                     ls_recombiner_config_t::max_n_of_vars_from_other);
@@ -101,11 +102,10 @@ class line_segment_recombiner_t : public recombiner_t<i_t, f_t> {
       std::min(guiding_solution.get_quality(weights), other_solution.get_quality(weights));
     line_segment_search.settings.parents_infeasible =
       !guiding_solution.get_feasible() && !other_solution.get_feasible();
-    // TODO fix common part and run FJ on remaining
+    line_segment_search.settings.n_points_to_search = ls_recombiner_config_t::n_points_to_search;
     line_segment_search.search_line_segment(offspring,
                                             guiding_solution.assignment,
                                             other_solution.assignment,
-                                            n_points_to_search,
                                             delta_vector,
                                             is_feasibility_run,
                                             line_segment_timer);

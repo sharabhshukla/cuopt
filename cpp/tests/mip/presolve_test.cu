@@ -62,15 +62,15 @@ std::tuple<std::vector<int>, std::vector<double>, std::vector<double>> select_k_
 {
   std::cerr << "Tested with seed " << seed << "\n";
   problem.compute_n_integer_vars();
-  auto v_lb       = host_copy(problem.variable_lower_bounds);
-  auto v_ub       = host_copy(problem.variable_upper_bounds);
-  auto int_var_id = host_copy(problem.integer_indices);
-  int_var_id.erase(std::remove_if(int_var_id.begin(),
-                                  int_var_id.end(),
-                                  [v_lb, v_ub](auto id) {
-                                    return !(std::isfinite(v_lb[id]) && std::isfinite(v_ub[id]));
-                                  }),
-                   int_var_id.end());
+  auto [v_lb, v_ub] = extract_host_bounds<double>(problem.variable_bounds, problem.handle_ptr);
+  auto int_var_id   = host_copy(problem.integer_indices);
+  int_var_id.erase(
+    std::remove_if(int_var_id.begin(),
+                   int_var_id.end(),
+                   [v_lb_sp = v_lb, v_ub_sp = v_ub](auto id) {
+                     return !(std::isfinite(v_lb_sp[id]) && std::isfinite(v_ub_sp[id]));
+                   }),
+    int_var_id.end());
   sample_size = std::min(sample_size, static_cast<int>(int_var_id.size()));
   std::vector<int> random_int_vars;
   std::mt19937 m{seed};
@@ -116,15 +116,14 @@ uint32_t test_probing_cache_determinism(std::string path,
   detail::problem_t<int, double> problem(op_problem);
   mip_solver_settings_t<int, double> default_settings{};
   default_settings.mip_scaling = false;  // we're not checking scaling determinism here
-  detail::pdhg_solver_t<int, double> pdhg_solver(problem.handle_ptr, problem);
   detail::pdlp_initial_scaling_strategy_t<int, double> scaling(&handle_,
                                                                problem,
                                                                10,
                                                                1.0,
-                                                               pdhg_solver,
                                                                problem.reverse_coefficients,
                                                                problem.reverse_offsets,
                                                                problem.reverse_constraints,
+                                                               nullptr,
                                                                true);
   detail::mip_solver_t<int, double> solver(problem, default_settings, scaling, cuopt::timer_t(0));
   detail::bound_presolve_t<int, double> bnd_prb(solver.context);
@@ -189,16 +188,15 @@ uint32_t test_scaling_determinism(std::string path, unsigned long seed = std::ra
   // problem contains unpreprocessed data
   detail::problem_t<int, double> scaled_problem(problem);
 
-  detail::pdhg_solver_t<int, double> pdhg_solver(scaled_problem.handle_ptr, scaled_problem);
   detail::pdlp_initial_scaling_strategy_t<int, double> scaling(
     scaled_problem.handle_ptr,
     scaled_problem,
     pdlp_hyper_params::default_l_inf_ruiz_iterations,
     (double)pdlp_hyper_params::default_alpha_pock_chambolle_rescaling,
-    pdhg_solver,
     scaled_problem.reverse_coefficients,
     scaled_problem.reverse_offsets,
     scaled_problem.reverse_constraints,
+    nullptr,
     true);
 
   scaling.scale_problem();
@@ -221,42 +219,11 @@ uint32_t test_scaling_determinism(std::string path, unsigned long seed = std::ra
   return detail::compute_hash(hashes);
 }
 
-// TEST(presolve, probing_cache_deterministic)
-// {
-//   spin_stream_raii_t spin_stream_1;
-
-//   std::vector<std::string> test_instances = {"mip/50v-10-free-bound.mps",
-//                                              "mip/neos5-free-bound.mps",
-//                                              "mip/neos5.mps",
-//                                              "mip/50v-10.mps",
-//                                              "mip/gen-ip054.mps",
-//                                              "mip/rmatr200-p5.mps"};
-//   for (const auto& test_instance : test_instances) {
-//     std::cout << "Running: " << test_instance << std::endl;
-//     unsigned long seed = std::random_device{}();
-//     std::cerr << "Tested with seed " << seed << "\n";
-//     auto path          = make_path_absolute(test_instance);
-//     uint32_t gold_hash = 0;
-//     for (int i = 0; i < 10; ++i) {
-//       auto hash = test_probing_cache_determinism(path, seed);
-//       if (i == 0) {
-//         gold_hash = hash;
-//         std::cout << "Gold hash: " << gold_hash << std::endl;
-//       } else {
-//         EXPECT_EQ(hash, gold_hash);
-//       }
-//     }
-//   }
-// }
-
-TEST(presolve, mip_scaling_deterministic)
+TEST(presolve, probing_cache_deterministic)
 {
   spin_stream_raii_t spin_stream_1;
-  spin_stream_raii_t spin_stream_2;
 
-  std::vector<std::string> test_instances = {"mip/sct2.mps",
-                                             "mip/thor50dday.mps",
-                                             "mip/uccase9.mps",
+  std::vector<std::string> test_instances = {"mip/50v-10-free-bound.mps",
                                              "mip/neos5-free-bound.mps",
                                              "mip/neos5.mps",
                                              "mip/50v-10.mps",
@@ -269,7 +236,7 @@ TEST(presolve, mip_scaling_deterministic)
     auto path          = make_path_absolute(test_instance);
     uint32_t gold_hash = 0;
     for (int i = 0; i < 10; ++i) {
-      auto hash = test_scaling_determinism(path, seed);
+      auto hash = test_probing_cache_determinism(path, seed);
       if (i == 0) {
         gold_hash = hash;
         std::cout << "Gold hash: " << gold_hash << std::endl;
@@ -279,5 +246,36 @@ TEST(presolve, mip_scaling_deterministic)
     }
   }
 }
+
+// TEST(presolve, mip_scaling_deterministic)
+// {
+//   spin_stream_raii_t spin_stream_1;
+//   spin_stream_raii_t spin_stream_2;
+
+//   std::vector<std::string> test_instances = {"mip/sct2.mps",
+//                                              "mip/thor50dday.mps",
+//                                              "mip/uccase9.mps",
+//                                              "mip/neos5-free-bound.mps",
+//                                              "mip/neos5.mps",
+//                                              "mip/50v-10.mps",
+//                                              "mip/gen-ip054.mps",
+//                                              "mip/rmatr200-p5.mps"};
+//   for (const auto& test_instance : test_instances) {
+//     std::cout << "Running: " << test_instance << std::endl;
+//     unsigned long seed = std::random_device{}();
+//     std::cerr << "Tested with seed " << seed << "\n";
+//     auto path          = make_path_absolute(test_instance);
+//     uint32_t gold_hash = 0;
+//     for (int i = 0; i < 10; ++i) {
+//       auto hash = test_scaling_determinism(path, seed);
+//       if (i == 0) {
+//         gold_hash = hash;
+//         std::cout << "Gold hash: " << gold_hash << std::endl;
+//       } else {
+//         EXPECT_EQ(hash, gold_hash);
+//       }
+//     }
+//   }
+// }
 
 }  // namespace cuopt::linear_programming::test

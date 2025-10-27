@@ -88,15 +88,14 @@ static fj_state_t run_fj(std::string test_instance,
   // run the problem constructor of MIP, so that we do bounds standardization
   detail::problem_t<int, double> problem(op_problem);
   problem.preprocess_problem();
-  detail::pdhg_solver_t<int, double> pdhg_solver(problem.handle_ptr, problem);
   detail::pdlp_initial_scaling_strategy_t<int, double> scaling(&handle_,
                                                                problem,
                                                                10,
                                                                1.0,
-                                                               pdhg_solver,
                                                                problem.reverse_coefficients,
                                                                problem.reverse_offsets,
                                                                problem.reverse_constraints,
+                                                               nullptr,
                                                                true);
 
   auto settings       = mip_solver_settings_t<int, double>{};
@@ -140,8 +139,7 @@ static bool run_fj_check_no_obj_runoff(std::string test_instance)
   fj_settings.n_of_minimums_for_exit = 20000 * 1000;
   fj_settings.update_weights         = true;
   fj_settings.feasibility_run        = false;
-  fj_settings.termination     = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
-  fj_settings.iteration_limit = 20000;
+  fj_settings.iteration_limit        = 20000;
 
   auto state = run_fj(test_instance, fj_settings);
 
@@ -163,8 +161,7 @@ static bool run_fj_check_objective(std::string test_instance, int iter_limit, do
   fj_settings.n_of_minimums_for_exit = 20000 * 1000;
   fj_settings.update_weights         = true;
   fj_settings.feasibility_run        = obj_target == +std::numeric_limits<double>::infinity();
-  fj_settings.termination     = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
-  fj_settings.iteration_limit = iter_limit;
+  fj_settings.iteration_limit        = iter_limit;
 
   auto state     = run_fj(test_instance, fj_settings);
   auto& solution = state.solution;
@@ -191,8 +188,7 @@ static bool run_fj_check_feasible(std::string test_instance)
   fj_settings.n_of_minimums_for_exit = 20000 * 1000;
   fj_settings.update_weights         = true;
   fj_settings.feasibility_run        = false;
-  fj_settings.termination     = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
-  fj_settings.iteration_limit = 25000;
+  fj_settings.iteration_limit        = 25000;
 
   auto state     = run_fj(test_instance, fj_settings);
   auto& solution = state.solution;
@@ -227,15 +223,14 @@ static bool run_fj_check_determinism(std::string test_instance, int iter_limit)
     std::getenv("CUOPT_SEED") ? std::stoi(std::getenv("CUOPT_SEED")) : std::random_device{}();
 
   detail::fj_settings_t fj_settings;
-  fj_settings.time_limit             = 30.;
+  fj_settings.time_limit             = std::numeric_limits<double>::max();
   fj_settings.mode                   = detail::fj_mode_t::EXIT_NON_IMPROVING;
   fj_settings.n_of_minimums_for_exit = 20000 * 1000;
   fj_settings.update_weights         = true;
   fj_settings.feasibility_run        = false;
-  fj_settings.termination         = detail::fj_termination_flags_t::FJ_TERMINATION_ITERATION_LIMIT;
-  fj_settings.iteration_limit     = iter_limit;
-  fj_settings.load_balancing_mode = detail::fj_load_balancing_mode_t::ALWAYS_ON;
-  fj_settings.seed                = seed;
+  fj_settings.iteration_limit        = iter_limit;
+  fj_settings.load_balancing_mode    = detail::fj_load_balancing_mode_t::ALWAYS_ON;
+  fj_settings.seed                   = seed;
   cuopt::seed_generator::set_seed(fj_settings.seed);
 
   auto state     = run_fj(test_instance, fj_settings);
@@ -247,47 +242,54 @@ static bool run_fj_check_determinism(std::string test_instance, int iter_limit)
                   solution.get_user_objective(),
                   solution.get_objective());
 
-  static auto first_val = solution.get_user_objective();
-
-  if (abs(solution.get_user_objective() - first_val) > 1) exit(0);
+  static std::unordered_map<std::string, double> first_val_map;
+  if (first_val_map.count(test_instance) == 0) {
+    first_val_map[test_instance] = solution.get_user_objective();
+  }
+  if (std::abs(solution.get_user_objective() - first_val_map[test_instance]) > 1) exit(0);
 
   return true;
 }
 
-// TEST(mip_solve, feasibility_jump_obj_test)
-// {
-//   std::vector<std::tuple<std::string, double, int>> test_cases = {
-//     {"50v-10.mps", 7800, 100000},
-//     {"fiball.mps", 140, 25000},
-//     {"gen-ip054.mps", 7500, 20000},
-//     {"sct2.mps", 100, 50000},
-//     {"uccase9.mps", 4000000, 50000},
-//     // unstable, prone to failure on slight weight changes
-//     //{"drayage-25-23.mps", 300000, 50000},
-//     {"tr12-30.mps", 300000, 50000},
-//     {"neos-3004026-krka.mps", +std::numeric_limits<double>::infinity(), 35000},  // feasibility
-//     //{"nursesched-medium-hint03.mps", 12000, 50000}, // too large
-//     {"ns1208400.mps", 2, 60000},
-//     {"gmu-35-50.mps", -2300000, 25000},
-//     {"n2seq36q.mps", 158800, 25000},
-//     {"seymour1.mps", 440, 50000},
-//     {"rmatr200-p5.mps", 7000, 10000},
-//     {"cvs16r128-89.mps", -50, 10000},
-//   // TEMPORARY: occasional cusparse transpose issues on ARM in CI
-// #ifndef __aarch64__
-//     {"thor50dday.mps", 250000, 1000}
-// #endif
-//   };
+// class MIPSolveParametricTest : public testing::TestWithParam<std::tuple<std::string, double,
+// int>> {
+// };
 
-//   for (auto [instance, obj_target, iter_limit] : test_cases) {
-//     bool result = run_fj_check_objective(instance, iter_limit, obj_target);
-//     // Abort early
-//     if (!result) {
-//       printf("failure");
-//       exit(0);
-//     }
-//   }
+// TEST_P(MIPSolveParametricTest, feasibility_jump_obj_test)
+// {
+//   auto [instance, obj_target, iter_limit] = GetParam();
+//   EXPECT_TRUE(run_fj_check_objective(instance, iter_limit, obj_target));
 // }
+
+// INSTANTIATE_TEST_SUITE_P(
+//   MIPSolveTest,
+//   MIPSolveParametricTest,
+//   testing::Values(
+//     // Bug: https://github.com/NVIDIA/cuopt/issues/214
+//     // std::make_tuple("50v-10.mps", 7800, 100000),
+//     // std::make_tuple("fiball.mps", 140, 25000),
+//     // std::make_tuple("rmatr200-p5.mps", 7000, 10000),
+//     std::make_tuple("gen-ip054.mps", 7500, 20000),
+//     std::make_tuple("sct2.mps", 100, 50000),
+//     std::make_tuple("uccase9.mps", 4000000, 50000),
+//     // unstable, prone to failure on slight weight changes
+//     // std::make_tuple("drayage-25-23.mps", 300000, 50000),
+//     std::make_tuple("tr12-30.mps", 300000, 50000),
+//     std::make_tuple("neos-3004026-krka.mps",
+//                     +std::numeric_limits<double>::infinity(),
+//                     35000),  // feasibility
+//     // std::make_tuple("nursesched-medium-hint03.mps", 12000, 50000), // too large
+//     std::make_tuple("ns1208400.mps", 2, 60000),
+//     std::make_tuple("gmu-35-50.mps", -2300000, 25000),
+//     std::make_tuple("n2seq36q.mps", 158800, 25000),
+//     std::make_tuple("seymour1.mps", 440, 50000),
+//     std::make_tuple("cvs16r128-89.mps", -50, 10000)
+// // TEMPORARY: occasional cusparse transpose issues on ARM in CI
+// #ifndef __aarch64__
+//       ,
+//     std::make_tuple("thor50dday.mps", 250000, 1000)
+// #endif
+//       ));
 
 // TEST(mip_solve, feasibility_jump_feas_test)
 // {
@@ -312,16 +314,16 @@ static bool run_fj_check_determinism(std::string test_instance, int iter_limit)
 
 TEST(mip_solve, feasibility_jump_determinism)
 {
-  for (const auto& instance : {//"thor50dday.mps",
-                               //"gen-ip054.mps",
-                               //"50v-10.mps",
-                               //"seymour1.mps",
-                               //"rmatr200-p5.mps"
-                               //"tr12-30.mps",
-                               //"sct2.mps",
+  for (const auto& instance : {"thor50dday.mps",
+                               "gen-ip054.mps",
+                               "50v-10.mps",
+                               "seymour1.mps",
+                               "rmatr200-p5.mps",
+                               "tr12-30.mps",
+                               "sct2.mps",
                                "uccase9.mps"}) {
-    // for (int i = 0; i < 10; i++)
-    while (true) {
+    for (int i = 0; i < 10; i++) {
+      // while (true) {
       run_fj_check_determinism(instance, 1000);
     }
   }

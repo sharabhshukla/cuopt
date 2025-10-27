@@ -50,9 +50,7 @@ class bound_presolve_t {
   // when we need to accept a vector, we can use input_lb version
   termination_criterion_t solve(problem_t<i_t, f_t>& pb, f_t lb, f_t ub, i_t var_idx);
 
-  termination_criterion_t solve(problem_t<i_t, f_t>& pb,
-                                raft::device_span<f_t> input_lb = {},
-                                raft::device_span<f_t> input_ub = {});
+  termination_criterion_t solve(problem_t<i_t, f_t>& pb);
 
   termination_criterion_t solve(problem_t<i_t, f_t>& pb,
                                 const std::vector<thrust::pair<i_t, f_t>>& var_probe_val_pairs,
@@ -62,6 +60,8 @@ class bound_presolve_t {
   void calculate_activity_on_problem_bounds(problem_t<i_t, f_t>& pb);
   bool calculate_bounds_update(problem_t<i_t, f_t>& pb);
   void set_updated_bounds(problem_t<i_t, f_t>& pb);
+  void set_updated_bounds(const raft::handle_t* handle_ptr,
+                          raft::device_span<typename type_2<f_t>::type> output_bounds);
   void set_updated_bounds(const raft::handle_t* handle_ptr,
                           raft::device_span<f_t> output_lb,
                           raft::device_span<f_t> output_ub);
@@ -86,6 +86,7 @@ class bound_presolve_t {
   i_t infeas_constraints_count = 0;
   i_t redund_constraints_count = 0;
   probing_cache_t<i_t, f_t> probing_cache;
+  i_t solve_iter;
 };
 
 }  // namespace cuopt::linear_programming::detail

@@ -55,7 +55,7 @@ class timer_t {
              file,
              line,
              caller);
-      cuopt_assert(false, "unexpected timer");
+      assert(false && "unexpected timer");
     }
     return elapsed;
   }

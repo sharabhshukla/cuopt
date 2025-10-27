@@ -8,7 +8,8 @@ NVIDIA cuOpt
    :name: NVIDIA cuOpt
 
    introduction.rst
-   release-notes.rst
+   release-notes
+
    system-requirements.rst
 
 .. toctree::
@@ -68,7 +69,7 @@ Third-Party Modeling Languages
    :caption: Third-Party Modeling Languages
    :name: Third-Party Modeling Languages
 
-   thirdparty_modeling_languages/index.rst 
+   thirdparty_modeling_languages/index.rst
 
 =============
 Resources

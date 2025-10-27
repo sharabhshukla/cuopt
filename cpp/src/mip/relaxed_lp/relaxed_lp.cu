@@ -19,6 +19,7 @@
 
 #include <cuopt/error.hpp>
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
+#include <linear_programming/solve.cuh>
 #include <mip/mip_constants.hpp>
 #include <mip/utils.cuh>
 
@@ -52,14 +53,21 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
   pdlp_solver_settings_t<i_t, f_t> pdlp_settings{};
   pdlp_settings.detect_infeasibility = settings.check_infeasibility;
   pdlp_settings.set_optimality_tolerance(settings.tolerance);
-  pdlp_settings.tolerances.relative_primal_tolerance = settings.tolerance / 100.;
-  pdlp_settings.tolerances.relative_dual_tolerance   = settings.tolerance / 100.;
+  f_t tolerance_divisor =
+    op_problem.tolerances.absolute_tolerance / op_problem.tolerances.relative_tolerance;
+  if (tolerance_divisor == 0) { tolerance_divisor = 1; }
+  pdlp_settings.tolerances.relative_primal_tolerance = settings.tolerance / tolerance_divisor;
+  pdlp_settings.tolerances.relative_dual_tolerance   = settings.tolerance / tolerance_divisor;
   pdlp_settings.time_limit                           = settings.time_limit;
   pdlp_settings.iteration_limit                      = settings.iteration_limit;
-  if (settings.return_first_feasible) { pdlp_settings.per_constraint_residual = true; }
-  pdlp_settings.first_primal_feasible = settings.return_first_feasible;
+  pdlp_settings.concurrent_halt                      = settings.concurrent_halt;
+  pdlp_settings.per_constraint_residual              = settings.per_constraint_residual;
+  pdlp_settings.first_primal_feasible                = settings.return_first_feasible;
+  pdlp_settings.pdlp_solver_mode                     = pdlp_solver_mode_t::Stable2;
+  set_pdlp_solver_mode(pdlp_settings);
+  // TODO: set Stable3 here?
   pdlp_solver_t<i_t, f_t> lp_solver(op_problem, pdlp_settings);
-  if (settings.save_state) {
+  if (settings.has_initial_primal) {
     i_t prev_size = lp_state.prev_dual.size();
     CUOPT_LOG_DEBUG(
       "setting initial primal solution of size %d dual size %d problem vars %d cstrs %d",
@@ -87,7 +95,7 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
   // before LP flush the logs as it takes quite some time
   cuopt::default_logger().flush();
   // temporarily add timer
-  auto start_time = std::chrono::high_resolution_clock::now();
+  auto start_time = timer_t(pdlp_settings.time_limit);
   lp_solver.set_inside_mip(true);
   CUOPT_LOG_DEBUG("prev primal hash 0x%x", detail::compute_hash(assignment));
   CUOPT_LOG_DEBUG("prev dual hash 0x%x", detail::compute_hash(lp_state.prev_dual));

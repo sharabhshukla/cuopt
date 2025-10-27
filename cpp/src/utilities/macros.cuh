@@ -23,7 +23,6 @@
 // 2) medium
 // 3) heavy
 #ifdef ASSERT_MODE
-#undef NDEBUG
 #include <cassert>
 #define cuopt_assert(val, msg) assert(val&& msg)
 #define cuopt_func_call(func)  func;
@@ -37,3 +36,14 @@
 #else
 #define benchmark_call(func) ;
 #endif
+
+// For CUDA Driver API
+#define CU_CHECK(expr_to_check, err_func)                                     \
+  do {                                                                        \
+    CUresult result = expr_to_check;                                          \
+    if (result != CUDA_SUCCESS) {                                             \
+      const char* pErrStr;                                                    \
+      err_func(result, &pErrStr);                                             \
+      fprintf(stderr, "CUDA Error: %s:%i:%s\n", __FILE__, __LINE__, pErrStr); \
+    }                                                                         \
+  } while (0)

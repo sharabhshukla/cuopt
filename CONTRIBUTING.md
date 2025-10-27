@@ -70,12 +70,12 @@ library features. The following instructions are for building with a conda envir
 
 CUDA/GPU Runtime:
 
-* CUDA 12.8
+* CUDA 12.0 or higher
 * Volta architecture or better ([Compute Capability](https://docs.nvidia.com/deploy/cuda-compatibility/) >=7.0)
 
 Python:
 
-* Python >=3.10.x, <= 3.12.x
+* Python >=3.10.x, <= 3.13.x
 
 OS:
 
@@ -110,7 +110,7 @@ Please install conda if you don't have it already. You can install [miniforge](h
 # create the conda environment (assuming in base `cuopt` directory)
 # note: cuOpt currently doesn't support `channel_priority: strict`;
 # use `channel_priority: flexible` instead
-conda env create --name cuopt_dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
+conda env create --name cuopt_dev --file conda/environments/all_cuda-130_arch-x86_64.yaml
 # activate the environment
 conda activate cuopt_dev
 ```
@@ -141,6 +141,15 @@ cd $CUOPT_HOME
 
 ```bash
 ./build.sh --help
+```
+
+#### Deb package
+
+`libcuopt.so` can be packaged as a deb package with option deb. This is a beta-feature and dependecies of libcuopt needs to be installed manually while installing it using deb package.
+This is only available to be built through source code and libcuopt is not being released as deb package in any official space.
+
+```bash
+./build.sh libmps_parser libcuopt deb
 ```
 
 #### Building for development
@@ -227,7 +236,7 @@ This will add the device debug symbols for this object file in `libcuopt.so`.  Y
 ## Adding dependencies
 
 Please refer to the [dependencies.yaml](dependencies.yaml) file for details on how to add new dependencies.
-Add any new dependencies in the `dependencies.yaml` file. It takes care of conda, requirements (pip based dependencies) and pyproject. 
+Add any new dependencies in the `dependencies.yaml` file. It takes care of conda, requirements (pip based dependencies) and pyproject.
 Please don't try to add dependencies directly to environment.yaml files under `conda/environments` directory and pyproject.toml files under `python` directories.
 
 ## Code Formatting
@@ -314,5 +323,3 @@ You can skip these checks with `git commit --no-verify` or with the short versio
 
     (d) I understand and agree that this project and the contribution are public and that a record of the contribution (including all personal information I submit with it, including my sign-off) is maintained indefinitely and may be redistributed consistent with this project or the open source license(s) involved.
   ```
-  
-

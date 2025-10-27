@@ -13,13 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import time
+
 from cuopt.linear_programming.solver import solver_wrapper
 from cuopt.linear_programming.solver_settings import SolverSettings
 from cuopt.utilities import catch_cuopt_exception
 
 
 @catch_cuopt_exception
-def Solve(data_model, solver_settings=None, log_file=""):
+def Solve(data_model, solver_settings=None):
     """
     Solve the Linear Program passed as input and returns the solution.
 
@@ -78,27 +81,44 @@ def Solve(data_model, solver_settings=None, log_file=""):
     >>> # Print the value of one specific variable
     >>> print(solution.get_vars()["var_name"])
     """
+
+    emit_stamps = os.environ.get("CUOPT_EXTRA_TIMESTAMPS", False) in (
+        True,
+        "True",
+        "true",
+    )
+    if emit_stamps:
+        print(f"CUOPT_SOLVE_START: {time.time()}")
+
     if solver_settings is None:
         solver_settings = SolverSettings()
 
     def is_mip(var_types):
         if len(var_types) == 0:
             return False
-        elif "I" in var_types:
-            return True
+        # Check if all types are the same (fast check)
+        if len(set(map(type, var_types))) == 1:
+            # Homogeneous - use appropriate check
+            if isinstance(var_types[0], bytes):
+                return b"I" in var_types
+            else:
+                return "I" in var_types
+        else:
+            # Mixed types - fallback to comprehensive check
+            return any(vt == "I" or vt == b"I" for vt in var_types)
 
-        return False
-
-    return solver_wrapper.Solve(
+    s = solver_wrapper.Solve(
         data_model,
         solver_settings,
-        log_file,
         mip=is_mip(data_model.get_variable_types()),
     )
+    if emit_stamps:
+        print(f"CUOPT_SOLVE_RETURN: {time.time()}")
+    return s
 
 
 @catch_cuopt_exception
-def BatchSolve(data_model_list, solver_settings=None, log_file=""):
+def BatchSolve(data_model_list, solver_settings=None):
     """
     Solve the list of Linear Programs passed as input and returns the solutions
     and total solve time.
@@ -174,6 +194,4 @@ def BatchSolve(data_model_list, solver_settings=None, log_file=""):
     if solver_settings is None:
         solver_settings = SolverSettings()
 
-    return solver_wrapper.BatchSolve(
-        data_model_list, solver_settings, log_file
-    )
+    return solver_wrapper.BatchSolve(data_model_list, solver_settings)

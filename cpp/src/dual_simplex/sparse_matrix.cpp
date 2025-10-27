@@ -15,14 +15,24 @@
  * limitations under the License.
  */
 
+// #include <dual_simplex/dense_vector.hpp>
 #include <dual_simplex/sparse_matrix.hpp>
+#include <dual_simplex/sparse_vector.hpp>
 
 #include <dual_simplex/types.hpp>
+
+// #include <thrust/for_each.h>
+// #include <thrust/iterator/counting_iterator.h>
+
+// #include <cub/cub.cuh>
+
+#include <iostream>
+// #include <utilities/cuda_helpers.cuh>
+#include <vector>
 
 #include <cassert>
 #include <cmath>
 #include <cstdio>
-#include <vector>
 
 namespace cuopt::linear_programming::dual_simplex {
 
@@ -146,6 +156,61 @@ i_t csc_matrix_t<i_t, f_t>::load_a_column(i_t j, std::vector<f_t>& Aj) const
     Aj[i]       = x;
   }
   return (col_end - col_start);
+}
+
+template <typename i_t, typename f_t>
+void csc_matrix_t<i_t, f_t>::append_column(const std::vector<f_t>& x)
+{
+  const i_t m = this->m;
+  assert(x.size() == m);
+  const i_t xsz = x.size();
+  i_t nz        = this->col_start[this->n];
+  for (i_t j = 0; j < xsz; ++j) {
+    if (x[j] != 0.0) {
+      this->i[nz] = j;
+      this->x[nz] = x[j];
+      nz++;
+    }
+  }
+  this->col_start[this->n + 1] = nz;
+  this->n++;
+}
+
+template <typename i_t, typename f_t>
+void csc_matrix_t<i_t, f_t>::append_column(const sparse_vector_t<i_t, f_t>& x)
+{
+  const i_t m = this->m;
+  assert(x.n == m);
+  i_t nz        = this->col_start[this->n];
+  const i_t xnz = x.i.size();
+  for (i_t k = 0; k < xnz; ++k) {
+    const i_t i     = x.i[k];
+    const f_t x_val = x.x[k];
+    if (x_val != 0.0) {
+      this->i[nz] = i;
+      this->x[nz] = x_val;
+      nz++;
+    }
+  }
+  this->col_start[this->n + 1] = nz;
+  this->n++;
+}
+
+template <typename i_t, typename f_t>
+void csc_matrix_t<i_t, f_t>::append_column(i_t x_nz, i_t* i, f_t* x)
+{
+  i_t nz = this->col_start[this->n];
+  for (i_t k = 0; k < x_nz; ++k) {
+    const i_t i_val = i[k];
+    const f_t x_val = x[i_val];
+    if (x_val != 0.0) {
+      this->i[nz] = i_val;
+      this->x[nz] = x_val;
+      nz++;
+    }
+  }
+  this->col_start[this->n + 1] = nz;
+  this->n++;
 }
 
 template <typename i_t, typename f_t>
@@ -317,9 +382,100 @@ void csc_matrix_t<i_t, f_t>::print_matrix(FILE* fid) const
 }
 
 template <typename i_t, typename f_t>
+void csc_matrix_t<i_t, f_t>::write_matrix_market(FILE* fid) const
+{
+  fprintf(fid, "%%%%MatrixMarket matrix coordinate real general\n");
+  fprintf(fid, "%d %d %d\n", this->m, this->n, this->col_start[this->n]);
+  for (i_t j = 0; j < this->n; ++j) {
+    const i_t col_beg = this->col_start[j];
+    const i_t col_end = this->col_start[j + 1];
+    for (i_t p = col_beg; p < col_end; ++p) {
+      fprintf(fid, "%d %d %.16e\n", this->i[p] + 1, j + 1, this->x[p]);
+    }
+  }
+}
+
+template <typename i_t, typename f_t>
 void csc_matrix_t<i_t, f_t>::print_matrix() const
 {
   this->print_matrix(stdout);
+}
+
+template <typename i_t, typename f_t>
+void csc_matrix_t<i_t, f_t>::compare(csc_matrix_t<i_t, f_t> const& B) const
+{
+  auto my_nnz = this->col_start[this->n];
+  auto B_nnz  = B.col_start[B.n];
+  assert(my_nnz == B_nnz);
+  assert(this->m == B.m);
+  assert(this->n == B.n);
+  // std::cout << "this->nz_max " << this->nz_max << " B.nz_max " << B.nz_max << std::endl;
+  // assert(this->nz_max == B.nz_max);
+
+  for (i_t k = 0; k < this->n; k++) {
+    auto col_start = this->col_start[k];
+    auto col_end   = this->col_start[k + 1];
+    auto my_start  = B.col_start[k];
+    auto my_end    = B.col_start[k + 1];
+    if (col_start != my_start) {
+      std::cout << "this->col_start[" << k << "] " << col_start << " B.col_start[" << k << "] "
+                << my_start << std::endl;
+    }
+    if (col_end != my_end) {
+      std::cout << "this->col_end[" << k << "] " << col_end << " B.col_end[" << k << "] " << my_end
+                << std::endl;
+    }
+
+    // Create a vector of pairs (row index, value) for the column
+    std::vector<std::pair<i_t, f_t>> this_col_entries(col_end - col_start);
+    for (i_t idx = 0; idx < col_end - col_start; ++idx) {
+      this_col_entries[idx] = {this->i[col_start + idx], this->x[col_start + idx]};
+    }
+    // Sort the pairs by row index
+    std::sort(
+      this_col_entries.begin(),
+      this_col_entries.end(),
+      [](const std::pair<i_t, f_t>& a, const std::pair<i_t, f_t>& b) { return a.first < b.first; });
+    // Extract the sorted indices and values back to sorted_col and a new sorted_x
+    std::vector<i_t> this_sorted_col(col_end - col_start);
+    std::vector<f_t> this_sorted_x(col_end - col_start);
+    for (i_t idx = 0; idx < col_end - col_start; ++idx) {
+      this_sorted_col[idx] = this_col_entries[idx].first;
+      this_sorted_x[idx]   = this_col_entries[idx].second;
+    }
+
+    std::vector<std::pair<i_t, f_t>> B_col_entries(col_end - col_start);
+    for (i_t idx = 0; idx < col_end - col_start; ++idx) {
+      B_col_entries[idx] = {B.i[col_start + idx], B.x[col_start + idx]};
+    }
+    std::sort(
+      B_col_entries.begin(),
+      B_col_entries.end(),
+      [](const std::pair<i_t, f_t>& a, const std::pair<i_t, f_t>& b) { return a.first < b.first; });
+    std::vector<i_t> B_sorted_col(col_end - col_start);
+    std::vector<f_t> B_sorted_x(col_end - col_start);
+    for (i_t idx = 0; idx < col_end - col_start; ++idx) {
+      B_sorted_col[idx] = B_col_entries[idx].first;
+      B_sorted_x[idx]   = B_col_entries[idx].second;
+    }
+    for (i_t l = 0; l < col_end - col_start; l++) {
+      auto col = this_sorted_col[l];
+      auto val = this_sorted_x[l];
+
+      auto my_col = B_sorted_col[l];
+      auto my_val = B_sorted_x[l];
+
+      if (col != my_col) {
+        std::cout << "col " << col << " my_col " << my_col << std::endl;
+        std::cout << "col_start " << col_start << " l " << l << std::endl;
+      }
+
+      if (std::abs(val - my_val) > 1e-6) {
+        std::cout << "val " << val << " my_val " << my_val << std::endl;
+      }
+    }
+  }
+  return;
 }
 
 template <typename i_t, typename f_t>
@@ -347,6 +503,75 @@ i_t scatter(const csc_matrix_t<i_t, f_t>& A,
   return nz;
 }
 
+template <typename i_t, typename f_t>
+i_t csc_matrix_t<i_t, f_t>::check_matrix() const
+{
+  std::vector<i_t> row_marker(this->m, -1);
+  for (i_t j = 0; j < this->n; ++j) {
+    const i_t col_start = this->col_start[j];
+    const i_t col_end   = this->col_start[j + 1];
+    if (col_start > col_end || col_start > this->col_start[this->n]) {
+      printf("CSC error: column pointers. col start %d col end %d nz %d\n",
+             col_start,
+             col_end,
+             this->col_start[this->n]);
+      return -1;
+    }
+    for (i_t p = col_start; p < col_end; ++p) {
+      const i_t i = this->i[p];
+      if (i < 0 || i >= this->m) {
+        printf("CSC error: row index %d not in range [0, %d]\n", i, this->m - 1);
+      }
+      if (row_marker[i] == j) {
+        printf("CSC error: repeated row index %d in column %d\n", i, j);
+        return -1;
+      }
+      row_marker[i] = j;
+    }
+  }
+  return 0;
+}
+
+template <typename i_t, typename f_t>
+size_t csc_matrix_t<i_t, f_t>::hash() const
+{
+  auto hash_combine_i = [](size_t seed, i_t i) {
+    seed ^= std::hash<i_t>{}(i) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    return seed;
+  };
+  auto hash_combine_f = [](size_t seed, f_t x) {
+    seed ^= std::hash<f_t>{}(x) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    return seed;
+  };
+
+  size_t seed = this->n;
+  seed        = hash_combine_i(seed, this->m);
+  for (i_t j = 0; j <= this->n; ++j) {
+    seed = hash_combine_i(seed, this->col_start[j]);
+  }
+  i_t nnz = this->col_start[this->n];
+  for (i_t p = 0; p < nnz; ++p) {
+    seed = hash_combine_i(seed, this->i[p]);
+    seed = hash_combine_f(seed, this->x[p]);
+  }
+  return seed;
+}
+
+template <typename i_t, typename f_t>
+void csr_matrix_t<i_t, f_t>::check_matrix() const
+{
+  std::vector<i_t> col_marker(this->n, -1);
+  for (i_t i = 0; i < this->m; ++i) {
+    const i_t row_start = this->row_start[i];
+    const i_t row_end   = this->row_start[i + 1];
+    for (i_t p = row_start; p < row_end; ++p) {
+      const i_t j = this->j[p];
+      if (col_marker[j] == i) { printf("CSR Error: repeated column index %d in row %d\n", j, i); }
+      col_marker[j] = i;
+    }
+  }
+}
+
 // x <- x + alpha * A(:, j)
 template <typename i_t, typename f_t>
 void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, std::vector<f_t>& x)
@@ -357,6 +582,28 @@ void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, std::vecto
     const i_t i  = A.i[p];
     const f_t ax = A.x[p];
     x[i] += alpha * ax;
+  }
+}
+
+// x <- x + alpha * A(:, j)
+template <typename i_t, typename f_t>
+void scatter_dense(const csc_matrix_t<i_t, f_t>& A,
+                   i_t j,
+                   f_t alpha,
+                   std::vector<f_t>& x,
+                   std::vector<i_t>& mark,
+                   std::vector<i_t>& indices)
+{
+  const i_t col_start = A.col_start[j];
+  const i_t col_end   = A.col_start[j + 1];
+  for (i_t p = col_start; p < col_end; ++p) {
+    const i_t i  = A.i[p];
+    const f_t ax = A.x[p];
+    x[i] += alpha * ax;
+    if (!mark[i]) {
+      mark[i] = 1;
+      indices.push_back(i);
+    }
   }
 }
 
@@ -600,75 +847,6 @@ f_t sparse_dot(const std::vector<i_t>& xind,
   return dot;
 }
 
-template <typename i_t, typename f_t>
-i_t matrix_vector_multiply(const csc_matrix_t<i_t, f_t>& A,
-                           f_t alpha,
-                           const std::vector<f_t>& x,
-                           f_t beta,
-                           std::vector<f_t>& y)
-{
-  // y <- alpha*A*x + beta*y
-  i_t m = A.m;
-  i_t n = A.n;
-  assert(y.size() == m);
-  assert(x.size() == n);
-
-  // y <- alpha * sum_j A(:, j)*x_j + beta * y
-
-  // y <- beta * y
-  if (beta != 1.0) {
-    for (i_t i = 0; i < m; ++i) {
-      y[i] *= beta;
-    }
-  }
-
-  // y <- alpha * sum_j A(:, j)*x_j + y
-  for (i_t j = 0; j < n; ++j) {
-    i_t col_start = A.col_start[j];
-    i_t col_end   = A.col_start[j + 1];
-    for (i_t p = col_start; p < col_end; ++p) {
-      i_t i = A.i[p];
-      y[i] += alpha * A.x[p] * x[j];
-    }
-  }
-
-  return 0;
-}
-
-// y <- alpha*A'*x + beta*y
-template <typename i_t, typename f_t>
-i_t matrix_transpose_vector_multiply(const csc_matrix_t<i_t, f_t>& A,
-                                     f_t alpha,
-                                     const std::vector<f_t>& x,
-                                     f_t beta,
-                                     std::vector<f_t>& y)
-{
-  i_t m = A.m;
-  i_t n = A.n;
-  assert(y.size() == n);
-  assert(x.size() == m);
-
-  // y <- beta * y
-  if (beta != 1.0) {
-    for (i_t j = 0; j < n; ++j) {
-      y[j] *= beta;
-    }
-  }
-
-  // y <- alpha * AT*x + y
-  for (i_t j = 0; j < n; ++j) {
-    f_t dot       = 0.0;
-    i_t col_start = A.col_start[j];
-    i_t col_end   = A.col_start[j + 1];
-    for (i_t p = col_start; p < col_end; ++p) {
-      dot += A.x[p] * x[A.i[p]];
-    }
-    y[j] += alpha * dot;
-  }
-
-  return 0;
-}
-
 #ifdef DUAL_SIMPLEX_INSTANTIATE_DOUBLE
 template class csc_matrix_t<int, double>;
 
@@ -695,6 +873,13 @@ template void scatter_dense<int, double>(const csc_matrix_t<int, double>& A,
                                          double alpha,
                                          std::vector<double>& x);
 
+template void scatter_dense<int, double>(const csc_matrix_t<int, double>& A,
+                                         int j,
+                                         double alpha,
+                                         std::vector<double>& x,
+                                         std::vector<int>& mark,
+                                         std::vector<int>& indices);
+
 template int multiply<int, double>(const csc_matrix_t<int, double>& A,
                                    const csc_matrix_t<int, double>& B,
                                    csc_matrix_t<int, double>& C);
@@ -710,17 +895,20 @@ template double sparse_dot<int, double>(const std::vector<int>& xind,
                                         const csc_matrix_t<int, double>& Y,
                                         int y_col);
 
-template int matrix_vector_multiply<int, double>(const csc_matrix_t<int, double>& A,
-                                                 double alpha,
-                                                 const std::vector<double>& x,
-                                                 double beta,
-                                                 std::vector<double>& y);
+template int matrix_vector_multiply<int, double, std::allocator<double>, std::allocator<double>>(
+  const csc_matrix_t<int, double>& A,
+  double alpha,
+  const std::vector<double, std::allocator<double>>& x,
+  double beta,
+  std::vector<double, std::allocator<double>>& y);
+template int
+matrix_transpose_vector_multiply<int, double, std::allocator<double>, std::allocator<double>>(
+  const csc_matrix_t<int, double>& A,
+  double alpha,
+  const std::vector<double, std::allocator<double>>& x,
+  double beta,
+  std::vector<double, std::allocator<double>>& y);
 
-template int matrix_transpose_vector_multiply<int, double>(const csc_matrix_t<int, double>& A,
-                                                           double alpha,
-                                                           const std::vector<double>& x,
-                                                           double beta,
-                                                           std::vector<double>& y);
 #endif
 
 }  // namespace cuopt::linear_programming::dual_simplex

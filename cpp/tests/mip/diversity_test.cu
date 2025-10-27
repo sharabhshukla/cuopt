@@ -90,15 +90,14 @@ static uint32_t test_initial_population_determinism(std::string path,
 
   setup_device_symbols(op_problem.get_handle_ptr()->get_stream());
 
-  detail::pdhg_solver_t<int, double> pdhg_solver(problem.handle_ptr, problem);
   detail::pdlp_initial_scaling_strategy_t<int, double> scaling(&handle_,
                                                                problem,
                                                                10,
                                                                1.0,
-                                                               pdhg_solver,
                                                                problem.reverse_coefficients,
                                                                problem.reverse_offsets,
                                                                problem.reverse_constraints,
+                                                               nullptr,
                                                                true);
 
   auto settings       = mip_solver_settings_t<int, double>{};
@@ -108,7 +107,7 @@ static uint32_t test_initial_population_determinism(std::string path,
   problem.tolerances = settings.get_tolerances();
 
   detail::diversity_manager_t<int, double> diversity_manager(solver.context);
-  diversity_manager.settings.fj_only_run = true;
+  diversity_manager.diversity_config.fj_only_run = true;
   // run with FJ only on the initial population, no recombining
   diversity_manager.run_solver();
 
@@ -130,8 +129,9 @@ static uint32_t test_initial_population_determinism(std::string path,
   for (int i = 1; i < (int)pop_vector.size(); i++) {
     for (int j = i + 1; j < (int)pop_vector.size(); j++) {
       printf("recombining %d and %d\n", i, j);
-      auto [offspring, success] = diversity_manager.recombine(pop_vector[i], pop_vector[j]);
-      auto offspring_hash       = offspring.get_hash();
+      auto [offspring, success] = diversity_manager.recombine(
+        pop_vector[i], pop_vector[j], detail::recombiner_enum_t::LINE_SEGMENT);
+      auto offspring_hash = offspring.get_hash();
       printf("for %d,%d: offspring hash: 0x%x, parent 1 hash: 0x%x, parent 2 hash: 0x%x\n",
              i,
              j,

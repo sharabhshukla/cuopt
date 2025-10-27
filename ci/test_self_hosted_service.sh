@@ -22,7 +22,7 @@ source rapids-init-pip
 # Download the cuopt built in the previous step
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
 CUOPT_MPS_PARSER_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="cuopt_mps_parser" rapids-download-wheels-from-github python)
-CUOPT_SERVER_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="cuopt_server_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github python)
+CUOPT_SERVER_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="cuopt_server_${RAPIDS_PY_CUDA_SUFFIX}" RAPIDS_PY_WHEEL_PURE="1" rapids-download-wheels-from-github python)
 CUOPT_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="cuopt_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github python)
 LIBCUOPT_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="libcuopt_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
 
@@ -216,6 +216,10 @@ if [ "$doservertest" -eq 1 ]; then
 
     # Test for message on absolute path, bad directory
     run_cli_test "Absolute path '/nohay' does not exist" cuopt_sh -s -c "$CLIENT_CERT" -p $CUOPT_SERVER_PORT -f /nohay/nada
+
+    # Set all current and deprecated solver_config values and make sure the service does not reject the dataset
+    # This is a smoketest against parameter name misalignment
+    run_cli_test "'status': 'Optimal'" cuopt_sh -s -c $CLIENT_CERT -p $CUOPT_SERVER_PORT ../../datasets/cuopt_service_data/lpmip_configs.json
 
     rapids-logger "Running cuopt_self_hosted Python tests"
     pytest tests

@@ -65,12 +65,11 @@ from numba import cuda
 import cudf
 from cudf.core.buffer import as_buffer
 
-from cuopt.linear_programming.solver.solver_parameters import CUOPT_LOG_FILE
 from cuopt.linear_programming.solver_settings.solver_settings import (
     PDLPSolverMode,
     SolverSettings,
 )
-from cuopt.utilities import InputValidationError
+from cuopt.utilities import InputValidationError, col_from_buf
 
 
 cdef extern from "cuopt/linear_programming/utilities/internals.hpp" namespace "cuopt::internals": # noqa
@@ -155,131 +154,9 @@ def type_cast(cudf_obj, np_type, name):
     return cudf_obj
 
 
-cdef set_data_model_view(DataModel data_model_obj):
-    cdef data_model_view_t[int, double]* c_data_model_view = (
-        data_model_obj.c_data_model_view.get()
-    )
-
-    # Set data_model_obj fields on the C++ side if set on the Python side
-    cdef uintptr_t c_A_values = (
-        get_data_ptr(data_model_obj.get_constraint_matrix_values())
-    )
-    cdef uintptr_t c_A_indices = (
-        get_data_ptr(data_model_obj.get_constraint_matrix_indices())
-    )
-    cdef uintptr_t c_A_offsets = (
-        get_data_ptr(data_model_obj.get_constraint_matrix_offsets())
-    )
-    if data_model_obj.get_constraint_matrix_values().shape[0] != 0 and data_model_obj.get_constraint_matrix_indices().shape[0] != 0 and data_model_obj.get_constraint_matrix_offsets().shape[0] != 0: # noqa
-        c_data_model_view.set_csr_constraint_matrix(
-            <const double *> c_A_values,
-            data_model_obj.get_constraint_matrix_values().shape[0],
-            <const int *> c_A_indices,
-            data_model_obj.get_constraint_matrix_indices().shape[0],
-            <const int *> c_A_offsets,
-            data_model_obj.get_constraint_matrix_offsets().shape[0]
-        )
-
-    cdef uintptr_t c_b = (
-        get_data_ptr(data_model_obj.get_constraint_bounds())
-    )
-    if data_model_obj.get_constraint_bounds().shape[0] != 0:
-        c_data_model_view.set_constraint_bounds(
-            <const double *> c_b,
-            data_model_obj.get_constraint_bounds().shape[0]
-        )
-
-    cdef uintptr_t c_c = (
-        get_data_ptr(data_model_obj.get_objective_coefficients())
-    )
-    if data_model_obj.get_objective_coefficients().shape[0] != 0:
-        c_data_model_view.set_objective_coefficients(
-            <const double *> c_c,
-            data_model_obj.get_objective_coefficients().shape[0]
-        )
-
-    c_data_model_view.set_objective_scaling_factor(
-        <double> data_model_obj.get_objective_scaling_factor()
-    )
-    c_data_model_view.set_objective_offset(
-        <double> data_model_obj.get_objective_offset()
-    )
-    c_data_model_view.set_maximize(<bool> data_model_obj.maximize)
-
-    cdef uintptr_t c_variable_lower_bounds = (
-        get_data_ptr(data_model_obj.get_variable_lower_bounds())
-    )
-    if data_model_obj.get_variable_lower_bounds().shape[0] != 0:
-        c_data_model_view.set_variable_lower_bounds(
-            <const double *> c_variable_lower_bounds,
-            data_model_obj.get_variable_lower_bounds().shape[0]
-        )
-
-    cdef uintptr_t c_variable_upper_bounds = (
-        get_data_ptr(data_model_obj.get_variable_upper_bounds())
-    )
-    if data_model_obj.get_variable_upper_bounds().shape[0] != 0:
-        c_data_model_view.set_variable_upper_bounds(
-            <const double *> c_variable_upper_bounds,
-            data_model_obj.get_variable_upper_bounds().shape[0]
-        )
-    cdef uintptr_t c_constraint_lower_bounds = (
-        get_data_ptr(data_model_obj.get_constraint_lower_bounds())
-    )
-    if data_model_obj.get_constraint_lower_bounds().shape[0] != 0:
-        c_data_model_view.set_constraint_lower_bounds(
-            <const double *> c_constraint_lower_bounds,
-            data_model_obj.get_constraint_lower_bounds().shape[0]
-        )
-    cdef uintptr_t c_constraint_upper_bounds = (
-        get_data_ptr(data_model_obj.get_constraint_upper_bounds())
-    )
-    if data_model_obj.get_constraint_upper_bounds().shape[0] != 0:
-        c_data_model_view.set_constraint_upper_bounds(
-            <const double *> c_constraint_upper_bounds,
-            data_model_obj.get_constraint_upper_bounds().shape[0]
-        )
-    cdef uintptr_t c_row_types = (
-        get_data_ptr(data_model_obj.get_ascii_row_types())
-    )
-    if data_model_obj.get_ascii_row_types().shape[0] != 0:
-        c_data_model_view.set_row_types(
-            <const char *> c_row_types,
-            data_model_obj.get_ascii_row_types().shape[0]
-        )
-
-    cdef uintptr_t c_var_types = (
-        get_data_ptr(data_model_obj.get_variable_types())
-    )
-    if data_model_obj.get_variable_types().shape[0] != 0:
-        c_data_model_view.set_variable_types(
-            <const char *> c_var_types,
-            data_model_obj.get_variable_types().shape[0]
-        )
-
-    # Set initial solution on the C++ side if set on the Python side
-    cdef uintptr_t c_initial_primal_solution = (
-        get_data_ptr(data_model_obj.get_initial_primal_solution())
-    )
-    if data_model_obj.get_initial_primal_solution().shape[0] != 0:
-        c_data_model_view.set_initial_primal_solution(
-            <const double *> c_initial_primal_solution,
-            data_model_obj.get_initial_primal_solution().shape[0]
-        )
-    cdef uintptr_t c_initial_dual_solution = (
-        get_data_ptr(data_model_obj.get_initial_dual_solution())
-    )
-    if data_model_obj.get_initial_dual_solution().shape[0] != 0:
-        c_data_model_view.set_initial_dual_solution(
-            <const double *> c_initial_dual_solution,
-            data_model_obj.get_initial_dual_solution().shape[0]
-        )
-
-
 cdef set_solver_setting(
         unique_ptr[solver_settings_t[int, double]]& unique_solver_settings,
         settings,
-        log_file,
         DataModel data_model_obj=None,
         mip=False):
     cdef solver_settings_t[int, double]* c_solver_settings = (
@@ -425,13 +302,6 @@ cdef set_solver_setting(
             settings.get_pdlp_warm_start_data().iterations_since_last_restart # noqa
         )
 
-    # Common to LP and MIP
-
-    c_solver_settings.set_parameter_from_string(
-        CUOPT_LOG_FILE.encode('utf-8'),
-        log_file.encode('utf-8')
-    )
-
 cdef create_solution(unique_ptr[solver_ret_t] sol_ret_ptr,
                      DataModel data_model_obj,
                      is_batch=False):
@@ -458,11 +328,9 @@ cdef create_solution(unique_ptr[solver_ret_t] sol_ret_ptr,
         num_nodes = sol_ret.mip_ret.nodes_
         num_simplex_iterations = sol_ret.mip_ret.simplex_iterations_
 
+        solution_buf = as_buffer(solution)
         solution = cudf.Series._from_column(
-            cudf.core.column.build_column(
-                as_buffer(solution),
-                dtype=np.dtype(np.float64)
-            )
+            col_from_buf(solution_buf, np.float64)
         ).to_numpy()
 
         return Solution(
@@ -491,23 +359,18 @@ cdef create_solution(unique_ptr[solver_ret_t] sol_ret_ptr,
         dual_solution = DeviceBuffer.c_from_unique_ptr(move(sol_ret.lp_ret.dual_solution_)) # noqa
         reduced_cost = DeviceBuffer.c_from_unique_ptr(move(sol_ret.lp_ret.reduced_cost_)) # noqa
 
+        primal_solution_buf = as_buffer(primal_solution)
+        dual_solution_buf = as_buffer(dual_solution)
+        reduced_cost_buf = as_buffer(reduced_cost)
+
         primal_solution = cudf.Series._from_column(
-            cudf.core.column.build_column(
-                as_buffer(primal_solution),
-                dtype=np.dtype(np.float64)
-            )
+            col_from_buf(primal_solution_buf, np.float64)
         ).to_numpy()
         dual_solution = cudf.Series._from_column(
-            cudf.core.column.build_column(
-                as_buffer(dual_solution),
-                dtype=np.dtype(np.float64)
-            )
+            col_from_buf(dual_solution_buf, np.float64)
         ).to_numpy()
         reduced_cost = cudf.Series._from_column(
-            cudf.core.column.build_column(
-                as_buffer(reduced_cost),
-                dtype=np.dtype(np.float64)
-            )
+            col_from_buf(reduced_cost_buf, np.float64)
         ).to_numpy()
 
         termination_status = sol_ret.lp_ret.termination_status_
@@ -560,58 +423,51 @@ cdef create_solution(unique_ptr[solver_ret_t] sol_ret_ptr,
             sum_solution_weight = sol_ret.lp_ret.sum_solution_weight_
             iterations_since_last_restart = sol_ret.lp_ret.iterations_since_last_restart_ # noqa
 
+            current_primal_solution_buf = as_buffer(current_primal_solution)
+            current_dual_solution_buf = as_buffer(current_dual_solution)
+            initial_primal_average_buf = as_buffer(initial_primal_average)
+            initial_dual_average_buf = as_buffer(initial_dual_average)
+            current_ATY_buf = as_buffer(current_ATY)
+            sum_primal_solutions_buf = as_buffer(sum_primal_solutions)
+            sum_dual_solutions_buf = as_buffer(sum_dual_solutions)
+            last_restart_duality_gap_primal_solution_buf = as_buffer(
+                last_restart_duality_gap_primal_solution
+            )
+            last_restart_duality_gap_dual_solution_buf = as_buffer(
+                last_restart_duality_gap_dual_solution
+            )
+
             current_primal_solution = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(current_primal_solution),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(current_primal_solution_buf, np.float64)
             ).to_numpy()
             current_dual_solution = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(current_dual_solution),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(current_dual_solution_buf, np.float64)
             ).to_numpy()
             initial_primal_average = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(initial_primal_average),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(initial_primal_average_buf, np.float64)
             ).to_numpy()
             initial_dual_average = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(initial_dual_average),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(initial_dual_average_buf, np.float64)
             ).to_numpy()
             current_ATY = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(current_ATY),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(current_ATY_buf, np.float64)
             ).to_numpy()
             sum_primal_solutions = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(sum_primal_solutions),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(sum_primal_solutions_buf, np.float64)
             ).to_numpy()
             sum_dual_solutions = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(sum_dual_solutions),
-                    dtype=np.dtype(np.float64)
-                )
+                col_from_buf(sum_dual_solutions_buf, np.float64)
             ).to_numpy()
             last_restart_duality_gap_primal_solution = cudf.Series._from_column( # noqa
-                cudf.core.column.build_column(
-                    as_buffer(last_restart_duality_gap_primal_solution),
-                    dtype=np.dtype(np.float64)
+                col_from_buf(
+                    last_restart_duality_gap_primal_solution_buf,
+                    np.float64
                 )
             ).to_numpy()
             last_restart_duality_gap_dual_solution = cudf.Series._from_column(
-                cudf.core.column.build_column(
-                    as_buffer(last_restart_duality_gap_dual_solution),
-                    dtype=np.dtype(np.float64)
+                col_from_buf(
+                    last_restart_duality_gap_dual_solution_buf,
+                    np.float64
                 )
             ).to_numpy()
 
@@ -670,7 +526,7 @@ cdef create_solution(unique_ptr[solver_ret_t] sol_ret_ptr,
         )
 
 
-def Solve(py_data_model_obj, settings, str log_file, mip=False):
+def Solve(py_data_model_obj, settings, mip=False):
 
     cdef DataModel data_model_obj = <DataModel>py_data_model_obj
     cdef unique_ptr[solver_settings_t[int, double]] unique_solver_settings
@@ -682,9 +538,9 @@ def Solve(py_data_model_obj, settings, str log_file, mip=False):
     )
 
     set_solver_setting(
-        unique_solver_settings, settings, log_file, data_model_obj, mip
+        unique_solver_settings, settings, data_model_obj, mip
     )
-    set_data_model_view(data_model_obj)
+    data_model_obj.set_data_model_view()
 
     return create_solution(move(call_solve(
         data_model_obj.c_data_model_view.get(),
@@ -692,24 +548,25 @@ def Solve(py_data_model_obj, settings, str log_file, mip=False):
     )), data_model_obj)
 
 
-cdef insert_vector(DataModel data_model_obj,
-                   vector[data_model_view_t[int, double] *]& data_model_views):
+cdef set_and_insert_vector(
+        DataModel data_model_obj,
+        vector[data_model_view_t[int, double] *]& data_model_views):
+    data_model_obj.set_data_model_view()
     data_model_views.push_back(data_model_obj.c_data_model_view.get())
 
 
-def BatchSolve(py_data_model_list, settings, str log_file):
+def BatchSolve(py_data_model_list, settings):
     cdef unique_ptr[solver_settings_t[int, double]] unique_solver_settings
     unique_solver_settings.reset(new solver_settings_t[int, double]())
 
     if settings.get_pdlp_warm_start_data() is not None:  # noqa
         raise Exception("Cannot use warmstart data with Batch Solve")
-    set_solver_setting(unique_solver_settings, settings, log_file)
+    set_solver_setting(unique_solver_settings, settings)
 
     cdef vector[data_model_view_t[int, double] *] data_model_views
 
     for data_model_obj in py_data_model_list:
-        set_data_model_view(<DataModel>data_model_obj)
-        insert_vector(<DataModel>data_model_obj, data_model_views)
+        set_and_insert_vector(<DataModel>data_model_obj, data_model_views)
 
     cdef pair[
         vector[unique_ptr[solver_ret_t]],

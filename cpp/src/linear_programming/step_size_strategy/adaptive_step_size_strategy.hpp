@@ -56,7 +56,8 @@ class adaptive_step_size_strategy_t {
 
   adaptive_step_size_strategy_t(raft::handle_t const* handle_ptr,
                                 rmm::device_scalar<f_t>* primal_weight,
-                                rmm::device_scalar<f_t>* step_size);
+                                rmm::device_scalar<f_t>* step_size,
+                                bool is_batch_mode = false);
 
   void compute_step_sizes(pdhg_solver_t<i_t, f_t>& pdhg_solver,
                           rmm::device_scalar<f_t>& primal_step_size,
@@ -73,12 +74,15 @@ class adaptive_step_size_strategy_t {
 
   i_t get_valid_step_size() const;
   void set_valid_step_size(i_t);
+  f_t get_interaction() const;
+  f_t get_norm_squared_delta_primal() const;
+  f_t get_norm_squared_delta_dual() const;
 
- private:
   void compute_interaction_and_movement(rmm::device_uvector<f_t>& tmp_primal,
                                         cusparse_view_t<i_t, f_t>& cusparse_view,
                                         saddle_point_state_t<i_t, f_t>& current_saddle_point_state);
 
+ private:
   // Stream pool to run different step size computation in parallel
   // Because we already have the main stream, we just need 2 extra streams from this
   rmm::cuda_stream_pool stream_pool_;
