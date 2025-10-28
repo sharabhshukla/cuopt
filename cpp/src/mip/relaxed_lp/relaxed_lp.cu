@@ -90,22 +90,22 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
     lp_solver.set_initial_primal_solution(assignment);
     lp_solver.set_initial_dual_solution(lp_state.prev_dual);
   }
-  CUOPT_LOG_DEBUG(
-    "running LP with n_vars %d n_cstr %d", op_problem.n_variables, op_problem.n_constraints);
+  // CUOPT_LOG_DEBUG(
+  //   "running LP with n_vars %d n_cstr %d", op_problem.n_variables, op_problem.n_constraints);
   // before LP flush the logs as it takes quite some time
   cuopt::default_logger().flush();
   // temporarily add timer
   auto start_time = timer_t(pdlp_settings.time_limit);
   lp_solver.set_inside_mip(true);
-  CUOPT_LOG_DEBUG("prev primal hash 0x%x", detail::compute_hash(assignment));
-  CUOPT_LOG_DEBUG("prev dual hash 0x%x", detail::compute_hash(lp_state.prev_dual));
+  // CUOPT_LOG_DEBUG("prev primal hash 0x%x", detail::compute_hash(assignment));
+  // CUOPT_LOG_DEBUG("prev dual hash 0x%x", detail::compute_hash(lp_state.prev_dual));
   auto solver_response = lp_solver.run_solver(start_time);
-  CUOPT_LOG_DEBUG("post LP primal hash 0x%x",
-                  detail::compute_hash(solver_response.get_primal_solution()));
+  // CUOPT_LOG_DEBUG("post LP primal hash 0x%x",
+  //                 detail::compute_hash(solver_response.get_primal_solution()));
 
   if (solver_response.get_primal_solution().size() != 0 &&
       solver_response.get_dual_solution().size() != 0 && settings.save_state) {
-    CUOPT_LOG_DEBUG("saving initial primal solution of size %d", lp_state.prev_primal.size());
+    // CUOPT_LOG_DEBUG("saving initial primal solution of size %d", lp_state.prev_primal.size());
     lp_state.set_state(solver_response.get_primal_solution(), solver_response.get_dual_solution());
   }
   if (solver_response.get_primal_solution().size() != 0) {
@@ -116,8 +116,8 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
                op_problem.handle_ptr->get_stream());
   }
   if (solver_response.get_termination_status() == pdlp_termination_status_t::Optimal) {
-    CUOPT_LOG_DEBUG("feasible solution found with LP objective %f",
-                    solver_response.get_objective_value());
+    // CUOPT_LOG_DEBUG("feasible solution found with LP objective %f",
+    //                 solver_response.get_objective_value());
   } else {
     CUOPT_LOG_DEBUG("LP returned with reason %d, %d iterations",
                     solver_response.get_termination_status(),

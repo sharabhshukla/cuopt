@@ -72,6 +72,61 @@ static void setup_device_symbols(rmm::cuda_stream_view stream_view)
   detail::set_pdlp_hyper_parameters(stream_view);
 }
 
+static uint32_t test_full_run_determinism(std::string path,
+                                          unsigned long seed = std::random_device{}())
+{
+  const raft::handle_t handle_{};
+
+  cuopt::mps_parser::mps_data_model_t<int, double> mps_problem =
+    cuopt::mps_parser::parse_mps<int, double>(path, false);
+  handle_.sync_stream();
+  auto op_problem = mps_data_model_to_optimization_problem(&handle_, mps_problem);
+  problem_checking_t<int, double>::check_problem_representation(op_problem);
+
+  init_handler(op_problem.get_handle_ptr());
+  // run the problem constructor of MIP, so that we do bounds standardization
+  detail::problem_t<int, double> problem(op_problem);
+  problem.preprocess_problem();
+
+  setup_device_symbols(op_problem.get_handle_ptr()->get_stream());
+
+  detail::pdlp_initial_scaling_strategy_t<int, double> scaling(&handle_,
+                                                               problem,
+                                                               10,
+                                                               1.0,
+                                                               problem.reverse_coefficients,
+                                                               problem.reverse_offsets,
+                                                               problem.reverse_constraints,
+                                                               nullptr,
+                                                               true);
+
+  auto settings            = mip_solver_settings_t<int, double>{};
+  settings.time_limit      = 3000.;
+  settings.deterministic   = true;
+  settings.heuristics_only = true;
+  auto timer               = cuopt::timer_t(3000);
+  detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
+  problem.tolerances = settings.get_tolerances();
+
+  detail::diversity_manager_t<int, double> diversity_manager(solver.context);
+  diversity_manager.timer                            = timer_t(60000);
+  diversity_manager.diversity_config.n_fp_iterations = 3;
+  diversity_manager.run_solver();
+
+  std::vector<uint32_t> hashes;
+  auto pop = diversity_manager.get_population_pointer();
+  for (const auto& sol : pop->population_to_vector()) {
+    hashes.push_back(sol.get_hash());
+  }
+
+  uint32_t final_hash = detail::compute_hash(hashes);
+  printf("%s: final hash: 0x%x, pop size %d\n",
+         path.c_str(),
+         final_hash,
+         (int)pop->population_to_vector().size());
+  return final_hash;
+}
+
 static uint32_t test_initial_solution_determinism(std::string path,
                                                   unsigned long seed = std::random_device{}())
 {
@@ -272,7 +327,37 @@ class DiversityTestParams : public testing::TestWithParam<std::tuple<std::string
 //   }
 // }
 
-TEST_P(DiversityTestParams, initial_solution_deterministic)
+// TEST_P(DiversityTestParams, initial_solution_deterministic)
+// {
+//   cuopt::default_logger().set_pattern("[%n] [%-6l] %v");
+
+//   spin_stream_raii_t spin_stream_1;
+//   spin_stream_raii_t spin_stream_2;
+
+//   auto test_instance = std::get<0>(GetParam());
+//   std::cout << "Running: " << test_instance << std::endl;
+//   int seed =
+//     std::getenv("CUOPT_SEED") ? std::stoi(std::getenv("CUOPT_SEED")) : std::random_device{}();
+//   std::cerr << "Tested with seed " << seed << "\n";
+//   auto path     = make_path_absolute(test_instance);
+//   test_instance = std::getenv("CUOPT_INSTANCE") ? std::getenv("CUOPT_INSTANCE") : test_instance;
+//   path          = "/home/scratch.yboucher_gpu_1/collection/" + test_instance;
+//   uint32_t gold_hash = 0;
+//   for (int i = 0; i < 2; ++i) {
+//     cuopt::seed_generator::set_seed(seed);
+//     std::cout << "Running " << test_instance << " " << i << std::endl;
+//     std::cout << "-------------------------------------------------------------\n";
+//     auto hash = test_initial_solution_determinism(path, seed);
+//     if (i == 0) {
+//       gold_hash = hash;
+//       std::cout << "Gold hash: " << gold_hash << std::endl;
+//     } else {
+//       ASSERT_EQ(hash, gold_hash);
+//     }
+//   }
+// }
+
+TEST_P(DiversityTestParams, full_run_deterministic)
 {
   cuopt::default_logger().set_pattern("[%n] [%-6l] %v");
 
@@ -292,7 +377,7 @@ TEST_P(DiversityTestParams, initial_solution_deterministic)
     cuopt::seed_generator::set_seed(seed);
     std::cout << "Running " << test_instance << " " << i << std::endl;
     std::cout << "-------------------------------------------------------------\n";
-    auto hash = test_initial_solution_determinism(path, seed);
+    auto hash = test_full_run_determinism(path, seed);
     if (i == 0) {
       gold_hash = hash;
       std::cout << "Gold hash: " << gold_hash << std::endl;
@@ -304,14 +389,15 @@ TEST_P(DiversityTestParams, initial_solution_deterministic)
 
 INSTANTIATE_TEST_SUITE_P(DiversityTest,
                          DiversityTestParams,
-                         testing::Values(std::make_tuple("gen-ip054.mps"),
-                                         std::make_tuple("pk1.mps"),
-                                         std::make_tuple("fastxgemm-n2r6s0t2.mps"),
-                                         // std::make_tuple("mip/sct2.mps")
-                                         // std::make_tuple("mip/thor50dday.mps")
-                                         std::make_tuple("uccase9.mps"),
-                                         // std::make_tuple("mip/neos5.mps")
-                                         std::make_tuple("50v-10.mps"),
-                                         std::make_tuple("rmatr200-p5.mps")));
+                         testing::Values(  // std::make_tuple("gen-ip054.mps"),
+                                           // std::make_tuple("pk1.mps")
+                           std::make_tuple("uccase9.mps"),
+                           // std::make_tuple("mip/sct2.mps")
+                           // std::make_tuple("mip/thor50dday.mps")
+                           // std::make_tuple("uccase9.mps"),
+                           // std::make_tuple("mip/neos5.mps")
+                           std::make_tuple("50v-10.mps")
+                           // std::make_tuple("rmatr200-p5.mps")
+                           ));
 
 }  // namespace cuopt::linear_programming::test

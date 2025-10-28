@@ -43,6 +43,7 @@ struct diversity_config_t {
   bool fj_only_run                    = false;
   bool dry_run                        = false;
   bool initial_solution_only          = false;
+  int n_fp_iterations                 = 1000000;
 };
 
 }  // namespace cuopt::linear_programming::detail

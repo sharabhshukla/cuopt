@@ -110,7 +110,8 @@ class local_search_t {
                      population_t<i_t, f_t>* population_ptr);
   bool run_fp(solution_t<i_t, f_t>& solution,
               timer_t timer,
-              population_t<i_t, f_t>* population_ptr = nullptr);
+              population_t<i_t, f_t>* population_ptr = nullptr,
+              i_t n_fp_iterations                    = 1000000);
   void resize_vectors(problem_t<i_t, f_t>& problem, const raft::handle_t* handle_ptr);
 
   bool do_fj_solve(solution_t<i_t, f_t>& solution,

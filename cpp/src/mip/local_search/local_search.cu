@@ -504,7 +504,10 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
   fj.settings.update_weights         = true;
   fj.settings.feasibility_run        = false;
   f_t fj_time_limit                  = 30.;
-  if (context.settings.deterministic) { fj_time_limit = std::numeric_limits<f_t>::infinity(); }
+  if (context.settings.deterministic) {
+    fj_time_limit               = std::numeric_limits<f_t>::infinity();
+    fj.settings.iteration_limit = 100'000;
+  }
   f_t time_limit = std::min(fj_time_limit, timer.remaining_time());
   do_fj_solve(solution, fj, time_limit, "on_lp_optimal");
   return solution.get_feasible();
@@ -724,11 +727,11 @@ void local_search_t<i_t, f_t>::reset_alpha_and_run_recombiners(
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fp(solution_t<i_t, f_t>& solution,
                                       timer_t timer,
-                                      population_t<i_t, f_t>* population_ptr)
+                                      population_t<i_t, f_t>* population_ptr,
+                                      i_t n_fp_iterations)
 {
   raft::common::nvtx::range fun_scope("run_fp");
   cuopt_assert(population_ptr != nullptr, "Population pointer must not be null");
-  const i_t n_fp_iterations          = 1000000;
   bool is_feasible                   = solution.compute_feasibility();
   cutting_plane_added_for_active_run = is_feasible;
   double best_objective =
@@ -758,6 +761,7 @@ bool local_search_t<i_t, f_t>::run_fp(solution_t<i_t, f_t>& solution,
       is_feasible = false;
       break;
     }
+    printf("------------------------------------------------------------------------\n");
     CUOPT_LOG_DEBUG("fp_loop it %d last_improved_iteration %d", i, last_improved_iteration);
     if (population_ptr->preempt_heuristic_solver_.load()) {
       CUOPT_LOG_DEBUG("Preempting heuristic solver!");

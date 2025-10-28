@@ -161,10 +161,10 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   auto h_integer_indices =
     cuopt::host_copy(solution.problem_ptr->integer_indices, solution.handle_ptr->get_stream());
   f_t obj_offset = 0;
-  CUOPT_LOG_DEBUG("FP: h_integer_indices hash 0x%x", detail::compute_hash(h_integer_indices));
-  CUOPT_LOG_DEBUG("FP: h_assignment hash 0x%x", detail::compute_hash(h_assignment));
-  CUOPT_LOG_DEBUG("FP: h_variable_bounds hash 0x%x", detail::compute_hash(h_variable_bounds));
-  CUOPT_LOG_DEBUG("FP: h_last_projection hash 0x%x", detail::compute_hash(h_last_projection));
+  // CUOPT_LOG_DEBUG("FP: h_integer_indices hash 0x%x", detail::compute_hash(h_integer_indices));
+  // CUOPT_LOG_DEBUG("FP: h_assignment hash 0x%x", detail::compute_hash(h_assignment));
+  // CUOPT_LOG_DEBUG("FP: h_variable_bounds hash 0x%x", detail::compute_hash(h_variable_bounds));
+  // CUOPT_LOG_DEBUG("FP: h_last_projection hash 0x%x", detail::compute_hash(h_last_projection));
   // for each integer add the variable and the distance constraints
   for (auto i : h_integer_indices) {
     auto h_var_bounds = h_variable_bounds[i];
@@ -202,7 +202,8 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
         constr_indices, constr_coeffs_2, h_assignment[i], (f_t)default_cont_upper);
     }
   }
-  CUOPT_LOG_DEBUG("FP: before adjust h_assignment hash 0x%x", detail::compute_hash(h_assignment));
+  // CUOPT_LOG_DEBUG("FP: before adjust h_assignment hash 0x%x",
+  // detail::compute_hash(h_assignment));
   adjust_objective_with_original(solution, obj_coefficients, longer_lp_run);
   // commit all the changes that were done by the host
   if (h_variables.size() > 0) { temp_p.insert_variables(h_variables); }
@@ -238,8 +239,8 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   lp_settings.check_infeasibility = false;
 
   // CHANGE
-  CUOPT_LOG_DEBUG("FP: lp_time_limit %f", lp_settings.time_limit);
-  CUOPT_LOG_DEBUG("FP: linproj sol hash 0x%x", solution.get_hash());
+  // CUOPT_LOG_DEBUG("FP: lp_time_limit %f", lp_settings.time_limit);
+  // CUOPT_LOG_DEBUG("FP: linproj sol hash 0x%x", solution.get_hash());
   lp_settings.time_limit = 600;
   auto solver_response   = get_relaxed_lp_solution(temp_p, solution, lp_settings);
   cuopt_func_call(solution.test_variable_bounds(false));
@@ -506,7 +507,7 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
              solution.assignment.size(),
              solution.handle_ptr->get_stream());
 
-  CUOPT_LOG_DEBUG("FP: starting FP descent, sol hash 0x%x", solution.get_hash());
+  // CUOPT_LOG_DEBUG("FP: starting FP descent, sol hash 0x%x", solution.get_hash());
   while (true) {
     if (timer.check_time_limit()) {
       CUOPT_LOG_DEBUG("FP time limit reached!");

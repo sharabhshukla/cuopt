@@ -286,7 +286,7 @@ void diversity_manager_t<i_t, f_t>::run_fp_alone()
 {
   CUOPT_LOG_DEBUG("Running FP alone!");
   solution_t<i_t, f_t> sol(population.best_feasible());
-  ls.run_fp(sol, timer, &population);
+  ls.run_fp(sol, timer, &population, diversity_config.n_fp_iterations);
   CUOPT_LOG_DEBUG("FP alone finished!");
 }
 
@@ -428,6 +428,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     return sol;
   }
   generate_solution(timer.remaining_time(), false);
+  printf("=======================================================\n");
   if (diversity_config.initial_solution_only) { return population.best_feasible(); }
   if (timer.check_time_limit()) {
     population.add_external_solutions_to_population();
