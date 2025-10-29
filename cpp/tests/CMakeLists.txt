@@ -76,7 +76,7 @@ endfunction()
 
 #cuopt_add_cupti_dep(nvperf_target)
 #cuopt_add_cupti_dep(nvperf_host)
-cuopt_add_cupti_dep(cupti)
+#cuopt_add_cupti_dep(cupti)
 
 # ################################################################ ------------------------------------------------------------------
 function(ConfigureTest CMAKE_TEST_NAME)
@@ -104,7 +104,7 @@ function(ConfigureTest CMAKE_TEST_NAME)
     target_link_libraries(${CMAKE_TEST_NAME} PRIVATE
         #cuopt::nvperf_target
         #cuopt::nvperf_host
-        cuopt::cupti
+        #cuopt::cupti
         cuda
     )
     target_include_directories(${CMAKE_TEST_NAME} PRIVATE
