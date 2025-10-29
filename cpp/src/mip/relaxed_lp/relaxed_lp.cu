@@ -23,6 +23,8 @@
 #include <mip/mip_constants.hpp>
 #include <mip/utils.cuh>
 
+#include <chrono>
+
 #include <linear_programming/pdlp.cuh>
 
 #include <raft/sparse/detail/cusparse_macros.h>
@@ -50,6 +52,8 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
   const relaxed_lp_settings_t& settings)
 {
   raft::common::nvtx::range fun_scope("get_relaxed_lp_solution");
+  auto function_start_time = std::chrono::high_resolution_clock::now();
+
   pdlp_solver_settings_t<i_t, f_t> pdlp_settings{};
   pdlp_settings.detect_infeasibility = settings.check_infeasibility;
   pdlp_settings.set_optimality_tolerance(settings.tolerance);
@@ -123,6 +127,12 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
                     solver_response.get_termination_status(),
                     solver_response.get_additional_termination_information().number_of_steps_taken);
   }
+
+  auto function_end_time = std::chrono::high_resolution_clock::now();
+  auto elapsed_ms =
+    std::chrono::duration_cast<std::chrono::milliseconds>(function_end_time - function_start_time)
+      .count();
+  CUOPT_LOG_DEBUG("get_relaxed_lp_solution took %lld ms", elapsed_ms);
 
   return solver_response;
 }

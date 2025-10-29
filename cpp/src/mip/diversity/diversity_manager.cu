@@ -25,6 +25,8 @@
 
 #include "cuda_profiler_api.h"
 
+#include <random>
+
 namespace cuopt::linear_programming::detail {
 
 size_t fp_recombiner_config_t::max_n_of_vars_from_other =
@@ -265,19 +267,36 @@ template <typename i_t, typename f_t>
 void diversity_manager_t<i_t, f_t>::run_fj_alone(solution_t<i_t, f_t>& solution)
 {
   CUOPT_LOG_INFO("Running FJ alone!");
-  solution.round_nearest();
-  ls.fj.settings                        = fj_settings_t{};
-  ls.fj.settings.mode                   = fj_mode_t::EXIT_NON_IMPROVING;
-  ls.fj.settings.n_of_minimums_for_exit = 20000 * 1000;
-  ls.fj.settings.update_weights         = true;
-  ls.fj.settings.feasibility_run        = false;
-  ls.fj.settings.time_limit             = timer.remaining_time();
-  if (context.settings.deterministic) {
-    ls.fj.settings.time_limit      = timer.remaining_time();
-    ls.fj.settings.iteration_limit = 10000;
+  // Benchmark FJ with 1000 different random starting solutions and varying iteration limits
+  CUOPT_LOG_INFO("Starting FJ benchmark: 1000 runs with random starting solutions");
+
+  std::mt19937 rng(cuopt::seed_generator::get_seed());
+  std::uniform_int_distribution<i_t> iter_dist(100, 50000);
+
+  for (i_t run = 0; run < 1000; ++run) {
+    // Generate random starting solution within bounds
+    solution.assign_random_within_bounds(1.0, false);
+    solution.round_nearest();
+
+    // Configure FJ settings with random iteration limit
+    ls.fj.settings                        = fj_settings_t{};
+    ls.fj.settings.mode                   = fj_mode_t::EXIT_NON_IMPROVING;
+    ls.fj.settings.n_of_minimums_for_exit = 20000 * 1000;
+    ls.fj.settings.update_weights         = true;
+    ls.fj.settings.feasibility_run        = false;
+    ls.fj.settings.iteration_limit        = iter_dist(rng);
+    ls.fj.settings.time_limit             = std::numeric_limits<double>::infinity();
+
+    if (context.settings.deterministic) { ls.fj.settings.iteration_limit = iter_dist(rng); }
+
+    CUOPT_LOG_INFO(
+      "FJ benchmark run %d/%d: iteration_limit=%d", run + 1, 1000, ls.fj.settings.iteration_limit);
+
+    ls.fj.solve(solution);
   }
-  ls.fj.solve(solution);
-  CUOPT_LOG_INFO("FJ alone finished!");
+
+  CUOPT_LOG_INFO("FJ benchmark finished: 1000 runs completed");
+  exit(0);
 }
 
 // returns the best feasible solution
@@ -302,6 +321,9 @@ template <typename i_t, typename f_t>
 solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
 {
   raft::common::nvtx::range fun_scope("run_solver");
+
+  diversity_config.fj_only_run = true;
+
   population.timer     = timer;
   const f_t time_limit = timer.remaining_time();
   const f_t lp_time_limit =
@@ -351,7 +373,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   bool bb_thread_solution_exists = simplex_solution_exists.load();
   if (bb_thread_solution_exists) {
     ls.lp_optimal_exists = true;
-  } else if (!diversity_config.fj_only_run) {
+  } else if (!diversity_config.fj_only_run || true) {
     relaxed_lp_settings_t lp_settings;
     lp_settings.time_limit            = lp_time_limit;
     lp_settings.tolerance             = context.settings.tolerances.absolute_tolerance;
