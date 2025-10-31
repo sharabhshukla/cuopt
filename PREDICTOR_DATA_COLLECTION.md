@@ -117,86 +117,96 @@ export CUOPT_LOG_LEVEL=DEBUG
 
 ### 2. Parse Logs
 
-Use the following pattern to extract training data:
+Use the provided `determinism_logs_parse.py` script to automatically extract training data:
 
-```python
-import re
-import json
+```bash
+# Parse FP (Feasibility Pump) logs
+python scripts/determinism_logs_parse.py logs/ --algorithm FP -o fp_data.pkl
 
-def parse_fp_features(log_lines):
-    """Parse FP features from log lines"""
-    features = {}
+# Parse PDLP (LP Solver) logs
+python scripts/determinism_logs_parse.py logs/ --algorithm PDLP -o pdlp_data.pkl
 
-    # Match feature lines
-    for line in log_lines:
-        if "FP_FEATURES:" in line:
-            # Extract key=value pairs
-            matches = re.findall(r'(\w+)=([\d.e+-]+)', line)
-            features.update({k: float(v) if '.' in v else int(v)
-                           for k, v in matches})
+# Parse CP (Constraint Propagation) logs
+python scripts/determinism_logs_parse.py logs/ --algorithm CP -o cp_data.pkl
 
-    return features
-
-def parse_fp_result(log_lines):
-    """Parse FP results from log lines"""
-    for line in log_lines:
-        if "FP_RESULT:" in line:
-            match = re.search(r'iterations=(\d+) time_taken=([\d.]+) termination=(\w+)', line)
-            if match:
-                return {
-                    'iterations': int(match.group(1)),
-                    'time_taken': float(match.group(2)),
-                    'termination': match.group(3)
-                }
-    return None
-
-# Similar functions for PDLP and CP...
+# Parse FJ (Feasibility Jump) legacy logs
+python scripts/determinism_logs_parse.py logs/ --algorithm FJ -o fj_data.pkl
 ```
 
-### 3. Create Training Dataset
+The script will:
+- Find all `.log` files in the specified directory
+- Extract all `<ALGORITHM>_FEATURES` and `<ALGORITHM>_RESULT` log lines using grep
+- Pair features with results in order using line numbers
+- Export to pickle format compatible with `train_regressor.py`
 
-Combine features and results into training examples:
+**Performance optimizations for large logs:**
+- **Exact pattern matching**: Grep uses `FP_FEATURES:` / `FP_RESULT:` (with colon) to match ONLY predictor lines
+  - Example: Log with 100K lines and 10K "FP" references → grep extracts only ~200 predictor lines
+  - Filters before Python processing, so noisy logs don't slow down parsing
+- Single grep call per algorithm (combines features + results)
+- Uses grep's `-n` flag for line-number-based pairing
+- Minimal Python string processing (simple split operations)
+- Single-pass parsing with efficient dictionary accumulation
+- Handles millions of log lines efficiently
 
-```python
-training_data = []
+**Script output (with progress indicators):**
+```
+Scanning logs/ for .log files...
+Found 42 log files
 
-for problem_run in log_files:
-    features = parse_fp_features(problem_run)
-    result = parse_fp_result(problem_run)
+Parsing FP (Feasibility Pump) logs...
+  Running grep on 42 files...
+  Processing 3046 matching lines...
+  Progress: 10000/3046 lines, 42 files
+  Progress: 20000/3046 lines, 42 files
+  Processed 3046 lines from 42 files
+  Pairing features with results...
+  Pairing: 10/42 files, 362 entries found
+  Pairing: 20/42 files, 724 entries found
+  Pairing: 30/42 files, 1086 entries found
+  Pairing: 40/42 files, 1448 entries found
+  Found 1523 complete entries from 42 files
 
-    if features and result:
-        training_data.append({
-            'features': features,
-            'target': result['iterations'],  # or result['time_taken']
-            'metadata': {
-                'termination': result['termination']
-            }
-        })
+  Total entries: 1523
+  Unique files: 42
+  Avg entries per file: 36.26
+  Iterations (target): min=1, max=847, avg=142.35
+
+Saving 1523 entries to fp_data.pkl...
+
+======================================================================
+✓ Success! Saved 1523 entries to fp_data.pkl
+  File size: 2.34 MB
+======================================================================
 ```
 
-### 4. Train Predictor Model
+**Progress updates:**
+- Line processing: Every 10,000 lines
+- Pairing: Every 10 files
+- Uses carriage return (`\r`) for in-place updates
 
-Use the same approach as the existing FJ predictor:
+### 3. Train Predictor Model
 
-```python
-# Example using XGBoost (like FJ predictor)
-import xgboost as xgb
+Use the `train_regressor.py` script with the parsed data:
 
-# Prepare data
-X = [sample['features'] for sample in training_data]
-y = [sample['target'] for sample in training_data]
+```bash
+# Train XGBoost model for FP
+python scripts/train_regressor.py fp_data.pkl --regressor xgboost --seed 42
 
-# Train model
-model = xgb.XGBRegressor(
-    n_estimators=100,
-    max_depth=6,
-    learning_rate=0.1
-)
-model.fit(X, y)
+# Train LightGBM model for PDLP
+python scripts/train_regressor.py pdlp_data.pkl --regressor lightgbm --seed 42
 
-# Save model for C++ code generation
-# (Similar to cpp/src/utilities/models/fj_predictor/)
+# View available features before training
+python scripts/train_regressor.py cp_data.pkl --regressor xgboost --list-features
 ```
+
+The training script will:
+- Load the pickle file
+- Split data by files (train/test)
+- Train the specified model
+- Evaluate performance (R², RMSE, MAE)
+- Export to C++ code using TL2cgen (for XGBoost/LightGBM)
+- Save model and metadata
 
 ---
 
@@ -284,9 +294,133 @@ if (settings.work_unit_limit != std::numeric_limits<double>::infinity()) {
 
 ---
 
+## Complete Workflow Example
+
+Here's a complete end-to-end example:
+
+### Step 1: Run Solver and Collect Logs
+
+```bash
+# Set log level to capture feature logs
+export CUOPT_LOG_LEVEL=INFO
+
+# Run your solver on test problems
+./my_solver problem1.mps > logs/problem1.log 2>&1
+./my_solver problem2.mps > logs/problem2.log 2>&1
+# ... run on many problems
+```
+
+### Step 2: Parse Logs for Each Algorithm
+
+```bash
+# Parse FP logs
+python scripts/determinism_logs_parse.py logs/ --algorithm FP -o fp_data.pkl
+
+# Parse PDLP logs
+python scripts/determinism_logs_parse.py logs/ --algorithm PDLP -o pdlp_data.pkl
+
+# Parse CP logs
+python scripts/determinism_logs_parse.py logs/ --algorithm CP -o cp_data.pkl
+```
+
+### Step 3: Inspect Features
+
+```bash
+# See what features are available for FP
+python scripts/train_regressor.py fp_data.pkl --regressor xgboost --list-features
+```
+
+Output:
+```
+======================================================================
+Available features in dataset (28 total):
+======================================================================
+    1. alpha
+    2. check_distance_cycle
+    3. cycle_detection_length
+    4. has_cutting_plane
+    5. initial_excess
+    6. initial_feasibility
+    7. initial_n_integers
+    8. initial_objective
+    9. initial_ratio_of_integers
+   10. n_binary_vars
+   11. n_constraints
+   12. n_integer_vars
+   13. n_variables
+   14. nnz
+   15. nnz_stddev
+   16. sparsity
+   17. time_budget
+   18. unbalancedness
+   ...
+```
+
+### Step 4: Train Models
+
+```bash
+# Train FP predictor with XGBoost
+python scripts/train_regressor.py fp_data.pkl \
+    --regressor xgboost \
+    --seed 42 \
+    --early-stopping 20 \
+    --treelite-compile 8
+
+# Train PDLP predictor with LightGBM
+python scripts/train_regressor.py pdlp_data.pkl \
+    --regressor lightgbm \
+    --seed 42 \
+    --early-stopping 20 \
+    --treelite-compile 8
+```
+
+### Step 5: Review Results
+
+The training script will output:
+- Cross-validation scores
+- Train/test metrics (R², RMSE, MAE)
+- Feature importance ranking
+- Sample predictions
+- Worst predictions with feature values
+
+Example output:
+```
+Training complete!
+
+Test Set Metrics:
+  MSE:  1234.5678
+  RMSE: 35.14
+  MAE:  22.67
+  R²:   0.8542
+
+Feature Importance:
+    1. n_variables                              : 0.245123
+    2. n_constraints                            : 0.187456
+    3. initial_ratio_of_integers                : 0.156234
+    4. sparsity                                 : 0.098765
+    ...
+
+C source code generated to: ./models/fp_data_c_code/
+  Contains optimized model source code (branch-annotated, quantized)
+```
+
+### Step 6: Integrate into Solver
+
+The generated C++ code will be in `./models/<algorithm>_data_c_code/`:
+- `header.h` - Class declaration with predict functions
+- `main.cpp` - Implementation
+- `quantize.cpp` - Quantization helpers (if enabled)
+
+Copy these files to `cpp/src/utilities/models/<algorithm>_predictor/` and integrate similar to the existing FJ predictor.
+
+---
+
 ## Notes
 
 - Line Segment Search was excluded as it can be predicted from FJ predictor (it runs FJ internally)
 - CP iteration tracking needs enhancement (currently logs 0 iterations)
 - Consider adding more dynamic features during execution for better predictions
 - The termination reasons can help understand when algorithms succeed/fail
+- Use `--stratify-split` when training to ensure balanced train/test distribution
+- The `--early-stopping` parameter helps prevent overfitting on tree models
+- TL2cgen compilation with `--treelite-compile` generates optimized C++ code with branch annotation and quantization enabled by default
