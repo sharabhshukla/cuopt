@@ -157,7 +157,8 @@ int run_single_file(std::string file_path,
                     int num_cpu_threads,
                     bool write_log_file,
                     bool log_to_console,
-                    double time_limit)
+                    double time_limit,
+                    bool deterministic)
 {
   const raft::handle_t handle_{};
   cuopt::linear_programming::mip_solver_settings_t<int, double> settings;
@@ -211,6 +212,7 @@ int run_single_file(std::string file_path,
   settings.heuristics_only               = heuristics_only;
   settings.num_cpu_threads               = num_cpu_threads;
   settings.log_to_console                = log_to_console;
+  settings.deterministic                 = deterministic;
   settings.tolerances.relative_tolerance = 1e-12;
   settings.tolerances.absolute_tolerance = 1e-6;
   settings.presolve                      = true;
@@ -263,7 +265,8 @@ void run_single_file_mp(std::string file_path,
                         int num_cpu_threads,
                         bool write_log_file,
                         bool log_to_console,
-                        double time_limit)
+                        double time_limit,
+                        bool deterministic)
 {
   std::cout << "running file " << file_path << " on gpu : " << device << std::endl;
   auto memory_resource = make_async();
@@ -278,7 +281,8 @@ void run_single_file_mp(std::string file_path,
                                   num_cpu_threads,
                                   write_log_file,
                                   log_to_console,
-                                  time_limit);
+                                  time_limit,
+                                  deterministic);
   // this is a bad design to communicate the result but better than adding complexity of IPC or
   // pipes
   exit(sol_found);
@@ -361,6 +365,10 @@ int main(int argc, char* argv[])
     .help("track allocations (t/f)")
     .default_value(std::string("f"));
 
+  program.add_argument("-d", "--determinism")
+    .help("enable deterministic mode (t/f)")
+    .default_value(std::string("f"));
+
   // Parse arguments
   try {
     program.parse_args(argc, argv);
@@ -389,6 +397,7 @@ int main(int argc, char* argv[])
   bool log_to_console    = program.get<std::string>("--log-to-console")[0] == 't';
   double memory_limit    = program.get<double>("--memory-limit");
   bool track_allocations = program.get<std::string>("--track-allocations")[0] == 't';
+  bool deterministic     = program.get<std::string>("--determinism")[0] == 't';
 
   if (num_cpu_threads < 0) { num_cpu_threads = omp_get_max_threads() / n_gpus; }
 
@@ -476,7 +485,8 @@ int main(int argc, char* argv[])
                                num_cpu_threads,
                                write_log_file,
                                log_to_console,
-                               time_limit);
+                               time_limit,
+                               deterministic);
           } else if (sys_pid < 0) {
             std::cerr << "Fork failed!" << std::endl;
             exit(1);
@@ -516,7 +526,8 @@ int main(int argc, char* argv[])
                     num_cpu_threads,
                     write_log_file,
                     log_to_console,
-                    time_limit);
+                    time_limit,
+                    deterministic);
   }
 
   return 0;

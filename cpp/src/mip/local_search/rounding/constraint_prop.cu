@@ -770,7 +770,7 @@ void constraint_prop_t<i_t, f_t>::restore_original_bounds_on_unfixed(
 template <typename i_t, typename f_t>
 bool constraint_prop_t<i_t, f_t>::run_repair_procedure(problem_t<i_t, f_t>& problem,
                                                        problem_t<i_t, f_t>& original_problem,
-                                                       timer_t& timer,
+                                                       work_limit_timer_t& timer,
                                                        const raft::handle_t* handle_ptr)
 {
   CUOPT_LOG_DEBUG("Running repair procedure");
@@ -784,7 +784,8 @@ bool constraint_prop_t<i_t, f_t>::run_repair_procedure(problem_t<i_t, f_t>& prob
   i_t n_of_repairs_needed_for_feasible = 0;
   i_t iter_limit                       = std::numeric_limits<i_t>::max();
   if (this->context.settings.deterministic) {
-    timer      = timer_t(std::numeric_limits<f_t>::infinity());
+    timer =
+      work_limit_timer_t(context.settings.deterministic, std::numeric_limits<f_t>::infinity());
     iter_limit = 100;
   }
   do {
@@ -864,7 +865,7 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
   solution_t<i_t, f_t>& sol,
   solution_t<i_t, f_t>& orig_sol,
   f_t lp_run_time_after_feasible,
-  timer_t& timer,
+  work_limit_timer_t& timer,
   std::optional<std::reference_wrapper<probing_config_t<i_t, f_t>>> probing_config)
 {
   using crit_t             = termination_criterion_t;
@@ -875,7 +876,8 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
 
   // CHANGE
   if (this->context.settings.deterministic) {
-    timer = timer_t(std::numeric_limits<f_t>::infinity());
+    timer =
+      work_limit_timer_t(context.settings.deterministic, std::numeric_limits<f_t>::infinity());
   }
 
   lb_restore.resize(sol.problem_ptr->n_variables, sol.handle_ptr->get_stream());
@@ -1014,7 +1016,7 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
     if (!(n_failed_repair_iterations >= max_n_failed_repair_iterations) && rounding_ii &&
         !timeout_happened) {
       // timer_t repair_timer{std::min(timer.remaining_time() / 5, timer.elapsed_time() / 3)};
-      timer_t repair_timer{timer.remaining_time() / 5};
+      work_limit_timer_t repair_timer(context.settings.deterministic, timer.remaining_time() / 5);
       save_bounds(sol);
       // update bounds and run repair procedure
       bool bounds_repaired =
@@ -1105,7 +1107,7 @@ template <typename i_t, typename f_t>
 bool constraint_prop_t<i_t, f_t>::apply_round(
   solution_t<i_t, f_t>& sol,
   f_t lp_run_time_after_feasible,
-  timer_t& timer,
+  work_limit_timer_t& timer,
   std::optional<std::reference_wrapper<probing_config_t<i_t, f_t>>> probing_config)
 {
   raft::common::nvtx::range fun_scope("constraint prop round");
@@ -1135,9 +1137,10 @@ bool constraint_prop_t<i_t, f_t>::apply_round(
                  lp_run_time_after_feasible);
   // === CONSTRAINT PROP PREDICTOR FEATURES - END ===
 
-  max_timer = timer_t{max_time_for_bounds_prop};
+  max_timer = work_limit_timer_t{context.settings.deterministic, max_time_for_bounds_prop};
   if (this->context.settings.deterministic) {
-    max_timer = timer_t(std::numeric_limits<double>::infinity());
+    max_timer =
+      work_limit_timer_t(context.settings.deterministic, std::numeric_limits<double>::infinity());
   }
   if (check_brute_force_rounding(sol)) {
     auto cp_end_time = std::chrono::high_resolution_clock::now();

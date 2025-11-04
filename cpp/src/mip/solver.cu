@@ -53,7 +53,7 @@ template <typename i_t, typename f_t>
 mip_solver_t<i_t, f_t>::mip_solver_t(const problem_t<i_t, f_t>& op_problem,
                                      const mip_solver_settings_t<i_t, f_t>& solver_settings,
                                      pdlp_initial_scaling_strategy_t<i_t, f_t>& scaling,
-                                     timer_t timer)
+                                     work_limit_timer_t timer)
   : op_problem_(op_problem),
     solver_settings_(solver_settings),
     context(op_problem.handle_ptr,

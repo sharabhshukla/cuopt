@@ -61,7 +61,7 @@ feasibility_pump_t<i_t, f_t>::feasibility_pump_t(
                         context.problem_ptr->handle_ptr->get_stream()),
     lp_optimal_solution(lp_optimal_solution_),
     rng(cuopt::seed_generator::get_seed()),
-    timer(20.)
+    timer(context.settings.deterministic, 20.)
 {
   thrust::fill(context.problem_ptr->handle_ptr->get_thrust_policy(),
                last_projection.begin(),
@@ -271,7 +271,8 @@ bool feasibility_pump_t<i_t, f_t>::round(solution_t<i_t, f_t>& solution)
 {
   bool result;
   CUOPT_LOG_DEBUG("Rounding the point");
-  timer_t bounds_prop_timer(std::max(0.05, std::min(0.5, timer.remaining_time() / 10.)));
+  work_limit_timer_t bounds_prop_timer(context.settings.deterministic,
+                                       std::max(0.05, std::min(0.5, timer.remaining_time() / 10.)));
   const f_t lp_run_time_after_feasible     = 0.;
   bool old_var                             = constraint_prop.round_all_vars;
   f_t old_time                             = constraint_prop.max_time_for_bounds_prop;

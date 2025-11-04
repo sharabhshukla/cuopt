@@ -24,7 +24,7 @@
 #include <mip/relaxed_lp/relaxed_lp.cuh>
 #include <mip/utils.cuh>
 #include <utilities/seed_generator.cuh>
-#include <utilities/timer.hpp>
+#include <utilities/work_limit_timer.hpp>
 
 #include <mip/feasibility_jump/fj_cpu.cuh>
 
@@ -234,7 +234,7 @@ bool local_search_t<i_t, f_t>::do_fj_solve(solution_t<i_t, f_t>& solution,
 {
   if (time_limit == 0.) return solution.get_feasible();
 
-  timer_t timer(time_limit);
+  work_limit_timer_t timer(context.settings.deterministic, time_limit);
 
   auto h_weights          = cuopt::host_copy(in_fj.cstr_weights, solution.handle_ptr->get_stream());
   auto h_objective_weight = in_fj.objective_weight.value(solution.handle_ptr->get_stream());
@@ -316,7 +316,8 @@ bool local_search_t<i_t, f_t>::do_fj_solve(solution_t<i_t, f_t>& solution,
 }
 
 template <typename i_t, typename f_t>
-void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solution, timer_t timer)
+void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solution,
+                                                      work_limit_timer_t timer)
 {
   CUOPT_LOG_DEBUG("Running FJ fast sol");
   thrust::fill(solution.handle_ptr->get_thrust_policy(),
@@ -332,9 +333,11 @@ void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solu
   // CHANGE
   fj.settings.time_limit = std::numeric_limits<f_t>::infinity();
   while (!timer.check_time_limit()) {
-    timer_t constr_prop_timer = timer_t(std::min(timer.remaining_time(), 2.));
+    work_limit_timer_t constr_prop_timer =
+      work_limit_timer_t(context.settings.deterministic, std::min(timer.remaining_time(), 2.));
     // do constraint prop on lp optimal solution
     constraint_prop.apply_round(solution, 1., constr_prop_timer);
+    constr_prop_timer.record_work(213762);
     if (solution.compute_feasibility()) { return; }
     if (timer.check_time_limit()) { return; };
     f_t time_limit = std::min(3., timer.remaining_time());
@@ -349,7 +352,7 @@ void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solu
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_local_search(solution_t<i_t, f_t>& solution,
                                                 const weight_t<i_t, f_t>& weights,
-                                                timer_t timer,
+                                                work_limit_timer_t timer,
                                                 const ls_config_t<i_t, f_t>& ls_config)
 {
   raft::common::nvtx::range fun_scope("local search");
@@ -359,10 +362,10 @@ bool local_search_t<i_t, f_t>::run_local_search(solution_t<i_t, f_t>& solution,
   if (!solution.get_feasible()) {
     if (ls_config.at_least_one_parent_feasible) {
       fj_settings.time_limit = 0.5;
-      timer                  = timer_t(fj_settings.time_limit);
+      timer = work_limit_timer_t(context.settings.deterministic, fj_settings.time_limit);
     } else {
       fj_settings.time_limit = 0.25;
-      timer                  = timer_t(fj_settings.time_limit);
+      timer = work_limit_timer_t(context.settings.deterministic, fj_settings.time_limit);
     }
   } else {
     fj_settings.time_limit = std::min(1., timer.remaining_time());
@@ -393,7 +396,7 @@ bool local_search_t<i_t, f_t>::run_local_search(solution_t<i_t, f_t>& solution,
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fj_until_timer(solution_t<i_t, f_t>& solution,
                                                   const weight_t<i_t, f_t>& weights,
-                                                  timer_t timer)
+                                                  work_limit_timer_t timer)
 {
   CUOPT_LOG_DEBUG("Running FJ until timer");
   bool is_feasible;
@@ -412,7 +415,7 @@ bool local_search_t<i_t, f_t>::run_fj_until_timer(solution_t<i_t, f_t>& solution
 
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fj_annealing(solution_t<i_t, f_t>& solution,
-                                                timer_t timer,
+                                                work_limit_timer_t timer,
                                                 const ls_config_t<i_t, f_t>& ls_config)
 {
   raft::common::nvtx::range fun_scope("run_fj_annealing");
@@ -442,7 +445,7 @@ bool local_search_t<i_t, f_t>::run_fj_annealing(solution_t<i_t, f_t>& solution,
 
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fj_line_segment(solution_t<i_t, f_t>& solution,
-                                                   timer_t timer,
+                                                   work_limit_timer_t timer,
                                                    const ls_config_t<i_t, f_t>& ls_config)
 {
   raft::common::nvtx::range fun_scope("run_fj_line_segment");
@@ -465,7 +468,7 @@ bool local_search_t<i_t, f_t>::run_fj_line_segment(solution_t<i_t, f_t>& solutio
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solution,
                                                       bool perturb,
-                                                      timer_t timer)
+                                                      work_limit_timer_t timer)
 {
   raft::common::nvtx::range fun_scope("check_fj_on_lp_optimal");
   if (lp_optimal_exists) {
@@ -482,9 +485,11 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
   }
   cuopt_func_call(solution.test_variable_bounds(false));
   f_t lp_run_time_after_feasible = std::min(1., timer.remaining_time());
-  timer_t bounds_prop_timer      = timer_t(std::min(timer.remaining_time(), 10.));
+  work_limit_timer_t bounds_prop_timer =
+    work_limit_timer_t(context.settings.deterministic, std::min(timer.remaining_time(), 10.));
   bool is_feasible =
     constraint_prop.apply_round(solution, lp_run_time_after_feasible, bounds_prop_timer);
+  bounds_prop_timer.record_work(213762);
   if (!is_feasible) {
     f_t lp_run_time = 2.;
     // CHANGE
@@ -514,7 +519,8 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
 }
 
 template <typename i_t, typename f_t>
-bool local_search_t<i_t, f_t>::run_fj_on_zero(solution_t<i_t, f_t>& solution, timer_t timer)
+bool local_search_t<i_t, f_t>::run_fj_on_zero(solution_t<i_t, f_t>& solution,
+                                              work_limit_timer_t timer)
 {
   raft::common::nvtx::range fun_scope("run_fj_on_zero");
   thrust::fill(solution.handle_ptr->get_thrust_policy(),
@@ -533,7 +539,7 @@ bool local_search_t<i_t, f_t>::run_fj_on_zero(solution_t<i_t, f_t>& solution, ti
 
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_staged_fp(solution_t<i_t, f_t>& solution,
-                                             timer_t timer,
+                                             work_limit_timer_t timer,
                                              population_t<i_t, f_t>* population_ptr)
 {
   raft::common::nvtx::range fun_scope("run_staged_fp");
@@ -560,7 +566,7 @@ bool local_search_t<i_t, f_t>::run_staged_fp(solution_t<i_t, f_t>& solution,
       }
       CUOPT_LOG_DEBUG("Running staged FP from beginning it %d", i);
       fp.relax_general_integers(solution);
-      timer_t binary_timer(timer.remaining_time() / 3);
+      work_limit_timer_t binary_timer(context.settings.deterministic, timer.remaining_time() / 3);
       i_t binary_it_counter = 0;
       for (; binary_it_counter < 100; ++binary_it_counter) {
         if (population_ptr->preempt_heuristic_solver_.load()) {
@@ -726,7 +732,7 @@ void local_search_t<i_t, f_t>::reset_alpha_and_run_recombiners(
 
 template <typename i_t, typename f_t>
 bool local_search_t<i_t, f_t>::run_fp(solution_t<i_t, f_t>& solution,
-                                      timer_t timer,
+                                      work_limit_timer_t timer,
                                       population_t<i_t, f_t>* population_ptr,
                                       i_t n_fp_iterations)
 {
@@ -738,7 +744,7 @@ bool local_search_t<i_t, f_t>::run_fp(solution_t<i_t, f_t>& solution,
     is_feasible ? solution.get_objective() : std::numeric_limits<double>::max();
   rmm::device_uvector<f_t> best_solution(solution.assignment, solution.handle_ptr->get_stream());
   problem_t<i_t, f_t>* old_problem_ptr = solution.problem_ptr;
-  fp.timer                             = timer_t(timer.remaining_time());
+  fp.timer = work_limit_timer_t(context.settings.deterministic, timer.remaining_time());
   // if it has not been initialized yet, create a new problem and move it to the cut problem
   if (!problem_with_objective_cut.cutting_plane_added) {
     problem_with_objective_cut = std::move(problem_t<i_t, f_t>(*old_problem_ptr));
@@ -839,7 +845,7 @@ bool local_search_t<i_t, f_t>::generate_solution(solution_t<i_t, f_t>& solution,
 {
   raft::common::nvtx::range fun_scope("generate_solution");
   cuopt_assert(population_ptr != nullptr, "Population pointer must not be null");
-  timer_t timer(time_limit);
+  work_limit_timer_t timer(context.settings.deterministic, time_limit);
   auto n_vars         = solution.problem_ptr->n_variables;
   auto n_binary_vars  = solution.problem_ptr->get_n_binary_variables();
   auto n_integer_vars = solution.problem_ptr->n_integer_vars;

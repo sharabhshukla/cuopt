@@ -122,9 +122,12 @@ class fp_recombiner_t : public recombiner_t<i_t, f_t> {
       offspring.handle_ptr->sync_stream();
       offspring.assignment = std::move(fixed_assignment);
       cuopt_func_call(offspring.test_variable_bounds(false));
-      timer_t timer(fp_recombiner_config_t::fp_time_limit);
+      work_limit_timer_t timer(this->context.settings.deterministic,
+                               fp_recombiner_config_t::fp_time_limit);
       if (this->context.settings.deterministic) {
-        timer = timer_t(std::numeric_limits<double>::max());  // TODO should be global time limit
+        timer = work_limit_timer_t(
+          this->context.settings.deterministic,
+          std::numeric_limits<double>::max());  // TODO should be global time limit
       }
       fp.timer = timer;
       fp.cycle_queue.reset(offspring);

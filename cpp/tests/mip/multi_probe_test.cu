@@ -170,7 +170,11 @@ uint32_t test_multi_probe(std::string path, unsigned long seed = std::random_dev
                                                                problem.reverse_constraints,
                                                                nullptr,
                                                                true);
-  detail::mip_solver_t<int, double> solver(problem, default_settings, scaling, cuopt::timer_t(0));
+  detail::mip_solver_t<int, double> solver(
+    problem,
+    default_settings,
+    scaling,
+    cuopt::work_limit_timer_t(default_settings.deterministic, 0));
   detail::bound_presolve_t<int, double> bnd_prb_0(solver.context);
   detail::bound_presolve_t<int, double> bnd_prb_1(solver.context);
   detail::multi_probe_t<int, double> multi_probe_prs(solver.context);

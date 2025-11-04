@@ -20,7 +20,7 @@
 #include <cuopt/linear_programming/pdlp/solver_solution.hpp>
 #include <mip/problem/problem.cuh>
 #include <mip/solver_context.cuh>
-#include <utilities/timer.hpp>
+#include <utilities/work_limit_timer.hpp>
 #pragma once
 
 namespace cuopt::linear_programming::detail {
@@ -31,7 +31,7 @@ class mip_solver_t {
   explicit mip_solver_t(const problem_t<i_t, f_t>& op_problem,
                         const mip_solver_settings_t<i_t, f_t>& solver_settings,
                         pdlp_initial_scaling_strategy_t<i_t, f_t>& scaling,
-                        timer_t timer);
+                        work_limit_timer_t timer);
 
   solution_t<i_t, f_t> run_solver();
   solver_stats_t<i_t, f_t>& get_solver_stats() { return context.stats; }
@@ -40,7 +40,7 @@ class mip_solver_t {
   // reference to the original problem
   const problem_t<i_t, f_t>& op_problem_;
   const mip_solver_settings_t<i_t, f_t>& solver_settings_;
-  timer_t timer_;
+  work_limit_timer_t timer_;
 };
 
 }  // namespace cuopt::linear_programming::detail

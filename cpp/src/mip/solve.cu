@@ -31,8 +31,8 @@
 #include <linear_programming/utilities/problem_checking.cuh>
 #include <linear_programming/utils.cuh>
 #include <utilities/logger.hpp>
-#include <utilities/timer.hpp>
 #include <utilities/version_info.hpp>
+#include <utilities/work_limit_timer.hpp>
 
 #include <cuopt/linear_programming/mip/solver_settings.hpp>
 #include <cuopt/linear_programming/mip/solver_solution.hpp>
@@ -71,7 +71,7 @@ static void setup_device_symbols(rmm::cuda_stream_view stream_view)
 template <typename i_t, typename f_t>
 mip_solution_t<i_t, f_t> run_mip(detail::problem_t<i_t, f_t>& problem,
                                  mip_solver_settings_t<i_t, f_t> const& settings,
-                                 cuopt::timer_t& timer)
+                                 cuopt::work_limit_timer_t& timer)
 {
   raft::common::nvtx::range fun_scope("run_mip");
   auto constexpr const running_mip = true;
@@ -194,7 +194,7 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
                                       op_problem.get_handle_ptr()->get_stream());
     }
 
-    auto timer = cuopt::timer_t(time_limit);
+    auto timer = cuopt::work_limit_timer_t(settings.deterministic, time_limit);
 
     double presolve_time = 0.0;
     std::unique_ptr<detail::third_party_presolve_t<i_t, f_t>> presolver;

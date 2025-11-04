@@ -165,7 +165,7 @@ static fj_state_t run_fj(detail::problem_t<int, double>& problem,
 
   auto settings       = mip_solver_settings_t<int, double>{};
   settings.time_limit = 30.;
-  auto timer          = cuopt::timer_t(30);
+  auto timer          = cuopt::work_limit_timer_t(settings.deterministic, 30);
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
 
   detail::solution_t<int, double> solution(*solver.context.problem_ptr);

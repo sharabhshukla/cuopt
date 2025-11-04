@@ -57,7 +57,7 @@ diversity_manager_t<i_t, f_t>::diversity_manager_t(mip_solver_context_t<i_t, f_t
     lp_dual_optimal_solution(context.problem_ptr->n_constraints,
                              context.problem_ptr->handle_ptr->get_stream()),
     ls(context, lp_optimal_solution),
-    timer(diversity_config.default_time_limit),
+    timer(context.settings.deterministic, diversity_config.default_time_limit),
     bound_prop_recombiner(context,
                           context.problem_ptr->n_variables,
                           ls.constraint_prop,
@@ -118,7 +118,7 @@ diversity_manager_t<i_t, f_t>::diversity_manager_t(mip_solver_context_t<i_t, f_t
 template <typename i_t, typename f_t>
 bool diversity_manager_t<i_t, f_t>::run_local_search(solution_t<i_t, f_t>& solution,
                                                      const weight_t<i_t, f_t>& weights,
-                                                     timer_t& timer,
+                                                     work_limit_timer_t& timer,
                                                      ls_config_t<i_t, f_t>& ls_config)
 {
   raft::common::nvtx::range fun_scope("run_local_search");
@@ -189,8 +189,9 @@ bool diversity_manager_t<i_t, f_t>::run_presolve(f_t time_limit)
 {
   raft::common::nvtx::range fun_scope("run_presolve");
   CUOPT_LOG_INFO("Running presolve!");
-  timer_t presolve_timer(time_limit);
+  work_limit_timer_t presolve_timer(context.settings.deterministic, time_limit);
   auto term_crit = ls.constraint_prop.bounds_update.solve(*problem_ptr);
+  presolve_timer.record_work(213762);
   if (ls.constraint_prop.bounds_update.infeas_constraints_count > 0) {
     stats.presolve_time = timer.elapsed_time();
     return false;
@@ -231,9 +232,10 @@ void diversity_manager_t<i_t, f_t>::generate_quick_feasible_solution()
   // min 1 second, max 10 seconds
   const f_t generate_fast_solution_time =
     std::min(diversity_config.max_fast_sol_time, std::max(1., timer.remaining_time() / 20.));
-  timer_t sol_timer(generate_fast_solution_time);
+  work_limit_timer_t sol_timer(context.settings.deterministic, generate_fast_solution_time);
   // do very short LP run to get somewhere close to the optimal point
   ls.generate_fast_solution(solution, sol_timer);
+  sol_timer.record_work(213762);
   if (solution.get_feasible()) {
     population.run_solution_callbacks(solution);
     initial_sol_vector.emplace_back(std::move(solution));
@@ -323,6 +325,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   raft::common::nvtx::range fun_scope("run_solver");
 
   diversity_config.fj_only_run = false;
+  if (context.settings.deterministic) { remaining_work_limit = context.settings.work_limit; }
 
   population.timer     = timer;
   const f_t time_limit = timer.remaining_time();
@@ -360,10 +363,11 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   const f_t max_time_on_probing         = diversity_config.max_time_on_probing;
   f_t time_for_probing_cache =
     std::min(max_time_on_probing, time_limit * time_ratio_of_probing_cache);
-  timer_t probing_timer{time_for_probing_cache};
+  work_limit_timer_t probing_timer{context.settings.deterministic, time_for_probing_cache};
   if (check_b_b_preemption()) { return population.best_feasible(); }
   if (!diversity_config.fj_only_run) {
     compute_probing_cache(ls.constraint_prop.bounds_update, *problem_ptr, probing_timer);
+    probing_timer.record_work(213762);
   }
 
   if (check_b_b_preemption()) { return population.best_feasible(); }
@@ -469,7 +473,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   generate_solution(timer.remaining_time(), false);
   printf("=======================================================\n");
   if (diversity_config.initial_solution_only) { return population.best_feasible(); }
-  if (timer.check_time_limit()) {
+  if (work_limit_reached()) {
     population.add_external_solutions_to_population();
     return population.best_feasible();
   }
@@ -495,7 +499,7 @@ void diversity_manager_t<i_t, f_t>::diversity_step(i_t max_iterations_without_im
         CUOPT_LOG_DEBUG("Population degenerated in diversity step");
         return;
       }
-      if (timer.check_time_limit()) return;
+      if (work_limit_reached()) return;
       constexpr bool tournament = true;
       auto [sol1, sol2]         = population.get_two_random(tournament);
       cuopt_assert(population.test_invariant(), "");
@@ -548,7 +552,7 @@ void diversity_manager_t<i_t, f_t>::recombine_and_ls_with_all(solution_t<i_t, f_
         if (!add_only_feasible || offspring.get_feasible()) {
           population.add_solution(std::move(offspring));
         }
-        if (timer.check_time_limit()) { return; }
+        if (work_limit_reached()) { return; }
       }
     }
   }
@@ -567,11 +571,11 @@ void diversity_manager_t<i_t, f_t>::recombine_and_ls_with_all(
       population.add_solution(std::move(solution_t<i_t, f_t>(sol)));
     }
     for (auto& sol : solutions) {
-      if (timer.check_time_limit()) { return; }
+      if (work_limit_reached()) { return; }
       solution_t<i_t, f_t> ls_solution(sol);
       ls_config_t<i_t, f_t> ls_config;
       run_local_search(ls_solution, population.weights, timer, ls_config);
-      if (timer.check_time_limit()) { return; }
+      if (work_limit_reached()) { return; }
       // TODO try if running LP with integers fixed makes it feasible
       if (ls_solution.get_feasible()) {
         CUOPT_LOG_DEBUG("LS searched solution feasible, running recombiners!");
@@ -804,6 +808,16 @@ void diversity_manager_t<i_t, f_t>::set_simplex_solution(const std::vector<f_t>&
              context.handle_ptr->get_stream());
   set_new_user_bound(objective);
   context.handle_ptr->sync_stream();
+}
+
+template <typename i_t, typename f_t>
+bool diversity_manager_t<i_t, f_t>::work_limit_reached()
+{
+  if (context.settings.deterministic) {
+    return remaining_work_limit <= 0;
+  } else {
+    return work_limit_reached();
+  }
 }
 
 #if MIP_INSTANTIATE_FLOAT

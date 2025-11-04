@@ -113,7 +113,7 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
   auto settings          = mip_solver_settings_t<int, double>{};
   settings.time_limit    = 30.;
   settings.deterministic = true;
-  auto timer             = cuopt::timer_t(30);
+  auto timer             = cuopt::work_limit_timer_t(settings.deterministic, 30);
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
   problem.tolerances = settings.get_tolerances();
 
@@ -149,7 +149,7 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
   printf("LP optimal hash: 0x%x\n", detail::compute_hash(lp_optimal_solution));
   printf("running mode: %d\n", mode);
 
-  local_search.fp.timer = timer_t{6000};
+  local_search.fp.timer = work_limit_timer_t(settings.deterministic, 6000);
 
   detail::ls_config_t<int, double> ls_config{};
 

@@ -131,11 +131,18 @@ uint32_t test_probing_cache_determinism(std::string path,
                                                                problem.reverse_constraints,
                                                                nullptr,
                                                                true);
-  detail::mip_solver_t<int, double> solver(problem, default_settings, scaling, cuopt::timer_t(0));
+  detail::mip_solver_t<int, double> solver(
+    problem,
+    default_settings,
+    scaling,
+    cuopt::work_limit_timer_t(default_settings.deterministic, 0));
   detail::bound_presolve_t<int, double> bnd_prb(solver.context);
 
   // rely on the iteration limit
-  compute_probing_cache(bnd_prb, problem, timer_t(std::numeric_limits<double>::max()));
+  compute_probing_cache(
+    bnd_prb,
+    problem,
+    work_limit_timer_t(default_settings.deterministic, std::numeric_limits<double>::max()));
   std::vector<std::pair<int, std::array<detail::cache_entry_t<int, double>, 2>>> cached_values(
     bnd_prb.probing_cache.probing_cache.begin(), bnd_prb.probing_cache.probing_cache.end());
   std::sort(cached_values.begin(), cached_values.end(), [](const auto& a, const auto& b) {

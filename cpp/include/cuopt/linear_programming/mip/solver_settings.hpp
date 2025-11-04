@@ -89,6 +89,7 @@ class mip_solver_settings_t {
   tolerances_t tolerances;
 
   f_t time_limit       = std::numeric_limits<f_t>::infinity();
+  f_t work_limit       = std::numeric_limits<f_t>::infinity();
   bool heuristics_only = false;
   i_t num_cpu_threads  = -1;  // -1 means use default number of threads in branch and bound
   bool log_to_console  = true;
