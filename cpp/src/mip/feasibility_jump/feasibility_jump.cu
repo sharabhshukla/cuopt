@@ -1407,7 +1407,7 @@ i_t fj_t<i_t, f_t>::solve(solution_t<i_t, f_t>& solution)
   if (iterations < settings.iteration_limit) {
     CUOPT_LOG_DEBUG(
       "FJ early exit at %d iterations (limit: %d)", iterations, settings.iteration_limit);
-    // 1Compute the work unit corresponding to the number of iterations elapsed
+    // Compute the work unit corresponding to the number of iterations elapsed
     // by incrementally guessing work units until the model predicts >= actual iterations
     if (context.settings.deterministic && iterations > 0) {
       double guessed_work         = 0.0;
