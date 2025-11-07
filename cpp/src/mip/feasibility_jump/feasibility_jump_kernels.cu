@@ -1454,45 +1454,45 @@ __global__ void handle_local_minimum_kernel(typename fj_t<i_t, f_t>::climber_dat
   }
 
   // also consider breakthrough moves
-  // if (*fj.best_objective < std::numeric_limits<f_t>::infinity() &&
-  //     *fj.incumbent_objective > *fj.best_objective) {
-  //   cg::this_grid().sync();
-  //   auto [bm_best_var, bm_best_delta, bm_best_score] =
-  //     best_breakthrough_move_at_local_min<i_t, f_t, TPB_localmin>(fj);
-  //   if (bm_best_score > best_score) {
-  //     best_score    = bm_best_score;
-  //     best_var      = bm_best_var;
-  //     best_delta    = bm_best_delta;
-  //     best_movetype = 'B';
-  //     cuopt_assert(fj.pb.check_variable_within_bounds(
-  //                    best_var, fj.incumbent_assignment[best_var] + best_delta),
-  //                  "assignment not within bounds");
-  //   }
-  // }
+  if (*fj.best_objective < std::numeric_limits<f_t>::infinity() &&
+      *fj.incumbent_objective > *fj.best_objective) {
+    cg::this_grid().sync();
+    auto [bm_best_var, bm_best_delta, bm_best_score] =
+      best_breakthrough_move_at_local_min<i_t, f_t, TPB_localmin>(fj);
+    if (bm_best_score > best_score) {
+      best_score    = bm_best_score;
+      best_var      = bm_best_var;
+      best_delta    = bm_best_delta;
+      best_movetype = 'B';
+      cuopt_assert(fj.pb.check_variable_within_bounds(
+                     best_var, fj.incumbent_assignment[best_var] + best_delta),
+                   "assignment not within bounds");
+    }
+  }
 
   if (FIRST_THREAD) *fj.selected_var = best_var;
   cg::this_grid().sync();
   // still nothing? try sat MTM moves if we are in the feasible region
   // Attempt to find a valid move by going over MTM moves in valid constraints
-  // if (*fj.selected_var == std::numeric_limits<i_t>::max() &&
-  //     *fj.incumbent_objective < std::numeric_limits<f_t>::infinity()) {
-  //   auto [sat_best_var, sat_best_delta, sat_best_score] =
-  //     best_sat_cstr_mtm_move<i_t, f_t, TPB_localmin>(fj);
+  if (*fj.selected_var == std::numeric_limits<i_t>::max() &&
+      *fj.incumbent_objective < std::numeric_limits<f_t>::infinity()) {
+    auto [sat_best_var, sat_best_delta, sat_best_score] =
+      best_sat_cstr_mtm_move<i_t, f_t, TPB_localmin>(fj);
 
-  //   if (FIRST_THREAD && sat_best_score.valid())
-  //     cuopt_assert(fj.pb.check_variable_within_bounds(
-  //                    sat_best_var, fj.incumbent_assignment[sat_best_var] + sat_best_delta),
-  //                  "assignment not within bounds");
+    if (FIRST_THREAD && sat_best_score.valid())
+      cuopt_assert(fj.pb.check_variable_within_bounds(
+                     sat_best_var, fj.incumbent_assignment[sat_best_var] + sat_best_delta),
+                   "assignment not within bounds");
 
-  //   if (sat_best_score.base > 0 && sat_best_score > best_score) {
-  //     if (FIRST_THREAD) {
-  //       best_score = sat_best_score;
-  //       best_var   = sat_best_var;
-  //       best_delta = sat_best_delta;
-  //       best_movetype = 'S';
-  //     }
-  //   }
-  // }
+    if (sat_best_score.base > 0 && sat_best_score > best_score) {
+      if (FIRST_THREAD) {
+        best_score    = sat_best_score;
+        best_var      = sat_best_var;
+        best_delta    = sat_best_delta;
+        best_movetype = 'S';
+      }
+    }
+  }
 
   if (FIRST_THREAD) {
     *fj.selected_var = best_var;
