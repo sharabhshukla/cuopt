@@ -1479,7 +1479,7 @@ __global__ void handle_local_minimum_kernel(typename fj_t<i_t, f_t>::climber_dat
   //       best_score    = sat_best_score;
   //       best_var      = sat_best_var;
   //       best_delta    = sat_best_delta;
-  //       best_movetype = 'S';1
+  //       best_movetype = 'S';2
   //     }
   //   }
   // }
