@@ -101,7 +101,7 @@ class fp_recombiner_t : public recombiner_t<i_t, f_t> {
           lp_response.get_termination_status() == pdlp_termination_status_t::DualInfeasible ||
           lp_response.get_termination_status() == pdlp_termination_status_t::TimeLimit) {
         CUOPT_LOG_DEBUG("FP recombiner failed because LP found infeasible!");
-        return std::make_pair(offspring, false);
+        return std::make_tuple(offspring, false, 0.0);
       }
     }
     // brute force rounding threshold is 8

@@ -1140,8 +1140,8 @@ bool constraint_prop_t<i_t, f_t>::apply_round(
     auto cp_end_time = std::chrono::high_resolution_clock::now();
     auto cp_elapsed_ms =
       std::chrono::duration_cast<std::chrono::milliseconds>(cp_end_time - cp_start_time).count();
-    CUOPT_LOG_INFO("CP_RESULT: time_ms=%lld termination=BRUTE_FORCE_SUCCESS iterations=0",
-                   cp_elapsed_ms);
+    // CUOPT_LOG_INFO("CP_RESULT: time_ms=%lld termination=BRUTE_FORCE_SUCCESS iterations=0",
+    //                cp_elapsed_ms);
     return true;
   }
   recovery_mode      = false;

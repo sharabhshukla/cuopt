@@ -654,7 +654,7 @@ void fj_t<i_t, f_t>::run_step_device(const rmm::cuda_stream_view& climber_stream
   auto [grid_resetmoves, blocks_resetmoves]         = resetmoves_launch_dims;
   auto [grid_resetmoves_bin, blocks_resetmoves_bin] = resetmoves_bin_launch_dims;
   auto [grid_update_weights, blocks_update_weights] = update_weights_launch_dims;
-  auto [grid_lift_move, blocks_lift_move]           = lift_move_launch_dims;
+  // auto [grid_lift_move, blocks_lift_move]           = lift_move_launch_dims;
 
   // use_graph = false;
 
@@ -764,18 +764,18 @@ void fj_t<i_t, f_t>::run_step_device(const rmm::cuda_stream_view& climber_stream
         }
 #endif
 
-        cudaLaunchKernel((void*)update_lift_moves_kernel<i_t, f_t>,
-                         grid_lift_move,
-                         blocks_lift_move,
-                         kernel_args,
-                         0,
-                         climber_stream);
-        cudaLaunchKernel((void*)update_breakthrough_moves_kernel<i_t, f_t>,
-                         grid_lift_move,
-                         blocks_lift_move,
-                         kernel_args,
-                         0,
-                         climber_stream);
+        // cudaLaunchKernel((void*)update_lift_moves_kernel<i_t, f_t>,
+        //                  grid_lift_move,
+        //                  blocks_lift_move,
+        //                  kernel_args,
+        //                  0,
+        //                  climber_stream);
+        // cudaLaunchKernel((void*)update_breakthrough_moves_kernel<i_t, f_t>,
+        //                  grid_lift_move,
+        //                  blocks_lift_move,
+        //                  kernel_args,
+        //                  0,
+        //                  climber_stream);
       }
 
       // compaction kernel
