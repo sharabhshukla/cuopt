@@ -1443,7 +1443,7 @@ __global__ void handle_local_minimum_kernel(typename fj_t<i_t, f_t>::climber_dat
                    "assignment not within bounds");
   }
 
-  // // also consider breakthrough moves
+  // also consider breakthrough moves
   if (*fj.best_objective < std::numeric_limits<f_t>::infinity() &&
       *fj.incumbent_objective > *fj.best_objective) {
     cg::this_grid().sync();
