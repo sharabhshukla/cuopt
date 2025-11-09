@@ -241,7 +241,7 @@ bool local_search_t<i_t, f_t>::do_fj_solve(solution_t<i_t, f_t>& solution,
 
   // for now: always assign the CPUFJs to perform 1000 iters per s
   fj_settings_t cpu_fj_settings{};
-  if (context.settings.deterministic) {
+  if (!context.settings.deterministic) {
     cpu_fj_settings.iteration_limit = std::numeric_limits<i_t>::max();
   } else {
     // TODO: CHANGE

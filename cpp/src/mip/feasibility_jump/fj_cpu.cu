@@ -943,6 +943,13 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
                       fj_cpu.iterations);
       break;
     }
+    if (fj_cpu.iterations >= fj_cpu.settings.iteration_limit) {
+      CUOPT_LOG_TRACE("%sIteration limit of %d reached, breaking loop at iteration %d\n",
+                      fj_cpu.log_prefix.c_str(),
+                      fj_cpu.settings.iteration_limit,
+                      fj_cpu.iterations);
+      break;
+    }
 
     // periodically recompute the LHS and violation scores
     // to correct any accumulated numerical errors
@@ -1001,10 +1008,14 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
     }
     if (fj_cpu.iterations % fj_cpu.log_interval == 0) {
       CUOPT_LOG_TRACE(
-        "%sCPUFJ iteration: %d, local mins: %d, best_objective: %g, viol: %zu, obj weight %g, maxw "
+        "%sCPUFJ iteration: %d/%d, local mins: %d, best_objective: %g, viol: %zu, obj weight %g, "
+        "maxw "
         "%g\n",
         fj_cpu.log_prefix.c_str(),
         fj_cpu.iterations,
+        fj_cpu.settings.iteration_limit != std::numeric_limits<i_t>::max()
+          ? fj_cpu.settings.iteration_limit
+          : -1,
         local_mins,
         fj_cpu.pb_ptr->get_user_obj_from_solver_obj(fj_cpu.h_best_objective),
         fj_cpu.violated_constraints.size(),
