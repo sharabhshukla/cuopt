@@ -352,7 +352,7 @@ void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solu
     // run fj on the solution
     do_fj_solve(solution, fj, time_limit, "fast");
     // TODO check if FJ returns the same solution
-    // check if the solution is feasible
+    // check if the solution is feasible1
     if (solution.compute_feasibility()) { return; }
   }
 }
