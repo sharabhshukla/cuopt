@@ -1047,7 +1047,7 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
                   avg_time_per_iter * 1000.0);
 
 #if CPUFJ_TIMING_TRACE
-  // Print final timing statistics
+  // Print final timing statistics1
   CUOPT_LOG_TRACE("\n=== Final Timing Statistics ===\n");
   print_timing_stats(fj_cpu);
 #endif
