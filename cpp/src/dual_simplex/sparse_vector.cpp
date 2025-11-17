@@ -32,9 +32,9 @@ template <typename i_t, typename f_t>
 sparse_vector_t<i_t, f_t>::sparse_vector_t(const csr_matrix_t<i_t, f_t>& A, i_t row)
 {
   const i_t row_start = A.row_start[row];
-  const i_t row_end = A.row_start[row+1];
-  const i_t nz = row_end - row_start;
-  n = A.n;
+  const i_t row_end   = A.row_start[row + 1];
+  const i_t nz        = row_end - row_start;
+  n                   = A.n;
   i.reserve(nz);
   x.reserve(nz);
   for (i_t k = row_start; k < row_end; ++k) {

@@ -1146,13 +1146,13 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     // V(h, :) = T_0^{-T} ... T_{num_updates_ - 1}^{-T} W^T(:, h)
 
     csr_matrix_t<i_t, f_t> V_row(cuts_basic.m, m, 0);
-    i_t V_nz = 0;
+    i_t V_nz           = 0;
     const f_t zero_tol = 1e-13;
     for (i_t h = 0; h < cuts_basic.m; h++) {
-       sparse_vector_t rhs(WT, h);
-       scatter_into_workspace(rhs);
-       i_t nz = rhs.i.size();
-       for (i_t k = num_updates_ - 1; k >= 0; --k) {
+      sparse_vector_t rhs(WT, h);
+      scatter_into_workspace(rhs);
+      i_t nz = rhs.i.size();
+      for (i_t k = num_updates_ - 1; k >= 0; --k) {
         // T_k^{-T} = ( I - v u^T/(1 + u^T v))
         // T_k^{-T} * b = b - v * (u^T * b) / (1 + u^T * v) = b - theta * v, theta = u^T b / mu
 
@@ -1161,7 +1161,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
         const f_t mu    = mu_values_[k];
 
         // dot = u^T * b
-        f_t dot = dot_product(u_col, xi_workspace_, x_workspace_);
+        f_t dot         = dot_product(u_col, xi_workspace_, x_workspace_);
         const f_t theta = dot / mu;
         if (std::abs(theta) > zero_tol) {
           add_sparse_column(S_, v_col, -theta, xi_workspace_, nz, x_workspace_);
@@ -1178,9 +1178,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     V_row.row_start[cuts_basic.m] = V_nz;
 
     V_row.to_compressed_col(V);
-  }
-  else
-  {
+  } else {
     // W = V
     WT.transpose(V);
   }
@@ -1198,16 +1196,16 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   csc_matrix_t<i_t, f_t> new_L(m + cuts_basic.m, m + cuts_basic.m, L_nz + V_nz + cuts_basic.m);
   L_nz = 0;
   for (i_t j = 0; j < m; ++j) {
-    new_L.col_start[j] = L_nz;
+    new_L.col_start[j]  = L_nz;
     const i_t col_start = L0_.col_start[j];
-    const i_t col_end = L0_.col_start[j + 1];
+    const i_t col_end   = L0_.col_start[j + 1];
     for (i_t p = col_start; p < col_end; ++p) {
       new_L.i[L_nz] = L0_.i[p];
       new_L.x[L_nz] = L0_.x[p];
       L_nz++;
     }
     const i_t V_col_start = V.col_start[j];
-    const i_t V_col_end = V.col_start[j + 1];
+    const i_t V_col_end   = V.col_start[j + 1];
     for (i_t p = V_col_start; p < V_col_end; ++p) {
       new_L.i[L_nz] = V.i[p] + m;
       new_L.x[L_nz] = V.x[p];
@@ -1216,14 +1214,13 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   }
   for (i_t j = m; j < m + cuts_basic.m; ++j) {
     new_L.col_start[j] = L_nz;
-    new_L.i[L_nz] = j;
-    new_L.x[L_nz] = 1.0;
+    new_L.i[L_nz]      = j;
+    new_L.x[L_nz]      = 1.0;
     L_nz++;
   }
   new_L.col_start[m + cuts_basic.m] = L_nz;
 
   L0_ = new_L;
-
 
   // Adjust U
   // U = [ U0 0 ]
@@ -1236,17 +1233,16 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   U0_.x.resize(U_nz + cuts_basic.m);
   for (i_t k = m; k < m + cuts_basic.m; ++k) {
     U0_.col_start[k] = U_nz;
-    U0_.i[U_nz] = k;
-    U0_.x[U_nz] = 1.0;
+    U0_.i[U_nz]      = k;
+    U0_.x[U_nz]      = 1.0;
     U_nz++;
   }
   U0_.col_start[m + cuts_basic.m] = U_nz;
-  U0_.n = m + cuts_basic.m;
-  U0_.m = m + cuts_basic.m;
+  U0_.n                           = m + cuts_basic.m;
+  U0_.m                           = m + cuts_basic.m;
 
   printf("Computing transposes\n");
   compute_transposes();
-
 
   // Adjust row_permutation_ and inverse_row_permutation_
   printf("Adjusting row_permutation_ and inverse_row_permutation_\n");

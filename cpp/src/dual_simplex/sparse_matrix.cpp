@@ -360,17 +360,17 @@ i_t csc_matrix_t<i_t, f_t>::remove_row(i_t row)
 template <typename i_t, typename f_t>
 i_t csr_matrix_t<i_t, f_t>::append_rows(const csr_matrix_t<i_t, f_t>& C)
 {
-  const i_t old_m = this->m;
-  const i_t n = this->n;
+  const i_t old_m  = this->m;
+  const i_t n      = this->n;
   const i_t old_nz = this->row_start[old_m];
-  const i_t C_row = C.m;
+  const i_t C_row  = C.m;
   if (0 && C.n != n) {
     printf("C n %d != n %d\n", C.n, n);
     return -1;
   }
-  const i_t C_nz = C.row_start[C_row];
+  const i_t C_nz   = C.row_start[C_row];
   const i_t new_nz = old_nz + C_nz;
-  const i_t new_m = old_m + C_row;
+  const i_t new_m  = old_m + C_row;
   printf("old m %d C_row %d new m %d\n", old_m, C_row, new_m);
 
   this->j.resize(new_nz);
@@ -379,8 +379,8 @@ i_t csr_matrix_t<i_t, f_t>::append_rows(const csr_matrix_t<i_t, f_t>& C)
 
   i_t nz = old_nz;
   for (i_t i = old_m; i < new_m; i++) {
-    const i_t k = i - old_m;
-    const i_t nz_row = C.row_start[k+1] - C.row_start[k];
+    const i_t k        = i - old_m;
+    const i_t nz_row   = C.row_start[k + 1] - C.row_start[k];
     this->row_start[i] = nz;
     nz += nz_row;
   }
@@ -388,19 +388,18 @@ i_t csr_matrix_t<i_t, f_t>::append_rows(const csr_matrix_t<i_t, f_t>& C)
 
   for (i_t p = old_nz; p < new_nz; p++) {
     const i_t q = p - old_nz;
-    this->j[p] = C.j[q];
+    this->j[p]  = C.j[q];
   }
 
   for (i_t p = old_nz; p < new_nz; p++) {
     const i_t q = p - old_nz;
-    this->x[p] = C.x[q];
+    this->x[p]  = C.x[q];
   }
 
-  this->m = new_m;
+  this->m      = new_m;
   this->nz_max = new_nz;
   return 0;
 }
-
 
 template <typename i_t, typename f_t>
 void csc_matrix_t<i_t, f_t>::print_matrix(FILE* fid) const
