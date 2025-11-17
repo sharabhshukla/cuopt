@@ -294,6 +294,184 @@ lp_status_t solve_linear_program_with_advanced_basis(
 }
 
 template <typename i_t, typename f_t>
+lp_status_t solve_linear_program_with_cuts(
+  const f_t start_time,
+  const simplex_solver_settings_t<i_t, f_t>& settings,
+  const csr_matrix_t<i_t, f_t>& cuts,
+  const std::vector<f_t>& cut_rhs,
+  lp_problem_t<i_t, f_t>& lp,
+  lp_solution_t<i_t, f_t>& solution,
+  basis_update_mpf_t<i_t, f_t>& basis_update,
+  std::vector<i_t>& basic_list,
+  std::vector<i_t>& nonbasic_list,
+  std::vector<variable_status_t>& vstatus,
+  std::vector<f_t>& edge_norms) {
+  // Given a set of cuts: C*x <= d that are currently violated
+  // by the current solution x* (i.e. C*x* > d), this function
+  // adds the cuts into the LP and solves again.
+
+  const i_t p = cuts.m;
+  if (cut_rhs.size() != static_cast<size_t>(p)) {
+    settings.log.printf("cut_rhs must have the same number of rows as cuts\n");
+    return lp_status_t::NUMERICAL_ISSUES;
+  }
+  printf("Number of cuts %d\n", p);
+  printf("Original lp rows %d\n", lp.num_rows);
+  printf("Original lp cols %d\n", lp.num_cols);
+
+  csr_matrix_t<i_t, f_t> new_A_row(lp.num_rows, lp.num_cols, 1);
+  printf("Converting A to compressed row\n");
+  lp.A.to_compressed_row(new_A_row);
+
+
+  printf("Appening cuts\n");
+  new_A_row.append_rows(cuts);
+
+  printf("Converting back to compressed column\n");
+  csc_matrix_t<i_t, f_t> new_A_col(lp.num_rows + p, lp.num_cols, 1);
+  new_A_row.to_compressed_col(new_A_col);
+  printf("new A col rows %d cols %d\n", new_A_col.m, new_A_col.n);
+
+
+  printf("Adding slacks\n");
+  // Add in slacks variables for the new rows
+  lp.lower.resize(lp.num_cols + p);
+  lp.upper.resize(lp.num_cols + p);
+  lp.objective.resize(lp.num_cols + p);
+  i_t nz = new_A_col.col_start[lp.num_cols];
+  new_A_col.col_start.resize(lp.num_cols + p + 1);
+  new_A_col.i.resize(nz + p);
+  new_A_col.x.resize(nz + p);
+  i_t k = lp.num_rows;
+  for (i_t j = lp.num_cols; j < lp.num_cols + p; j++) {
+    new_A_col.col_start[j] = nz;
+    new_A_col.i[nz] = k++;
+    new_A_col.x[nz] = 1.0;
+    nz++;
+    lp.lower[j] = 0.0;
+    lp.upper[j] = inf;
+    lp.objective[j] = 0.0;
+  }
+  new_A_col.col_start[lp.num_cols + p] = nz;
+  new_A_col.n = lp.num_cols + p;
+  printf("new A col rows %d cols %d\n", new_A_col.m, new_A_col.n);
+  printf("new A nnz %d\n", new_A_col.col_start[lp.num_cols + p]);
+
+  lp.A = new_A_col;
+  i_t old_rows = lp.num_rows;
+  lp.num_rows += p;
+  printf("lp rows %d A rows %d\n", lp.num_rows, lp.A.m);
+  i_t old_cols = lp.num_cols;
+  lp.num_cols += p;
+  printf("lp cols %d A cols %d\n", lp.num_cols, lp.A.n);
+
+  printf("New A matrix\n");
+  lp.A.print_matrix(stdout);
+
+  printf("Adding rhs\n");
+  lp.rhs.resize(lp.num_rows);
+  for (i_t k = old_rows; k < old_rows + p; k++) {
+    const i_t h = k - old_rows;
+    lp.rhs[k] = cut_rhs[h];
+  }
+
+
+  printf("Constructing column degree\n");
+  // Construct C_B = C(:, basic_list)
+  std::vector<i_t> C_col_degree(p, 0);
+  i_t cuts_nz = cuts.row_start[p];
+  for (i_t q = 0; q < cuts_nz; q++) {
+    const i_t j = cuts.j[q];
+    C_col_degree[j]++;
+  }
+
+  std::vector<i_t> in_basis(old_cols, 0);
+  const i_t num_basic = static_cast<i_t>(basic_list.size());
+  i_t C_B_nz = 0;
+  for (i_t k = 0; k < num_basic; k++) {
+    const i_t j = basic_list[k];
+    in_basis[j] = 1;
+    C_B_nz += C_col_degree[j];
+  }
+
+  printf("Constructing C_B\n");
+  csr_matrix_t<i_t, f_t> C_B(num_basic, num_basic, C_B_nz);
+  nz = 0;
+  for (i_t i = 0; i < p; i++) {
+    C_B.row_start[i] = nz;
+    const i_t row_start = cuts.row_start[i];
+    const i_t row_end = cuts.row_start[i+1];
+    for (i_t q = row_start; q < row_end; q++) {
+      const i_t j = cuts.j[q];
+      if (in_basis[j] == 0) { continue; }
+      C_B.j[nz] = j;
+      C_B.x[nz] = cuts.x[q];
+      nz++;
+    }
+  }
+  C_B.row_start[p] = nz;
+  settings.log.printf("predicted nz %d actual nz %d\n", C_B_nz, nz);
+  if (nz != C_B_nz) {
+    exit(1);
+  }
+
+  printf("Adjusting basis update\n");
+  // Adjust the basis update to include the new cuts
+  basis_update.append_cuts(C_B);
+
+
+  // Adjust the vstatus
+  vstatus.resize(lp.num_cols);
+  for (i_t j = old_cols; j < lp.num_cols; j++) {
+    vstatus[j] = variable_status_t::BASIC;
+  }
+
+  basic_list.resize(lp.num_rows, 0);
+  i_t h = old_cols;
+  for (i_t j = old_rows; j < lp.num_rows; j++) {
+    basic_list[j] = h++;
+  }
+
+  printf("basic list\n");
+  for (i_t k = 0; k < basic_list.size(); k++) {
+    printf("%d ", basic_list[k]);
+  }
+  printf("\n");
+
+  // Adjust the solution
+  solution.x.resize(lp.num_cols, 0.0);
+  solution.y.resize(lp.num_rows, 0.0);
+  solution.z.resize(lp.num_cols, 0.0);
+
+  // For now just clear the edge norms
+  edge_norms.clear();
+  i_t iter = 0;
+  dual::status_t status = dual_phase2_with_advanced_basis(2,
+                                                          0,
+                                                          false,
+                                                          start_time,
+                                                          lp,
+                                                          settings,
+                                                          vstatus,
+                                                          basis_update,
+                                                          basic_list,
+                                                          nonbasic_list,
+                                                          solution,
+                                                          iter,
+                                                          edge_norms);
+
+  lp_status_t lp_status;
+  if (status == dual::status_t::OPTIMAL) { lp_status = lp_status_t::OPTIMAL; }
+  if (status == dual::status_t::DUAL_UNBOUNDED) { lp_status = lp_status_t::INFEASIBLE; }
+  if (status == dual::status_t::TIME_LIMIT) { lp_status = lp_status_t::TIME_LIMIT; }
+  if (status == dual::status_t::ITERATION_LIMIT) { lp_status = lp_status_t::ITERATION_LIMIT; }
+  if (status == dual::status_t::CONCURRENT_LIMIT) { lp_status = lp_status_t::CONCURRENT_LIMIT; }
+  if (status == dual::status_t::NUMERICAL) { lp_status = lp_status_t::NUMERICAL_ISSUES; }
+  if (status == dual::status_t::CUTOFF) { lp_status = lp_status_t::CUTOFF; }
+  return lp_status;
+}
+
+template <typename i_t, typename f_t>
 lp_status_t solve_linear_program_with_barrier(const user_problem_t<i_t, f_t>& user_problem,
                                               const simplex_solver_settings_t<i_t, f_t>& settings,
                                               lp_solution_t<i_t, f_t>& solution)
@@ -656,6 +834,19 @@ template lp_status_t solve_linear_program_with_advanced_basis(
   const simplex_solver_settings_t<int, double>& settings,
   lp_solution_t<int, double>& original_solution,
   basis_update_mpf_t<int, double>& ft,
+  std::vector<int>& basic_list,
+  std::vector<int>& nonbasic_list,
+  std::vector<variable_status_t>& vstatus,
+  std::vector<double>& edge_norms);
+
+template lp_status_t solve_linear_program_with_cuts(
+  const double start_time,
+  const simplex_solver_settings_t<int, double>& settings,
+  const csr_matrix_t<int, double>& cuts,
+  const std::vector<double>& cut_rhs,
+  lp_problem_t<int, double>& lp,
+  lp_solution_t<int, double>& solution,
+  basis_update_mpf_t<int, double>& basis_update,
   std::vector<int>& basic_list,
   std::vector<int>& nonbasic_list,
   std::vector<variable_status_t>& vstatus,

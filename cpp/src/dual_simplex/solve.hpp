@@ -62,6 +62,19 @@ lp_status_t solve_linear_program_with_advanced_basis(
   std::vector<f_t>& edge_norms);
 
 template <typename i_t, typename f_t>
+lp_status_t solve_linear_program_with_cuts(const f_t start_time,
+                                           const simplex_solver_settings_t<i_t, f_t>& settings,
+                                           const csr_matrix_t<i_t, f_t>& cuts,
+                                           const std::vector<f_t>& cut_rhs,
+                                           lp_problem_t<i_t, f_t>& lp,
+                                           lp_solution_t<i_t, f_t>& solution,
+                                           basis_update_mpf_t<i_t, f_t>& basis_update,
+                                           std::vector<i_t>& basic_list,
+                                           std::vector<i_t>& nonbasic_list,
+                                           std::vector<variable_status_t>& vstatus,
+                                           std::vector<f_t>& edge_norms);
+
+template <typename i_t, typename f_t>
 lp_status_t solve_linear_program_with_barrier(const user_problem_t<i_t, f_t>& user_problem,
                                               const simplex_solver_settings_t<i_t, f_t>& settings,
                                               lp_solution_t<i_t, f_t>& solution);

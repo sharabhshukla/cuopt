@@ -136,6 +136,8 @@ class csr_matrix_t {
   // Create a new matrix with the marked rows removed
   i_t remove_rows(std::vector<i_t>& row_marker, csr_matrix_t<i_t, f_t>& Aout) const;
 
+  i_t append_rows(const csr_matrix_t<i_t, f_t>& C);
+
   // Ensures no repeated column indices within a row
   void check_matrix() const;
 

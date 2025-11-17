@@ -25,6 +25,8 @@ class sparse_vector_t {
   sparse_vector_t(const std::vector<f_t>& in) { from_dense(in); }
   // Construct a sparse vector from a column of a CSC matrix
   sparse_vector_t(const csc_matrix_t<i_t, f_t>& A, i_t col);
+  // Construct a sparse vector from a row of a CSR matrix
+  sparse_vector_t(const csr_matrix_t<i_t, f_t>& A, i_t row);
   // gather a dense vector into a sparse vector
   void from_dense(const std::vector<f_t>& in);
   // convert a sparse vector into a CSC matrix with a single column
