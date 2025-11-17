@@ -364,14 +364,12 @@ i_t csr_matrix_t<i_t, f_t>::append_rows(const csr_matrix_t<i_t, f_t>& C)
   const i_t n      = this->n;
   const i_t old_nz = this->row_start[old_m];
   const i_t C_row  = C.m;
-  if (0 && C.n != n) {
-    printf("C n %d != n %d\n", C.n, n);
+  if (C.n > n) {
     return -1;
   }
   const i_t C_nz   = C.row_start[C_row];
   const i_t new_nz = old_nz + C_nz;
   const i_t new_m  = old_m + C_row;
-  printf("old m %d C_row %d new m %d\n", old_m, C_row, new_m);
 
   this->j.resize(new_nz);
   this->x.resize(new_nz);

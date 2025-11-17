@@ -1118,7 +1118,6 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   // Solve for U^T W^T = C_B^T
   // We do this one row at a time of C_B
   csc_matrix_t<i_t, f_t> WT(m, cuts_basic.m, 0);
-  printf("Constructing WT\n");
 
   i_t WT_nz = 0;
   for (i_t k = 0; k < cuts_basic.m; k++) {
@@ -1132,8 +1131,6 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     }
   }
   WT.col_start[cuts_basic.m] = WT_nz;
-
-  printf("Constructing V (num updates %d)\n", num_updates_);
 
   csc_matrix_t<i_t, f_t> V(cuts_basic.m, m, 0);
   if (num_updates_ > 0) {
@@ -1189,7 +1186,6 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   // Adjust L and U
   // L = [ L0  0 ]
   //     [ V   I ]
-  printf("Adjusting L\n");
 
   i_t V_nz = V.col_start[m];
   i_t L_nz = L0_.col_start[m];
@@ -1225,7 +1221,6 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   // Adjust U
   // U = [ U0 0 ]
   //     [ 0  I ]
-  printf("Adjusting U\n");
 
   i_t U_nz = U0_.col_start[m];
   U0_.col_start.resize(m + cuts_basic.m + 1);
@@ -1241,11 +1236,9 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   U0_.n                           = m + cuts_basic.m;
   U0_.m                           = m + cuts_basic.m;
 
-  printf("Computing transposes\n");
   compute_transposes();
 
   // Adjust row_permutation_ and inverse_row_permutation_
-  printf("Adjusting row_permutation_ and inverse_row_permutation_\n");
   row_permutation_.resize(m + cuts_basic.m);
   inverse_row_permutation_.resize(m + cuts_basic.m);
   for (i_t k = m; k < m + cuts_basic.m; ++k) {
@@ -1254,7 +1247,6 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   inverse_permutation(row_permutation_, inverse_row_permutation_);
 
   // Adjust workspace sizes
-  printf("Adjusting workspace sizes\n");
   xi_workspace_.resize(2 * (m + cuts_basic.m), 0);
   x_workspace_.resize(m + cuts_basic.m, 0.0);
 

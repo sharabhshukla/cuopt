@@ -315,23 +315,18 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     settings.log.printf("cut_rhs must have the same number of rows as cuts\n");
     return lp_status_t::NUMERICAL_ISSUES;
   }
-  printf("Number of cuts %d\n", p);
-  printf("Original lp rows %d\n", lp.num_rows);
-  printf("Original lp cols %d\n", lp.num_cols);
+  settings.log.printf("Number of cuts %d\n", p);
+  settings.log.printf("Original lp rows %d\n", lp.num_rows);
+  settings.log.printf("Original lp cols %d\n", lp.num_cols);
 
   csr_matrix_t<i_t, f_t> new_A_row(lp.num_rows, lp.num_cols, 1);
-  printf("Converting A to compressed row\n");
   lp.A.to_compressed_row(new_A_row);
 
-  printf("Appening cuts\n");
   new_A_row.append_rows(cuts);
 
-  printf("Converting back to compressed column\n");
   csc_matrix_t<i_t, f_t> new_A_col(lp.num_rows + p, lp.num_cols, 1);
   new_A_row.to_compressed_col(new_A_col);
-  printf("new A col rows %d cols %d\n", new_A_col.m, new_A_col.n);
 
-  printf("Adding slacks\n");
   // Add in slacks variables for the new rows
   lp.lower.resize(lp.num_cols + p);
   lp.upper.resize(lp.num_cols + p);
@@ -352,28 +347,20 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   }
   new_A_col.col_start[lp.num_cols + p] = nz;
   new_A_col.n                          = lp.num_cols + p;
-  printf("new A col rows %d cols %d\n", new_A_col.m, new_A_col.n);
-  printf("new A nnz %d\n", new_A_col.col_start[lp.num_cols + p]);
 
   lp.A         = new_A_col;
   i_t old_rows = lp.num_rows;
   lp.num_rows += p;
-  printf("lp rows %d A rows %d\n", lp.num_rows, lp.A.m);
   i_t old_cols = lp.num_cols;
   lp.num_cols += p;
-  printf("lp cols %d A cols %d\n", lp.num_cols, lp.A.n);
 
-  printf("New A matrix\n");
-  lp.A.print_matrix(stdout);
 
-  printf("Adding rhs\n");
   lp.rhs.resize(lp.num_rows);
   for (i_t k = old_rows; k < old_rows + p; k++) {
     const i_t h = k - old_rows;
     lp.rhs[k]   = cut_rhs[h];
   }
 
-  printf("Constructing column degree\n");
   // Construct C_B = C(:, basic_list)
   std::vector<i_t> C_col_degree(p, 0);
   i_t cuts_nz = cuts.row_start[p];
@@ -391,7 +378,6 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     C_B_nz += C_col_degree[j];
   }
 
-  printf("Constructing C_B\n");
   csr_matrix_t<i_t, f_t> C_B(num_basic, num_basic, C_B_nz);
   nz = 0;
   for (i_t i = 0; i < p; i++) {
@@ -408,9 +394,8 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   }
   C_B.row_start[p] = nz;
   settings.log.printf("predicted nz %d actual nz %d\n", C_B_nz, nz);
-  if (nz != C_B_nz) { exit(1); }
+  if (nz != C_B_nz) { return lp_status_t::NUMERICAL_ISSUES; }
 
-  printf("Adjusting basis update\n");
   // Adjust the basis update to include the new cuts
   basis_update.append_cuts(C_B);
 
@@ -425,13 +410,6 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   for (i_t j = old_rows; j < lp.num_rows; j++) {
     basic_list[j] = h++;
   }
-
-  printf("basic list\n");
-  for (i_t k = 0; k < basic_list.size(); k++) {
-    printf("%d ", basic_list[k]);
-  }
-  printf("\n");
-
   // Adjust the solution
   solution.x.resize(lp.num_cols, 0.0);
   solution.y.resize(lp.num_rows, 0.0);
