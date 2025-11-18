@@ -80,7 +80,7 @@ endif(CMAKE_COMPILER_IS_GNUCXX)
 # 1. Run the binary with env var set: LD_PRELOAD="$(gcc -print-file-name=libasan.so)" ASAN_OPTIONS='protect_shadow_gap=0:replace_intrin=0'
 # 2. (Optional) To run with a debugger (gdb or cuda-gdb) use the additional ASAN option alloc_dealloc_mismatch=0
 if(BUILD_SANITIZER)
-  list(APPEND CUOPT_CXX_FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer -g -Wno-error=maybe-uninitialized)
+  list(APPEND CUOPT_CXX_FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer -g)
   if(NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
     list(APPEND CUOPT_CXX_FLAGS -Wno-error=maybe-uninitialized)
   endif()
