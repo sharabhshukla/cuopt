@@ -710,14 +710,7 @@ void fj_t<i_t, f_t>::run_step_device(const rmm::cuda_stream_view& climber_stream
       data.cub_storage_bytes.resize(compaction_temp_storage_bytes, climber_stream);
     }
 
-    // printf("before step: Violated constraints hash: %x\n", compute_hash(
-    //   make_span(data.violated_constraints.contents, 0,
-    //   data.violated_constraints.set_size.value(climber_stream)), climber_stream));
-
-    if (use_graph) {
-      cudaGraphCreate(&graph, 0);
-      cudaStreamBeginCapture(climber_stream, cudaStreamCaptureModeThreadLocal);
-    }
+    if (use_graph) { cudaStreamBeginCapture(climber_stream, cudaStreamCaptureModeThreadLocal); }
     for (i_t i = 0; i < (use_graph ? iterations_per_graph : 1); ++i) {
       {
         // related varialbe array has to be dynamically computed each iteration
