@@ -1159,7 +1159,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       for (i_t j: fractional) {
         settings_.log.printf("Fractional variable %d lower %e value %e upper %e\n", j, original_lp_.lower[j], root_relax_soln_.x[j], original_lp_.upper[j]);
       }
-      // Let's look for cuts
+      // Let's look for Gomory cuts
       // Compute b_bar
       std::vector<f_t> b_bar(original_lp_.num_rows);
       basis_update.b_solve(original_lp_.rhs, b_bar);
@@ -1177,6 +1177,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       std::vector<i_t> has_lower(original_lp_.num_cols, 0);
       std::vector<i_t> has_upper(original_lp_.num_cols, 0);
+
+      bool needs_complement = false;
       for (i_t j = 0; j < original_lp_.num_cols; j++) {
         if (original_lp_.lower[j] < 0) {
           settings_.log.printf(
@@ -1185,23 +1187,27 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         }
         const f_t uj      = original_lp_.upper[j];
         const f_t lj      = original_lp_.lower[j];
+        if (uj != inf || lj != 0.0) {
+          needs_complement = true;
+        }
         const f_t xstar_j = root_relax_soln_.x[j];
         if (uj < inf) {
           if (uj - xstar_j <= xstar_j - lj) {
             has_upper[j] = 1;
-            //settings_.log.printf("Variable %d in upper\n", j);
+            settings_.log.printf("Variable %d in upper\n", j);
           } else {
             has_lower[j] = 1;
-            //settings_.log.printf("Variable %d in lower\n", j);
+            settings_.log.printf("Variable %d in lower\n", j);
           }
           continue;
         }
 
         if (lj > -inf) {
           has_lower[j] = 1;
-          //settings_.log.printf("Variable %d in lower\n", j);
+          settings_.log.printf("Variable %d in lower\n", j);
         }
       }
+      settings_.log.printf("needs_complement %d\n", needs_complement);
 
       csr_matrix_t<i_t, f_t> C(0, original_lp_.num_cols, 0);
       C.row_start[0] = 0;
@@ -1249,6 +1255,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         }
 
         // Compute a_bar = N^T u_bar
+        // TODO: This is similar to a function in phase2 of dual simplex. See if it can be reused.
         const i_t nz_ubar = u_bar.i.size();
         for (i_t k = 0; k < nz_ubar; k++) {
           const i_t ii        = u_bar.i[k];
@@ -1295,6 +1302,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
         settings_.log.printf("x_j %e b_bar_i %e\n", x_j, b_bar[i]);
 
+#ifdef PRINT_BASE_INEQUALITY
         // Print out the base inequality
         for (i_t k = 0; k < a_bar.i.size(); k++) {
           const i_t jj = a_bar.i[k];
@@ -1302,6 +1310,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           settings_.log.printf("a_bar[%d] = %e\n", k, aj);
         }
         settings_.log.printf("b_bar[%d] = %e\n", i, b_bar[i]);
+#endif
 
         auto f = [](f_t q_1, f_t q_2) -> f_t {
           f_t q_1_hat = q_1 - std::floor(q_1);
@@ -1311,104 +1320,105 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
         auto h = [](f_t q) -> f_t { return std::max(q, 0.0); };
 
-        f_t R = (b_bar[i] - std::floor(b_bar[i])) * std::ceil(b_bar[i]);
+
         std::vector<i_t> cut_indices;
         cut_indices.reserve(a_bar.i.size());
-        for (i_t k = 0; k < a_bar.i.size(); k++) {
-          const i_t jj = a_bar.i[k];
-          f_t aj       = a_bar.x[k];
-          if (var_types_[jj] == variable_type_t::INTEGER) {
-            x_workspace[jj] += f(aj, b_bar[i]);
-            if (!x_mark[jj]) {
-              x_mark[jj] = 1;
-              cut_indices.push_back(jj);
-            }
-          } else {
-            x_workspace[jj] += h(aj);
-            if (!x_mark[jj]) {
-              x_mark[jj] = 1;
-              cut_indices.push_back(jj);
-            }
-          }
-        }
+        f_t R;
+        if (!needs_complement) {
+          R = (b_bar[i] - std::floor(b_bar[i])) * std::ceil(b_bar[i]);
 
-#ifdef CMIR
-        // Compute r
-        f_t r = b_bar[i];
-        for (i_t k = 0; k < a_bar.i.size(); k++) {
-          const i_t jj = a_bar.i[k];
-          if (has_upper[jj]) {
-            const f_t uj = original_lp_.upper[jj];
-            r -= uj * a_bar.x[k];
-            continue;
-          }
-          if (has_lower[jj]) {
-            const f_t lj = original_lp_.lower[jj];
-            r -= lj * a_bar.x[k];
-          }
-        }
-
-        // Compute R
-        f_t R = std::ceil(r) * (r - std::floor(r));
-        for (i_t k = 0; k < a_bar.i.size(); k++) {
-          const i_t jj = a_bar.i[k];
-          const f_t aj = a_bar.x[k];
-          if (has_upper[jj]) {
-            const f_t uj = original_lp_.upper[jj];
+          for (i_t k = 0; k < a_bar.i.size(); k++) {
+            const i_t jj = a_bar.i[k];
+            f_t aj       = a_bar.x[k];
             if (var_types_[jj] == variable_type_t::INTEGER) {
-              R -= f(-aj, r) * uj;
-            } else {
-              R -= h(-aj) * uj;
-            }
-          } else if (has_lower[jj]) {
-            const f_t lj = original_lp_.lower[jj];
-            if (var_types_[jj] == variable_type_t::INTEGER) {
-              R += f(aj, r) * lj;
-            } else {
-              R += h(aj) * lj;
-            }
-          }
-        }
-
-        // Compute the cut coefficients
-        std::vector<i_t> cut_indices;
-        cut_indices.reserve(a_bar.i.size());
-        for (i_t k = 0; k < a_bar.i.size(); k++) {
-          const i_t jj = a_bar.i[k];
-          const f_t aj = a_bar.x[k];
-          if (has_upper[jj]) {
-            if (var_types_[jj] == variable_type_t::INTEGER) {
-              // Upper intersect I
-              x_workspace[jj] -= f(-aj, r);
+              x_workspace[jj] += f(aj, b_bar[i]);
               if (!x_mark[jj]) {
                 x_mark[jj] = 1;
                 cut_indices.push_back(jj);
               }
             } else {
-              // Upper intersect C
-              x_workspace[jj] -= h(-aj);
+              x_workspace[jj] += h(aj);
               if (!x_mark[jj]) {
                 x_mark[jj] = 1;
                 cut_indices.push_back(jj);
               }
             }
-          } else if (var_types_[jj] == variable_type_t::INTEGER) {
-            // I \ Upper
-            x_workspace[jj] -= f(aj, r);
-            if (!x_mark[jj]) {
-              x_mark[jj] = 1;
-              cut_indices.push_back(jj);
+          }
+        } else {
+          // Compute r
+          f_t r = b_bar[i];
+          for (i_t k = 0; k < a_bar.i.size(); k++) {
+            const i_t jj = a_bar.i[k];
+            if (has_upper[jj]) {
+              const f_t uj = original_lp_.upper[jj];
+              r -= uj * a_bar.x[k];
+              continue;
             }
-          } else {
-            // C \ Upper
-            x_workspace[jj] += h(aj);
-            if (!x_mark[jj]) {
-              x_mark[jj] = 1;
-              cut_indices.push_back(jj);
+            if (has_lower[jj]) {
+              const f_t lj = original_lp_.lower[jj];
+              r -= lj * a_bar.x[k];
+            }
+          }
+
+          // Compute R
+          R = std::ceil(r) * (r - std::floor(r));
+          for (i_t k = 0; k < a_bar.i.size(); k++) {
+            const i_t jj = a_bar.i[k];
+            const f_t aj = a_bar.x[k];
+            if (has_upper[jj]) {
+              const f_t uj = original_lp_.upper[jj];
+              if (var_types_[jj] == variable_type_t::INTEGER) {
+                R -= f(-aj, r) * uj;
+              } else {
+                R -= h(-aj) * uj;
+              }
+            } else if (has_lower[jj]) {
+              const f_t lj = original_lp_.lower[jj];
+              if (var_types_[jj] == variable_type_t::INTEGER) {
+                R += f(aj, r) * lj;
+              } else {
+                R += h(aj) * lj;
+              }
+            }
+          }
+
+          // Compute the cut coefficients
+          for (i_t k = 0; k < a_bar.i.size(); k++) {
+            const i_t jj = a_bar.i[k];
+            const f_t aj = a_bar.x[k];
+            if (has_upper[jj]) {
+              if (var_types_[jj] == variable_type_t::INTEGER) {
+                // Upper intersect I
+                x_workspace[jj] -= f(-aj, r);
+                if (!x_mark[jj]) {
+                  x_mark[jj] = 1;
+                  cut_indices.push_back(jj);
+                }
+              } else {
+                // Upper intersect C
+                x_workspace[jj] -= h(-aj);
+                if (!x_mark[jj]) {
+                  x_mark[jj] = 1;
+                  cut_indices.push_back(jj);
+                }
+              }
+            } else if (var_types_[jj] == variable_type_t::INTEGER) {
+              // I \ Upper
+              x_workspace[jj] += f(aj, r);
+              if (!x_mark[jj]) {
+                x_mark[jj] = 1;
+                cut_indices.push_back(jj);
+              }
+            } else {
+              // C \ Upper
+              x_workspace[jj] += h(aj);
+              if (!x_mark[jj]) {
+                x_mark[jj] = 1;
+                cut_indices.push_back(jj);
+              }
             }
           }
         }
-#endif
 
         sparse_vector_t<i_t, f_t> cut(original_lp_.num_cols, cut_indices.size());
         for (i_t k = 0; k < cut_indices.size(); k++) {
@@ -1437,7 +1447,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       csc_matrix_t<i_t, f_t> C_col(C.m, C.n, 0);
       C.to_compressed_col(C_col);
-
 #ifdef PRINT_CUTS
       C_col.print_matrix();
 #endif
