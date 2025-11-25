@@ -465,6 +465,10 @@ TEST(dual_simplex, simple_cuts)
   printf("Solution objective: %e\n", solution.objective);
   printf("Solution x: %e %e %e\n", solution.x[0], solution.x[1], solution.x[2]);
   EXPECT_NEAR(solution.objective, 4.0 / 3.0, 1e-6);
+  EXPECT_NEAR(solution.x[0], 0.0, 1e-6);
+  EXPECT_NEAR(solution.x[1], 2.0 / 3.0, 1e-6);
+  EXPECT_NEAR(solution.x[2], 1.0 / 3.0, 1e-6);
+
 }
 
 }  // namespace cuopt::linear_programming::dual_simplex::test
