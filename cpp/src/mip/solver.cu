@@ -109,7 +109,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
   diversity_manager_t<i_t, f_t> dm(context);
   dm.timer              = timer_;
-  bool presolve_success = dm.run_presolve(timer_.remaining_time());
+  //bool presolve_success = dm.run_presolve(timer_.remaining_time());
+  bool presolve_success = true;
   if (!presolve_success) {
     CUOPT_LOG_INFO("Problem proven infeasible in presolve");
     solution_t<i_t, f_t> sol(*context.problem_ptr);
@@ -117,7 +118,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     context.problem_ptr->post_process_solution(sol);
     return sol;
   }
-  if (context.problem_ptr->empty) {
+  if (0 && context.problem_ptr->empty) {
     CUOPT_LOG_INFO("Problem full reduced in presolve");
     solution_t<i_t, f_t> sol(*context.problem_ptr);
     sol.set_problem_fully_reduced();
@@ -126,7 +127,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
   }
 
   // if the problem was reduced to a LP: run concurrent LP
-  if (context.problem_ptr->n_integer_vars == 0) {
+  if (0 && context.problem_ptr->n_integer_vars == 0) {
     CUOPT_LOG_INFO("Problem reduced to a LP, running concurrent LP");
     pdlp_solver_settings_t<i_t, f_t> settings{};
     settings.time_limit = timer_.remaining_time();
@@ -223,6 +224,9 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
                                                 branch_and_bound.get(),
                                                 std::ref(branch_and_bound_solution));
   }
+
+  auto bb_status = branch_and_bound_status_future.get();
+  exit(1);
 
   // Start the primal heuristics
   auto sol = dm.run_solver();

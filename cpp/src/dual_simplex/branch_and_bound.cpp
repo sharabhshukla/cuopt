@@ -8,6 +8,7 @@
 #include <omp.h>
 #include <algorithm>
 #include <dual_simplex/branch_and_bound.hpp>
+#include <dual_simplex/basis_solves.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/logger.hpp>
 #include <dual_simplex/mip_node.hpp>
@@ -206,6 +207,10 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
 {
   stats_.start_time = tic();
   dualize_info_t<i_t, f_t> dualize_info;
+#ifdef PRINT_A
+  settings_.log.printf("A");
+  original_problem_.A.print_matrix();
+#endif
   convert_user_problem(original_problem_, settings_, original_lp_, new_slacks_, dualize_info);
   full_variable_types(original_problem_, original_lp_, var_types_);
 
@@ -1062,8 +1067,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   settings_.log.printf("Solving LP root relaxation\n");
   simplex_solver_settings_t lp_settings = settings_;
   lp_settings.inside_mip                = 1;
-  lp_status_t root_status               = solve_linear_program_advanced(
-    original_lp_, stats_.start_time, lp_settings, root_relax_soln_, root_vstatus_, edge_norms_);
+  lp_settings.scale_columns = false;
+  std::vector<i_t> basic_list(original_lp_.num_rows);
+  std::vector<i_t> nonbasic_list;
+  basis_update_mpf_t<i_t, f_t> basis_update(original_lp_.num_rows, settings_.refactor_frequency);
+  lp_status_t root_status               = solve_linear_program_with_advanced_basis(
+    original_lp_, stats_.start_time, lp_settings, root_relax_soln_, basis_update, basic_list, nonbasic_list, root_vstatus_, edge_norms_);
   stats_.total_lp_iters      = root_relax_soln_.iterations;
   stats_.total_lp_solve_time = toc(stats_.start_time);
   if (root_status == lp_status_t::INFEASIBLE) {
@@ -1111,31 +1120,384 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   std::vector<i_t> fractional;
-  const i_t num_fractional =
+  i_t num_fractional =
     fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 
-  if (num_fractional == 0) {
-    mutex_upper_.lock();
-    incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
-    upper_bound_ = root_objective_;
-    mutex_upper_.unlock();
-    // We should be done here
-    uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
-    solution.objective          = incumbent_.objective;
-    solution.lower_bound        = root_objective_;
-    solution.nodes_explored     = 0;
-    solution.simplex_iterations = root_relax_soln_.iterations;
-    settings_.log.printf("Optimal solution found at root node. Objective %.16e. Time %.2f.\n",
-                         compute_user_objective(original_lp_, root_objective_),
-                         toc(stats_.start_time));
+  csc_matrix_t<i_t, f_t> Arow(1, 1, 1);
+  original_lp_.A.transpose(Arow);
 
-    if (settings_.solution_callback != nullptr) {
-      settings_.solution_callback(solution.x, solution.objective);
+  for (i_t cut_pass = 0; cut_pass < 10; cut_pass++) {
+    if (num_fractional == 0) {
+      for (i_t j = 0; j < original_lp_.num_cols; j++) {
+        if (var_types_[j] == variable_type_t::INTEGER) {
+          settings_.log.printf("Variable %d type %d val %e\n", j, var_types_[j], root_relax_soln_.x[j]);
+        }
+      }
+      mutex_upper_.lock();
+      incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
+      upper_bound_ = root_objective_;
+      mutex_upper_.unlock();
+      // We should be done here
+      uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
+      solution.objective          = incumbent_.objective;
+      solution.lower_bound        = root_objective_;
+      solution.nodes_explored     = 0;
+      solution.simplex_iterations = root_relax_soln_.iterations;
+      settings_.log.printf("Optimal solution found at root node. Objective %.16e. Time %.2f.\n",
+                           compute_user_objective(original_lp_, root_objective_),
+                           toc(stats_.start_time));
+
+      if (settings_.solution_callback != nullptr) {
+        settings_.solution_callback(solution.x, solution.objective);
+      }
+      if (settings_.heuristic_preemption_callback != nullptr) {
+        settings_.heuristic_preemption_callback();
+      }
+      return mip_status_t::OPTIMAL;
+    } else {
+      settings_.log.printf("Found %d fractional variables on cut pass %d\n", num_fractional, cut_pass);
+      for (i_t j: fractional) {
+        settings_.log.printf("Fractional variable %d lower %e value %e upper %e\n", j, original_lp_.lower[j], root_relax_soln_.x[j], original_lp_.upper[j]);
+      }
+      // Let's look for cuts
+      // Compute b_bar
+      std::vector<f_t> b_bar(original_lp_.num_rows);
+      basis_update.b_solve(original_lp_.rhs, b_bar);
+
+      std::vector<f_t> nonbasic_mark(original_lp_.num_cols, 0);
+      for (i_t j : nonbasic_list) {
+        nonbasic_mark[j] = 1;
+      }
+
+      std::vector<f_t> x_workspace(original_lp_.num_cols, 0.0);
+      std::vector<i_t> x_mark(original_lp_.num_cols, 0);
+
+      std::vector<i_t> abar_indices;
+      abar_indices.reserve(original_lp_.num_cols);
+
+      std::vector<i_t> has_lower(original_lp_.num_cols, 0);
+      std::vector<i_t> has_upper(original_lp_.num_cols, 0);
+      for (i_t j = 0; j < original_lp_.num_cols; j++) {
+        if (original_lp_.lower[j] < 0) {
+          settings_.log.printf(
+            "Variable %d has negative lower bound %e\n", j, original_lp_.lower[j]);
+          exit(1);
+        }
+        const f_t uj      = original_lp_.upper[j];
+        const f_t lj      = original_lp_.lower[j];
+        const f_t xstar_j = root_relax_soln_.x[j];
+        if (uj < inf) {
+          if (uj - xstar_j <= xstar_j - lj) {
+            has_upper[j] = 1;
+            //settings_.log.printf("Variable %d in upper\n", j);
+          } else {
+            has_lower[j] = 1;
+            //settings_.log.printf("Variable %d in lower\n", j);
+          }
+          continue;
+        }
+
+        if (lj > -inf) {
+          has_lower[j] = 1;
+          //settings_.log.printf("Variable %d in lower\n", j);
+        }
+      }
+
+      csr_matrix_t<i_t, f_t> C(0, original_lp_.num_cols, 0);
+      C.row_start[0] = 0;
+      std::vector<f_t> cut_rhs;
+
+      for (i_t i = 0; i < original_lp_.num_rows; i++) {
+        const i_t j = basic_list[i];
+        //settings_.log.printf(
+        //  "Variable %d type %d val %e\n", j, var_types_[j], root_relax_soln_.x[j]);
+        if (var_types_[j] != variable_type_t::INTEGER) { continue; }
+        const f_t x_j = root_relax_soln_.x[j];
+        if (std::abs(x_j - std::round(x_j)) < settings_.integer_tol) { continue; }
+
+        settings_.log.printf("Generating cut for variable %d relaxed value %e row %d\n", j, x_j, i);
+#ifdef PRINT_BASIS
+        for (i_t h = 0; h < basic_list.size(); h++) {
+          settings_.log.printf("basic_list[%d] = %d\n", h, basic_list[h]);
+        }
+#endif
+
+        // Solve B^T u_bar = e_i
+        sparse_vector_t<i_t, f_t> e_i(original_lp_.num_rows, 1);
+        e_i.i[0] = i;
+        e_i.x[0] = 1.0;
+        sparse_vector_t<i_t, f_t> u_bar(original_lp_.num_rows, 0);
+        basis_update.b_transpose_solve(e_i, u_bar);
+
+        std::vector<f_t> u_bar_dense(original_lp_.num_rows);
+        u_bar.to_dense(u_bar_dense);
+
+        std::vector<f_t> BTu_bar(original_lp_.num_rows);
+        b_transpose_multiply(original_lp_, basic_list, u_bar_dense, BTu_bar);
+        for (i_t k = 0; k < original_lp_.num_rows; k++) {
+          if (k == i) {
+            if (std::abs(BTu_bar[k] - 1.0) > 1e-6) {
+              settings_.log.printf("BTu_bar[%d] = %e i %d\n", k, BTu_bar[k], i);
+              exit(1);
+            }
+          } else {
+            if (std::abs(BTu_bar[k]) > 1e-6) {
+              settings_.log.printf("BTu_bar[%d] = %e i %d\n", k, BTu_bar[k], i);
+              exit(1);
+            }
+          }
+        }
+
+        // Compute a_bar = N^T u_bar
+        const i_t nz_ubar = u_bar.i.size();
+        for (i_t k = 0; k < nz_ubar; k++) {
+          const i_t ii        = u_bar.i[k];
+          const f_t u_bar_i   = u_bar.x[k];
+          const i_t row_start = Arow.col_start[ii];
+          const i_t row_end   = Arow.col_start[ii + 1];
+          for (i_t p = row_start; p < row_end; p++) {
+            const i_t jj = Arow.i[p];
+            if (nonbasic_mark[jj] == 1) {
+              x_workspace[jj] += u_bar_i * Arow.x[p];
+              if (!x_mark[jj]) {
+                x_mark[jj] = 1;
+                abar_indices.push_back(jj);
+              }
+            }
+          }
+        }
+
+        sparse_vector_t<i_t, f_t> a_bar(original_lp_.num_cols, abar_indices.size() + 1);
+        for (i_t k = 0; k < abar_indices.size(); k++) {
+          const i_t jj = abar_indices[k];
+          a_bar.i[k]   = jj;
+          a_bar.x[k]   = x_workspace[jj];
+        }
+
+        // Clear the workspace
+        for (i_t jj : abar_indices) {
+          x_workspace[jj] = 0.0;
+          x_mark[jj]      = 0;
+        }
+        abar_indices.clear();
+
+        // We should now have the base inequality
+        // x_j + a_bar^T x_N >= b_bar_i
+        // We add x_j into a_bar so that everything is in a single sparse_vector_t
+        a_bar.i[a_bar.i.size() - 1] = j;
+        a_bar.x[a_bar.x.size() - 1] = 1.0;
+
+        std::vector<f_t> a_bar_dense(original_lp_.num_cols);
+        a_bar.to_dense(a_bar_dense);
+
+        f_t a_bar_dense_dot = dot<i_t, f_t>(a_bar_dense, root_relax_soln_.x);
+        settings_.log.printf("a_bar_dense_dot = %e b_bar[%d] = %e\n", a_bar_dense_dot, i, b_bar[i]);
+
+        settings_.log.printf("x_j %e b_bar_i %e\n", x_j, b_bar[i]);
+
+        // Print out the base inequality
+        for (i_t k = 0; k < a_bar.i.size(); k++) {
+          const i_t jj = a_bar.i[k];
+          const f_t aj = a_bar.x[k];
+          settings_.log.printf("a_bar[%d] = %e\n", k, aj);
+        }
+        settings_.log.printf("b_bar[%d] = %e\n", i, b_bar[i]);
+
+        auto f = [](f_t q_1, f_t q_2) -> f_t {
+          f_t q_1_hat = q_1 - std::floor(q_1);
+          f_t q_2_hat = q_2 - std::floor(q_2);
+          return std::min(q_1_hat, q_2_hat) + q_2_hat * std::floor(q_1);
+        };
+
+        auto h = [](f_t q) -> f_t { return std::max(q, 0.0); };
+
+        f_t R = (b_bar[i] - std::floor(b_bar[i])) * std::ceil(b_bar[i]);
+        std::vector<i_t> cut_indices;
+        cut_indices.reserve(a_bar.i.size());
+        for (i_t k = 0; k < a_bar.i.size(); k++) {
+          const i_t jj = a_bar.i[k];
+          f_t aj       = a_bar.x[k];
+          if (var_types_[jj] == variable_type_t::INTEGER) {
+            x_workspace[jj] += f(aj, b_bar[i]);
+            if (!x_mark[jj]) {
+              x_mark[jj] = 1;
+              cut_indices.push_back(jj);
+            }
+          } else {
+            x_workspace[jj] += h(aj);
+            if (!x_mark[jj]) {
+              x_mark[jj] = 1;
+              cut_indices.push_back(jj);
+            }
+          }
+        }
+
+#ifdef CMIR
+        // Compute r
+        f_t r = b_bar[i];
+        for (i_t k = 0; k < a_bar.i.size(); k++) {
+          const i_t jj = a_bar.i[k];
+          if (has_upper[jj]) {
+            const f_t uj = original_lp_.upper[jj];
+            r -= uj * a_bar.x[k];
+            continue;
+          }
+          if (has_lower[jj]) {
+            const f_t lj = original_lp_.lower[jj];
+            r -= lj * a_bar.x[k];
+          }
+        }
+
+        // Compute R
+        f_t R = std::ceil(r) * (r - std::floor(r));
+        for (i_t k = 0; k < a_bar.i.size(); k++) {
+          const i_t jj = a_bar.i[k];
+          const f_t aj = a_bar.x[k];
+          if (has_upper[jj]) {
+            const f_t uj = original_lp_.upper[jj];
+            if (var_types_[jj] == variable_type_t::INTEGER) {
+              R -= f(-aj, r) * uj;
+            } else {
+              R -= h(-aj) * uj;
+            }
+          } else if (has_lower[jj]) {
+            const f_t lj = original_lp_.lower[jj];
+            if (var_types_[jj] == variable_type_t::INTEGER) {
+              R += f(aj, r) * lj;
+            } else {
+              R += h(aj) * lj;
+            }
+          }
+        }
+
+        // Compute the cut coefficients
+        std::vector<i_t> cut_indices;
+        cut_indices.reserve(a_bar.i.size());
+        for (i_t k = 0; k < a_bar.i.size(); k++) {
+          const i_t jj = a_bar.i[k];
+          const f_t aj = a_bar.x[k];
+          if (has_upper[jj]) {
+            if (var_types_[jj] == variable_type_t::INTEGER) {
+              // Upper intersect I
+              x_workspace[jj] -= f(-aj, r);
+              if (!x_mark[jj]) {
+                x_mark[jj] = 1;
+                cut_indices.push_back(jj);
+              }
+            } else {
+              // Upper intersect C
+              x_workspace[jj] -= h(-aj);
+              if (!x_mark[jj]) {
+                x_mark[jj] = 1;
+                cut_indices.push_back(jj);
+              }
+            }
+          } else if (var_types_[jj] == variable_type_t::INTEGER) {
+            // I \ Upper
+            x_workspace[jj] -= f(aj, r);
+            if (!x_mark[jj]) {
+              x_mark[jj] = 1;
+              cut_indices.push_back(jj);
+            }
+          } else {
+            // C \ Upper
+            x_workspace[jj] += h(aj);
+            if (!x_mark[jj]) {
+              x_mark[jj] = 1;
+              cut_indices.push_back(jj);
+            }
+          }
+        }
+#endif
+
+        sparse_vector_t<i_t, f_t> cut(original_lp_.num_cols, cut_indices.size());
+        for (i_t k = 0; k < cut_indices.size(); k++) {
+          const i_t jj = cut_indices[k];
+          cut.i[k]     = jj;
+          cut.x[k]     = x_workspace[jj];
+        }
+
+        // Clear the workspace
+        for (i_t jj : cut_indices) {
+          x_workspace[jj] = 0.0;
+          x_mark[jj]      = 0;
+        }
+
+        // Sort the coefficients by their index
+        cut.sort();
+        // The new cut is: g'*x >= R
+        // But we want to have it in the form h'*x <= b
+        for (i_t k = 0; k < cut.x.size(); k++) {
+          cut.x[k] *= -1.0;
+        }
+
+        C.append_row(cut);
+        cut_rhs.push_back(-R);
+      }
+
+      csc_matrix_t<i_t, f_t> C_col(C.m, C.n, 0);
+      C.to_compressed_col(C_col);
+
+#ifdef PRINT_CUTS
+      C_col.print_matrix();
+#endif
+
+      C.check_matrix();
+#ifdef PRINT_CUT_RHS
+      for (i_t k = 0; k < cut_rhs.size(); k++) {
+        lp_settings.log.printf("cut_rhs[%d] = %e\n", k, cut_rhs[k]);
+      }
+#endif
+
+      lp_settings.log.printf("C nz %d\n", C.row_start[C.m]);
+      lp_settings.log.printf("C m %d cut rhs size %d\n", C.m, cut_rhs.size());
+      lp_settings.log.printf("original_lp_.num_cols %d\n", original_lp_.num_cols);
+
+#ifdef PRINT_OPTIMAL
+      for (i_t j = 0; j < original_lp_.num_cols; j++) {
+        lp_settings.log.printf("x[%d] = %e\n", j, root_relax_soln_.x[j]);
+      }
+#endif
+
+      // Check to see that this is a cut i.e C*x > d
+      std::vector<f_t> Cx(C.m);
+      matrix_vector_multiply(C_col, 1.0, root_relax_soln_.x, 0.0, Cx);
+      for (i_t k = 0; k < Cx.size(); k++) {
+        //lp_settings.log.printf("Cx[%d] = %e cut_rhs[%d] = %e\n", k, Cx[k], k, cut_rhs[k]);
+        if (Cx[k] <= cut_rhs[k]) {
+          lp_settings.log.printf("C*x <= d for cut %d\n", k);
+          exit(1);
+        }
+      }
+
+      // Resolve the LP with the new cuts
+      lp_settings.log.printf("Solving LP with %d cuts\n", C.m);
+
+      lp_status_t cut_status = solve_linear_program_with_cuts(stats_.start_time,
+                                                              lp_settings,
+                                                              C,
+                                                              cut_rhs,
+                                                              original_lp_,
+                                                              root_relax_soln_,
+                                                              basis_update,
+                                                              basic_list,
+                                                              nonbasic_list,
+                                                              root_vstatus_,
+                                                              edge_norms_);
+
+      root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
+
+      if (cut_status != lp_status_t::OPTIMAL) {
+        lp_settings.log.printf("Cut status %d\n", cut_status);
+        exit(1);
+      }
+
+      original_lp_.A.transpose(Arow);
+      var_types_.resize(original_lp_.num_cols, variable_type_t::CONTINUOUS);
+
+      fractional.clear();
+      num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
     }
-    if (settings_.heuristic_preemption_callback != nullptr) {
-      settings_.heuristic_preemption_callback();
-    }
-    return mip_status_t::OPTIMAL;
   }
 
   pc_.resize(original_lp_.num_cols);
@@ -1177,8 +1539,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     " | Explored | Unexplored |    Objective    |     Bound     | Depth | Iter/Node |   Gap    "
     "|  Time  |\n");
 
-  csc_matrix_t<i_t, f_t> Arow(1, 1, 1);
-  original_lp_.A.transpose(Arow);
 
   stats_.nodes_explored       = 0;
   stats_.nodes_unexplored     = 2;

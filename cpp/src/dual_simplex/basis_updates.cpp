@@ -1132,6 +1132,27 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   }
   WT.col_start[cuts_basic.m] = WT_nz;
 
+
+#ifdef CHECK_W
+  {
+    for (i_t k = 0; k < cuts_basic.m; k++) {
+      std::vector<f_t> WT_col(m, 0.0);
+      WT.load_a_column(k, WT_col);
+      std::vector<f_t> CBT_col(m, 0.0);
+      matrix_transpose_vector_multiply(U0_, 1.0, WT_col, 0.0, CBT_col);
+      sparse_vector_t<i_t, f_t> CBT_col_sparse(cuts_basic, k);
+      std::vector<f_t> CBT_col_dense(m);
+      CBT_col_sparse.to_dense(CBT_col_dense);
+      for (i_t h = 0; h < m; h++) {
+        if (std::abs(CBT_col_dense[h] - CBT_col[h]) > 1e-6) {
+          printf("col %d CBT_col_dense[%d] = %e CBT_col[%d] = %e\n", k, h, CBT_col_dense[h], h, CBT_col[h]);
+          exit(1);
+        }
+      }
+    }
+  }
+#endif
+
   csc_matrix_t<i_t, f_t> V(cuts_basic.m, m, 0);
   if (num_updates_ > 0) {
     // W = V T_0 ... T_{num_updates_ - 1}
@@ -1141,6 +1162,8 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     // V^T(:, h) = T_0^{-T} ... T_{num_updates_ - 1}^{-T} W^T(:, h)
     // or
     // V(h, :) = T_0^{-T} ... T_{num_updates_ - 1}^{-T} W^T(:, h)
+    // So we can form V row by row in CSR and then covert it to CSC
+    // for appending to L0
 
     csr_matrix_t<i_t, f_t> V_row(cuts_basic.m, m, 0);
     i_t V_nz           = 0;
@@ -1175,6 +1198,39 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     V_row.row_start[cuts_basic.m] = V_nz;
 
     V_row.to_compressed_col(V);
+
+
+#ifdef CHECK_V
+    csc_matrix_t<i_t, f_t> CB_col(cuts_basic.m, m, 0);
+    cuts_basic.to_compressed_col(CB_col);
+    for (i_t k = 0; k < m; k++) {
+      std::vector<f_t> U_col(m, 0.0);
+      U0_.load_a_column(k, U_col);
+      for (i_t h = num_updates_ - 1; h >= 0; --h) {
+        // T_h = ( I + u_h v_h^T)
+        // T_h * x = x + u_h * v_h^T * x = x + theta * u_h
+        const i_t u_col = 2 * h;
+        const i_t v_col = 2 * h + 1;
+        f_t theta = dot_product(v_col, U_col);
+        const i_t col_start = S_.col_start[u_col];
+        const i_t col_end = S_.col_start[u_col + 1];
+        for (i_t p = col_start; p < col_end; ++p) {
+          const i_t i = S_.i[p];
+          U_col[i] += theta * S_.x[p];
+        }
+      }
+      std::vector<f_t> CB_column(cuts_basic.m, 0.0);
+      matrix_vector_multiply(V, 1.0, U_col, 0.0, CB_column);
+      std::vector<f_t> CB_col_dense(cuts_basic.m);
+      CB_col.load_a_column(k, CB_col_dense);
+      for (i_t l = 0; l < cuts_basic.m; l++) {
+        if (std::abs(CB_col_dense[l] - CB_column[l]) > 1e-6) {
+          printf("col %d CB_col_dense[%d] = %e CB_column[%d] = %e\n", k, l, CB_col_dense[l], l, CB_column[l]);
+          exit(1);
+        }
+      }
+    }
+#endif
   } else {
     // W = V
     WT.transpose(V);
@@ -1190,6 +1246,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   i_t V_nz = V.col_start[m];
   i_t L_nz = L0_.col_start[m];
   csc_matrix_t<i_t, f_t> new_L(m + cuts_basic.m, m + cuts_basic.m, L_nz + V_nz + cuts_basic.m);
+  i_t predicted_nz = L_nz + V_nz + cuts_basic.m;
   L_nz = 0;
   for (i_t j = 0; j < m; ++j) {
     new_L.col_start[j]  = L_nz;
@@ -1215,6 +1272,10 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     L_nz++;
   }
   new_L.col_start[m + cuts_basic.m] = L_nz;
+  if (L_nz != predicted_nz) {
+    printf("L_nz %d predicted_nz %d\n", L_nz, predicted_nz);
+    exit(1);
+  }
 
   L0_ = new_L;
 

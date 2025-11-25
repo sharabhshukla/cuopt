@@ -8,6 +8,7 @@
 #include <dual_simplex/solve.hpp>
 
 #include <dual_simplex/barrier.hpp>
+#include <dual_simplex/basis_solves.hpp>
 #include <dual_simplex/branch_and_bound.hpp>
 #include <dual_simplex/crossover.hpp>
 #include <dual_simplex/initial_basis.hpp>
@@ -310,6 +311,21 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   // by the current solution x* (i.e. C*x* > d), this function
   // adds the cuts into the LP and solves again.
 
+
+  {
+    csc_matrix_t<i_t, f_t> Btest(lp.num_rows, lp.num_rows, 1);
+    basis_update.multiply_lu(Btest);
+    csc_matrix_t<i_t, f_t> B(lp.num_rows, lp.num_rows, 1);
+    form_b(lp.A, basic_list, B);
+    csc_matrix_t<i_t, f_t> Diff(lp.num_rows, lp.num_rows, 1);
+    add(Btest, B, 1.0, -1.0, Diff);
+    const f_t err = Diff.norm1();
+    settings.log.printf("Before || B - L*U || %e\n", err);
+    if (err > 1e-6) {
+      exit(1);
+    }
+  }
+
   const i_t p = cuts.m;
   if (cut_rhs.size() != static_cast<size_t>(p)) {
     settings.log.printf("cut_rhs must have the same number of rows as cuts\n");
@@ -362,23 +378,31 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   }
 
   // Construct C_B = C(:, basic_list)
-  std::vector<i_t> C_col_degree(p, 0);
+  std::vector<i_t> C_col_degree(lp.num_cols, 0);
   i_t cuts_nz = cuts.row_start[p];
   for (i_t q = 0; q < cuts_nz; q++) {
     const i_t j = cuts.j[q];
+    if (j >= lp.num_cols) {
+      settings.log.printf("j %d is greater than p %d\n", j, p);
+      exit(1);
+    }
     C_col_degree[j]++;
   }
 
-  std::vector<i_t> in_basis(old_cols, 0);
+  std::vector<i_t> in_basis(old_cols, -1);
   const i_t num_basic = static_cast<i_t>(basic_list.size());
   i_t C_B_nz          = 0;
   for (i_t k = 0; k < num_basic; k++) {
     const i_t j = basic_list[k];
-    in_basis[j] = 1;
-    C_B_nz += C_col_degree[j];
+    in_basis[j] = k;
+    if (j < p)
+    {
+      C_B_nz += C_col_degree[j];
+    }
   }
+  settings.log.printf("Done estimating C_B_nz\n");
 
-  csr_matrix_t<i_t, f_t> C_B(num_basic, num_basic, C_B_nz);
+  csr_matrix_t<i_t, f_t> C_B(p, num_basic, C_B_nz);
   nz = 0;
   for (i_t i = 0; i < p; i++) {
     C_B.row_start[i]    = nz;
@@ -386,30 +410,49 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     const i_t row_end   = cuts.row_start[i + 1];
     for (i_t q = row_start; q < row_end; q++) {
       const i_t j = cuts.j[q];
-      if (in_basis[j] == 0) { continue; }
-      C_B.j[nz] = j;
+      const i_t j_basis = in_basis[j];
+      if (j_basis == -1) { continue; }
+      C_B.j[nz] = j_basis;
       C_B.x[nz] = cuts.x[q];
       nz++;
     }
   }
   C_B.row_start[p] = nz;
   settings.log.printf("predicted nz %d actual nz %d\n", C_B_nz, nz);
-  if (nz != C_B_nz) { return lp_status_t::NUMERICAL_ISSUES; }
+  if (nz != C_B_nz) { exit(1); return lp_status_t::NUMERICAL_ISSUES; }
+  settings.log.printf("C_B rows %d cols %d nz %d\n", C_B.m, C_B.n, nz);
+
 
   // Adjust the basis update to include the new cuts
   basis_update.append_cuts(C_B);
-
-  // Adjust the vstatus
-  vstatus.resize(lp.num_cols);
-  for (i_t j = old_cols; j < lp.num_cols; j++) {
-    vstatus[j] = variable_status_t::BASIC;
-  }
 
   basic_list.resize(lp.num_rows, 0);
   i_t h = old_cols;
   for (i_t j = old_rows; j < lp.num_rows; j++) {
     basic_list[j] = h++;
   }
+
+  // Check the basis update
+  csc_matrix_t<i_t, f_t> Btest(lp.num_rows, lp.num_rows, 1);
+  basis_update.multiply_lu(Btest);
+
+  csc_matrix_t<i_t, f_t> B(lp.num_rows, lp.num_rows, 1);
+  form_b(lp.A, basic_list, B);
+
+  csc_matrix_t<i_t, f_t> Diff(lp.num_rows, lp.num_rows, 1);
+  add(Btest, B, 1.0, -1.0, Diff);
+  const f_t err = Diff.norm1();
+  settings.log.printf("After || B - L*U || %e\n", err);
+  if (err > 1e-6) {
+    Diff.print_matrix();
+      exit(1);
+  }
+  // Adjust the vstatus
+  vstatus.resize(lp.num_cols);
+  for (i_t j = old_cols; j < lp.num_cols; j++) {
+    vstatus[j] = variable_status_t::BASIC;
+  }
+
   // Adjust the solution
   solution.x.resize(lp.num_cols, 0.0);
   solution.y.resize(lp.num_rows, 0.0);
@@ -418,9 +461,10 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   // For now just clear the edge norms
   edge_norms.clear();
   i_t iter              = 0;
+  bool initialize_basis = false;
   dual::status_t status = dual_phase2_with_advanced_basis(2,
                                                           0,
-                                                          false,
+                                                          initialize_basis,
                                                           start_time,
                                                           lp,
                                                           settings,

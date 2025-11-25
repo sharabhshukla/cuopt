@@ -2397,6 +2397,39 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     }
     timers.pricing_time += timers.stop_timer();
     if (leaving_index == -1) {
+
+
+#ifdef CHECK_BASIS_UPDATE
+      for (i_t k = 0; k < basic_list.size(); k++) {
+        const i_t jj = basic_list[k];
+        sparse_vector_t<i_t, f_t> ei_sparse(m, 1);
+        ei_sparse.i[0] = k;
+        ei_sparse.x[0] = 1.0;
+        sparse_vector_t<i_t, f_t> ubar_sparse(m, 0);
+        ft.b_transpose_solve(ei_sparse, ubar_sparse);
+        std::vector<f_t> ubar_dense(m);
+        ubar_sparse.to_dense(ubar_dense);
+        std::vector<f_t> BTu_dense(m);
+        b_transpose_multiply(lp, basic_list, ubar_dense, BTu_dense);
+        for (i_t l = 0; l < m; l++) {
+          if (l != k) {
+              settings.log.printf("BTu_dense[%d] = %e i %d\n", l, BTu_dense[l], k);
+          } else {
+              settings.log.printf("BTu_dense[%d] = %e != 1.0 i %d\n", l, BTu_dense[l], k);
+          }
+        }
+        for (i_t h = 0; h < m; h++) {
+          settings.log.printf("i %d ubar_dense[%d] = %.16e\n", k, h, ubar_dense[h]);
+        }
+      }
+      settings.log.printf("ft.num_updates() %d\n", ft.num_updates());
+      for (i_t h = 0; h < m; h++) {
+        settings.log.printf("basic_list[%d] = %d\n", h, basic_list[h]);
+      }
+
+#endif
+
+
       phase2::prepare_optimality(lp,
                                  settings,
                                  ft,

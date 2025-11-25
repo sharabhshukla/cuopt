@@ -400,6 +400,33 @@ i_t csr_matrix_t<i_t, f_t>::append_rows(const csr_matrix_t<i_t, f_t>& C)
 }
 
 template <typename i_t, typename f_t>
+i_t csr_matrix_t<i_t, f_t>::append_row(const sparse_vector_t<i_t, f_t>& c)
+{
+  const i_t old_m = this->m;
+  const i_t n = this->n;
+  const i_t old_nz = this->row_start[old_m];
+  const i_t c_nz = c.i.size();
+  const i_t new_nz = old_nz + c_nz;
+  const i_t new_m = old_m + 1;
+
+  this->j.resize(new_nz);
+  this->x.resize(new_nz);
+  this->row_start.resize(new_m + 1);
+  this->row_start[new_m] = new_nz;
+
+  i_t nz = old_nz;
+  for (i_t k = 0; k < c_nz; k++) {
+    this->j[nz] = c.i[k];
+    this->x[nz] = c.x[k];
+    nz++;
+  }
+
+  this->m = new_m;
+  this->nz_max = new_nz;
+  return 0;
+}
+
+template <typename i_t, typename f_t>
 void csc_matrix_t<i_t, f_t>::print_matrix(FILE* fid) const
 {
   fprintf(fid, "ijx = [\n");
