@@ -169,13 +169,62 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
                   elapsed_ms,
                   solver_response.get_additional_termination_information().number_of_steps_taken);
 
-  // // === PDLP PREDICTOR RESULTS - START ===
-  // auto term_info = solver_response.get_additional_termination_information();
-  // CUOPT_LOG_INFO("PDLP_RESULT: iterations=%d time_ms=%lld termination=%d",
-  //                term_info.number_of_steps_taken,
-  //                elapsed_ms,
-  //                (int)solver_response.get_termination_status());
-  // // === PDLP PREDICTOR RESULTS - END ===
+  // === PDLP PREDICTOR RESULTS - START ===
+  auto term_info           = solver_response.get_additional_termination_information();
+  const i_t n_vars         = op_problem.n_variables;
+  const i_t n_cstrs        = op_problem.n_constraints;
+  const int64_t nnz        = op_problem.nnz;
+  const int64_t total_spmv = lp_solver.get_total_spmv_ops();
+  const int64_t total_nnz  = total_spmv * nnz;
+  const double nnz_per_sec =
+    (elapsed_ms > 0) ? static_cast<double>(total_nnz) / (elapsed_ms / 1000.0) : 0.0;
+  const double nnz_per_iter = (term_info.number_of_steps_taken > 0)
+                                ? static_cast<double>(total_nnz) / term_info.number_of_steps_taken
+                                : 0.0;
+
+  // Compute sparsity metrics
+  const double sparsity = (n_cstrs > 0 && n_vars > 0)
+                            ? static_cast<double>(nnz) / (static_cast<double>(n_cstrs) * n_vars)
+                            : 0.0;
+  double nnz_stddev     = 0.0;
+  double unbalancedness = 0.0;
+  if (op_problem.offsets.size() == static_cast<size_t>(n_cstrs + 1) && n_cstrs > 0) {
+    std::vector<i_t> h_offsets(n_cstrs + 1);
+    raft::copy(h_offsets.data(),
+               op_problem.offsets.data(),
+               n_cstrs + 1,
+               op_problem.handle_ptr->get_stream());
+    op_problem.handle_ptr->sync_stream();
+
+    const double mean_nnz = static_cast<double>(nnz) / n_cstrs;
+    double variance_sum   = 0.0;
+    for (i_t row = 0; row < n_cstrs; ++row) {
+      const double row_nnz = static_cast<double>(h_offsets[row + 1] - h_offsets[row]);
+      const double diff    = row_nnz - mean_nnz;
+      variance_sum += diff * diff;
+    }
+    const double variance = variance_sum / n_cstrs;
+    nnz_stddev            = std::sqrt(variance);
+    unbalancedness        = (mean_nnz > 0) ? nnz_stddev / mean_nnz : 0.0;
+  }
+
+  CUOPT_LOG_INFO(
+    "PDLP_RESULT: n_vars=%d n_cstrs=%d nnz=%ld sparsity=%.6f nnz_stddev=%.6f unbalancedness=%.6f "
+    "iters=%d time_ms=%lld term=%d spmv_ops=%ld total_nnz=%.2e nnz/s=%.2e nnz/iter=%.2e",
+    n_vars,
+    n_cstrs,
+    nnz,
+    sparsity,
+    nnz_stddev,
+    unbalancedness,
+    term_info.number_of_steps_taken,
+    elapsed_ms,
+    static_cast<int>(solver_response.get_termination_status()),
+    total_spmv,
+    static_cast<double>(total_nnz),
+    nnz_per_sec,
+    nnz_per_iter);
+  // === PDLP PREDICTOR RESULTS - END ===
 
   return solver_response;
 }

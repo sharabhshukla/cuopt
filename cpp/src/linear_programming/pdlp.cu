@@ -1181,6 +1181,40 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
   bool warm_start_was_given =
     settings_.get_pdlp_warm_start_data().last_restart_duality_gap_dual_solution_.size() != 0;
 
+  // Reset iteration metrics at the start of the solver run
+  total_spmv_ops_ = 0;
+
+  // Compute sparsity metrics once (they don't change during solve)
+  {
+    const i_t n_vars  = problem_ptr->n_variables;
+    const i_t n_cstrs = problem_ptr->n_constraints;
+    const int64_t nnz = problem_ptr->nnz;
+
+    cached_sparsity_       = (n_cstrs > 0 && n_vars > 0)
+                               ? static_cast<double>(nnz) / (static_cast<double>(n_cstrs) * n_vars)
+                               : 0.0;
+    cached_nnz_stddev_     = 0.0;
+    cached_unbalancedness_ = 0.0;
+
+    if (problem_ptr->offsets.size() == static_cast<size_t>(n_cstrs + 1) && n_cstrs > 0) {
+      // Copy offsets to host for efficient computation
+      std::vector<i_t> h_offsets(n_cstrs + 1);
+      raft::copy(h_offsets.data(), problem_ptr->offsets.data(), n_cstrs + 1, stream_view_);
+      RAFT_CUDA_TRY(cudaStreamSynchronize(stream_view_));
+
+      const double mean_nnz = static_cast<double>(nnz) / n_cstrs;
+      double variance_sum   = 0.0;
+      for (i_t row = 0; row < n_cstrs; ++row) {
+        const double row_nnz = static_cast<double>(h_offsets[row + 1] - h_offsets[row]);
+        const double diff    = row_nnz - mean_nnz;
+        variance_sum += diff * diff;
+      }
+      const double variance  = variance_sum / n_cstrs;
+      cached_nnz_stddev_     = std::sqrt(variance);
+      cached_unbalancedness_ = (mean_nnz > 0) ? cached_nnz_stddev_ / mean_nnz : 0.0;
+    }
+  }
+
   if (!inside_mip_) {
     CUOPT_LOG_INFO(
       "   Iter    Primal Obj.      Dual Obj.    Gap        Primal Res.  Dual Res.   Time");
@@ -1320,11 +1354,19 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
     take_step(total_pdlp_iterations_,
               (total_pdlp_iterations_ + 1) % pdlp_hyper_params::major_iteration == 0);
 
+    // Count SpMV operations: take_step does approximately 3 SpMV ops per iteration
+    // (A @ x in dual update, A^T @ y in primal update or cached, A^T @ y' in step size)
+    constexpr int64_t spmv_ops_per_iteration = 3;
+    total_spmv_ops_ += spmv_ops_per_iteration;
+
     if (pdlp_hyper_params::use_reflected_primal_dual) {
       if (pdlp_hyper_params::use_fixed_point_error &&
             (total_pdlp_iterations_ + 1) % pdlp_hyper_params::major_iteration == 0 ||
-          has_restarted)
+          has_restarted) {
         compute_fixed_error(has_restarted);  // May set has_restarted to false
+        // compute_fixed_error does 1 additional SpMV
+        total_spmv_ops_ += 1;
+      }
 
       halpern_update();
     }
@@ -1333,6 +1375,36 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
     ++internal_solver_iterations_;
     if (pdlp_hyper_params::never_restart_to_average)
       restart_strategy_.increment_iteration_since_last_restart();
+
+    // Log PDLP_RESULT metrics every pdlp_log_interval iterations
+    constexpr i_t pdlp_log_interval = 50;
+    if (total_pdlp_iterations_ % pdlp_log_interval == 0) {
+      const int64_t nnz       = problem_ptr->nnz;
+      const int64_t total_nnz = total_spmv_ops_ * nnz;
+      const f_t elapsed_sec   = timer.elapsed_time();
+      const double nnz_per_sec =
+        (elapsed_sec > 0) ? static_cast<double>(total_nnz) / elapsed_sec : 0.0;
+      const double nnz_per_iter = static_cast<double>(total_nnz) / pdlp_log_interval;
+
+      CUOPT_LOG_INFO(
+        "PDLP_RESULT: n_vars=%d n_cstrs=%d nnz=%ld sparsity=%.6f nnz_stddev=%.6f "
+        "unbalancedness=%.6f "
+        "iters=%d time_ms=%.0f spmv_ops=%ld total_nnz=%.2e nnz/s=%.2e nnz/iter=%.2e",
+        problem_ptr->n_variables,
+        problem_ptr->n_constraints,
+        nnz,
+        cached_sparsity_,
+        cached_nnz_stddev_,
+        cached_unbalancedness_,
+        total_pdlp_iterations_,
+        elapsed_sec * 1000.0,
+        total_spmv_ops_,
+        static_cast<double>(total_nnz),
+        nnz_per_sec,
+        nnz_per_iter);
+      // Reset counters for next interval
+      total_spmv_ops_ = 0;
+    }
   }
   return optimization_problem_solution_t<i_t, f_t>{pdlp_termination_status_t::NumericalError,
                                                    stream_view_};
