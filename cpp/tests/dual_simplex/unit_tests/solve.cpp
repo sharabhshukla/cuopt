@@ -438,8 +438,12 @@ TEST(dual_simplex, simple_cuts)
   EXPECT_NEAR(solution.objective, 4.0 / 3.0, 1e-6);
 
   cuts.row_start.resize(3);
+  cuts.j.resize(2);
+  cuts.x.resize(2);
+  // Add cut y >= 1/3
   cuts.j[0]         = 1;
   cuts.row_start[2] = 2;
+  // Add cut x <= 0.0
   cuts.j[1]         = 0;
   cuts.x[1]         = 1.0;
   cuts.m            = 2;
