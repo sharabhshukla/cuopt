@@ -395,7 +395,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   for (i_t k = 0; k < num_basic; k++) {
     const i_t j = basic_list[k];
     in_basis[j] = k;
-    if (j < p)
+    if (j < cuts.n)
     {
       C_B_nz += C_col_degree[j];
     }
