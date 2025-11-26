@@ -69,6 +69,7 @@ struct simplex_solver_settings_t {
       num_threads(omp_get_max_threads() - 1),
       num_bfs_threads(std::min(num_threads / 4, 1)),
       num_diving_threads(std::min(num_threads - num_bfs_threads, 1)),
+      max_cut_passes(10),
       random_seed(0),
       inside_mip(0),
       solution_callback(nullptr),
@@ -134,6 +135,7 @@ struct simplex_solver_settings_t {
   i_t random_seed;                 // random seed
   i_t num_bfs_threads;             // number of threads dedicated to the best-first search
   i_t num_diving_threads;          // number of threads dedicated to diving
+  i_t max_cut_passes;              // number of cut passes to make
   i_t inside_mip;  // 0 if outside MIP, 1 if inside MIP at root node, 2 if inside MIP at leaf node
   std::function<void(std::vector<f_t>&, f_t)> solution_callback;
   std::function<void(const std::vector<f_t>&, f_t)> node_processed_callback;

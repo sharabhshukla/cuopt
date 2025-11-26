@@ -517,12 +517,13 @@ void branch_and_bound_t<i_t, f_t>::add_feasible_solution(f_t leaf_objective,
     f_t lower_bound = get_lower_bound();
     f_t obj         = compute_user_objective(original_lp_, upper_bound_);
     f_t lower       = compute_user_objective(original_lp_, lower_bound);
-    settings_.log.printf("%c%10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+    settings_.log.printf("%c%10d   %10lu    %+13.6e    %+10.6e   %6d %6d  %7.1e     %s %9.2f\n",
                          thread_type,
                          nodes_explored,
                          nodes_unexplored,
                          obj,
                          lower,
+                         0,
                          leaf_depth,
                          nodes_explored > 0 ? stats_.total_lp_iters / nodes_explored : 0,
                          user_mip_gap<f_t>(obj, lower).c_str(),
@@ -665,7 +666,7 @@ node_status_t branch_and_bound_t<i_t, f_t>::solve_node(search_tree_t<i_t, f_t>& 
 
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
       search_tree.branch(
-        node_ptr, branch_var, leaf_solution.x[branch_var], leaf_vstatus, original_lp_, log);
+        node_ptr, branch_var, leaf_solution.x[branch_var], leaf_num_fractional, leaf_vstatus, original_lp_, log);
       node_ptr->status = node_status_t::HAS_CHILDREN;
       return node_status_t::HAS_CHILDREN;
 
@@ -741,11 +742,12 @@ void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(search_tree_t<i_t, f_t>* 
       f_t user_lower       = compute_user_objective(original_lp_, root_objective_);
       std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
 
-      settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+      settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d %6d  %7.1e     %s %9.2f\n",
                            nodes_explored,
                            nodes_unexplored,
                            obj,
                            user_lower,
+                           node->integer_infeasible,
                            node->depth,
                            nodes_explored > 0 ? stats_.total_lp_iters / nodes_explored : 0,
                            gap_user.c_str(),
@@ -841,11 +843,12 @@ void branch_and_bound_t<i_t, f_t>::explore_subtree(i_t task_id,
         f_t obj              = compute_user_objective(original_lp_, upper_bound);
         f_t user_lower       = compute_user_objective(original_lp_, get_lower_bound());
         std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
-        settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+        settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d %6d  %7.1e     %s %9.2f\n",
                              nodes_explored,
                              nodes_unexplored,
                              obj,
                              user_lower,
+                             node_ptr->integer_infeasible,
                              node_ptr->depth,
                              nodes_explored > 0 ? stats_.total_lp_iters / nodes_explored : 0,
                              gap_user.c_str(),
@@ -1065,6 +1068,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   root_relax_soln_.resize(original_lp_.num_rows, original_lp_.num_cols);
 
   settings_.log.printf("Solving LP root relaxation\n");
+  i_t original_rows = original_lp_.num_rows;
   simplex_solver_settings_t lp_settings = settings_;
   lp_settings.inside_mip                = 1;
   lp_settings.scale_columns = false;
@@ -1126,13 +1130,21 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   csc_matrix_t<i_t, f_t> Arow(1, 1, 1);
   original_lp_.A.transpose(Arow);
 
-  for (i_t cut_pass = 0; cut_pass < 10; cut_pass++) {
+  if (num_fractional != 0) {
+    settings_.log.printf(
+      " | Explored | Unexplored |    Objective    |     Bound     | IntInf | Depth | Iter/Node |   Gap    "
+      "|  Time  |\n");
+  }
+
+  for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
+#ifdef PRINT_SOLUTION
       for (i_t j = 0; j < original_lp_.num_cols; j++) {
         if (var_types_[j] == variable_type_t::INTEGER) {
           settings_.log.printf("Variable %d type %d val %e\n", j, var_types_[j], root_relax_soln_.x[j]);
         }
       }
+#endif
       mutex_upper_.lock();
       incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
       upper_bound_ = root_objective_;
@@ -1155,10 +1167,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       }
       return mip_status_t::OPTIMAL;
     } else {
+#ifdef PRINT_FRACTIONAL_INFO
       settings_.log.printf("Found %d fractional variables on cut pass %d\n", num_fractional, cut_pass);
       for (i_t j: fractional) {
         settings_.log.printf("Fractional variable %d lower %e value %e upper %e\n", j, original_lp_.lower[j], root_relax_soln_.x[j], original_lp_.upper[j]);
       }
+#endif
       // Let's look for Gomory cuts
       // Compute b_bar
       std::vector<f_t> b_bar(original_lp_.num_rows);
@@ -1166,6 +1180,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       std::vector<f_t> nonbasic_mark(original_lp_.num_cols, 0);
       for (i_t j : nonbasic_list) {
+        if (j < 0 || j >= original_lp_.num_cols) {
+          settings_.log.printf("nonbasic_list out of bounds %d num_cols %d\n", j, original_lp_.num_cols);
+          exit(1);
+        }
         nonbasic_mark[j] = 1;
       }
 
@@ -1194,20 +1212,19 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         if (uj < inf) {
           if (uj - xstar_j <= xstar_j - lj) {
             has_upper[j] = 1;
-            settings_.log.printf("Variable %d in upper\n", j);
           } else {
             has_lower[j] = 1;
-            settings_.log.printf("Variable %d in lower\n", j);
           }
           continue;
         }
 
         if (lj > -inf) {
           has_lower[j] = 1;
-          settings_.log.printf("Variable %d in lower\n", j);
         }
       }
+#ifdef PRINT_COMPLEMENT_INFO
       settings_.log.printf("needs_complement %d\n", needs_complement);
+#endif
 
       csr_matrix_t<i_t, f_t> C(0, original_lp_.num_cols, 0);
       C.row_start[0] = 0;
@@ -1220,8 +1237,9 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         if (var_types_[j] != variable_type_t::INTEGER) { continue; }
         const f_t x_j = root_relax_soln_.x[j];
         if (std::abs(x_j - std::round(x_j)) < settings_.integer_tol) { continue; }
-
+#ifdef PRINT_CUT_INFO
         settings_.log.printf("Generating cut for variable %d relaxed value %e row %d\n", j, x_j, i);
+#endif
 #ifdef PRINT_BASIS
         for (i_t h = 0; h < basic_list.size(); h++) {
           settings_.log.printf("basic_list[%d] = %d\n", h, basic_list[h]);
@@ -1298,9 +1316,18 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         a_bar.to_dense(a_bar_dense);
 
         f_t a_bar_dense_dot = dot<i_t, f_t>(a_bar_dense, root_relax_soln_.x);
-        settings_.log.printf("a_bar_dense_dot = %e b_bar[%d] = %e\n", a_bar_dense_dot, i, b_bar[i]);
+        if (std::abs(a_bar_dense_dot - b_bar[i]) > 1e-6) {
+          settings_.log.printf("a_bar_dense_dot = %e b_bar[%d] = %e\n", a_bar_dense_dot, i, b_bar[i]);
+          settings_.log.printf("x_j %e b_bar_i %e\n", x_j, b_bar[i]);
+          exit(1);
+        }
 
-        settings_.log.printf("x_j %e b_bar_i %e\n", x_j, b_bar[i]);
+        // Skip cuts that are shallow
+        const f_t shallow_tol = 1e-2;
+        if (std::abs(x_j - std::round(x_j)) < shallow_tol) {
+          //settings_.log.printf("Skipping shallow cut %d. b_bar[%d] = %e x_j %e\n", i, i, b_bar[i], x_j);
+          continue;
+        }
 
 #ifdef PRINT_BASE_INEQUALITY
         // Print out the base inequality
@@ -1396,10 +1423,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                 }
               } else {
                 // Upper intersect C
-                x_workspace[jj] -= h(-aj);
-                if (!x_mark[jj]) {
-                  x_mark[jj] = 1;
-                  cut_indices.push_back(jj);
+                f_t h_j = h(-aj);
+                if (h_j != 0.0) {
+                  x_workspace[jj] -= h_j;
+                  if (!x_mark[jj]) {
+                    x_mark[jj] = 1;
+                    cut_indices.push_back(jj);
+                  }
                 }
               }
             } else if (var_types_[jj] == variable_type_t::INTEGER) {
@@ -1411,10 +1441,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
               }
             } else {
               // C \ Upper
-              x_workspace[jj] += h(aj);
-              if (!x_mark[jj]) {
-                x_mark[jj] = 1;
-                cut_indices.push_back(jj);
+              f_t h_j = h(aj);
+              if (h_j != 0.0) {
+                x_workspace[jj] += h_j;
+                if (!x_mark[jj]) {
+                  x_mark[jj] = 1;
+                  cut_indices.push_back(jj);
+                }
               }
             }
           }
@@ -1454,13 +1487,15 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       C.check_matrix();
 #ifdef PRINT_CUT_RHS
       for (i_t k = 0; k < cut_rhs.size(); k++) {
-        lp_settings.log.printf("cut_rhs[%d] = %e\n", k, cut_rhs[k]);
+        settings_.log.printf("cut_rhs[%d] = %e\n", k, cut_rhs[k]);
       }
 #endif
 
-      lp_settings.log.printf("C nz %d\n", C.row_start[C.m]);
-      lp_settings.log.printf("C m %d cut rhs size %d\n", C.m, cut_rhs.size());
-      lp_settings.log.printf("original_lp_.num_cols %d\n", original_lp_.num_cols);
+#ifdef PRINT_CUT_INFO
+      settings_.log.printf("C nz %d\n", C.row_start[C.m]);
+      settings_.log.printf("C m %d cut rhs size %d\n", C.m, cut_rhs.size());
+      settings_.log.printf("original_lp_.num_cols %d\n", original_lp_.num_cols);
+#endif
 
 #ifdef PRINT_OPTIMAL
       for (i_t j = 0; j < original_lp_.num_cols; j++) {
@@ -1471,16 +1506,22 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       // Check to see that this is a cut i.e C*x > d
       std::vector<f_t> Cx(C.m);
       matrix_vector_multiply(C_col, 1.0, root_relax_soln_.x, 0.0, Cx);
+      f_t min_cut_violation = inf;
       for (i_t k = 0; k < Cx.size(); k++) {
         //lp_settings.log.printf("Cx[%d] = %e cut_rhs[%d] = %e\n", k, Cx[k], k, cut_rhs[k]);
         if (Cx[k] <= cut_rhs[k]) {
-          lp_settings.log.printf("C*x <= d for cut %d\n", k);
+          settings_.log.printf("C*x <= d for cut %d\n", k);
           exit(1);
         }
+        min_cut_violation = std::min(min_cut_violation, Cx[k] - cut_rhs[k]);
       }
+#ifdef PRINT_MIN_CUT_VIOLATION
+      settings_.log.printf("Min cut violation %e\n", min_cut_violation);
+#endif
 
       // Resolve the LP with the new cuts
-      lp_settings.log.printf("Solving LP with %d cuts\n", C.m);
+      settings_.log.printf("Solving LP with %d cuts (%d nonzeros). Total constraints %d\n", C.m, C.row_start[C.m], C.m + original_lp_.num_rows);
+      lp_settings.log.log = false;
 
       lp_status_t cut_status = solve_linear_program_with_cuts(stats_.start_time,
                                                               lp_settings,
@@ -1493,7 +1534,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                                               nonbasic_list,
                                                               root_vstatus_,
                                                               edge_norms_);
-
+      settings_.log.printf("Cut LP iterations %d. A nz %d\n", root_relax_soln_.iterations, original_lp_.A.col_start[original_lp_.A.n]);
+      stats_.total_lp_iters += root_relax_soln_.iterations;
       root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
 
       if (cut_status != lp_status_t::OPTIMAL) {
@@ -1503,9 +1545,146 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       original_lp_.A.transpose(Arow);
       var_types_.resize(original_lp_.num_cols, variable_type_t::CONTINUOUS);
+      std::vector<i_t> cuts_to_remove;
+      cuts_to_remove.reserve(original_lp_.num_rows - original_rows);
+      std::vector<i_t> slacks_to_remove;
+      slacks_to_remove.reserve(original_lp_.num_rows - original_rows);
+      const f_t dual_tol = 1e-10;
+      for (i_t k = original_rows; k < original_lp_.num_rows; k++) {
+        if (std::abs(root_relax_soln_.y[k]) < dual_tol) {
+          const i_t row_start = Arow.col_start[k];
+          const i_t row_end   = Arow.col_start[k + 1];
+          i_t last_slack = -1;
+          const f_t slack_tol = 1e-3;
+          for (i_t p = row_start; p < row_end; p++) {
+            const i_t jj = Arow.i[p];
+            const i_t col_len = original_lp_.A.col_start[jj + 1] - original_lp_.A.col_start[jj];
+            if (var_types_[jj] == variable_type_t::CONTINUOUS &&
+                Arow.x[p] == 1.0 &&
+                original_lp_.lower[jj] == 0.0 &&
+                original_lp_.upper[jj] == inf &&
+                root_vstatus_[jj] == variable_status_t::BASIC &&
+                col_len == 1 &&
+                root_relax_soln_.x[jj] > slack_tol) {
+              last_slack = jj;
+            }
+          }
+          if (last_slack != -1) {
+            cuts_to_remove.push_back(k);
+            slacks_to_remove.push_back(last_slack);
+          }
+        }
+      }
+
+      if (cuts_to_remove.size() > 0) {
+        settings_.log.printf("Removing %d cuts\n", cuts_to_remove.size());
+        std::vector<i_t> marked_rows(original_lp_.num_rows, 0);
+        for (i_t i : cuts_to_remove) {
+          marked_rows[i] = 1;
+        }
+        std::vector<i_t> marked_cols(original_lp_.num_cols, 0);
+        for (i_t j : slacks_to_remove) {
+          marked_cols[j] = 1;
+        }
+
+        std::vector<f_t> new_rhs(original_lp_.num_rows - cuts_to_remove.size());
+        std::vector<f_t> new_solution_y(original_lp_.num_rows - cuts_to_remove.size());
+        i_t h = 0;
+        for (i_t i = 0; i < original_lp_.num_rows; i++) {
+          if (!marked_rows[i]) {
+            new_rhs[h] = original_lp_.rhs[i];
+            new_solution_y[h] = root_relax_soln_.y[i];
+            h++;
+          }
+        }
+
+
+        Arow.remove_columns(marked_rows);
+        Arow.transpose(original_lp_.A);
+
+        std::vector<f_t> new_objective(original_lp_.num_cols - slacks_to_remove.size());
+        std::vector<f_t> new_lower(original_lp_.num_cols - slacks_to_remove.size());
+        std::vector<f_t> new_upper(original_lp_.num_cols - slacks_to_remove.size());
+        std::vector<variable_type_t> new_var_types(original_lp_.num_cols - slacks_to_remove.size());
+        std::vector<variable_status_t> new_vstatus(original_lp_.num_cols - slacks_to_remove.size());
+        std::vector<i_t> new_basic_list;
+        new_basic_list.reserve(original_lp_.num_rows - slacks_to_remove.size());
+        std::vector<i_t> new_nonbasic_list;
+        new_nonbasic_list.reserve(nonbasic_list.size());
+        std::vector<f_t> new_solution_x(original_lp_.num_cols - slacks_to_remove.size());
+        std::vector<f_t> new_solution_z(original_lp_.num_cols - slacks_to_remove.size());
+        h = 0;
+        for (i_t k = 0; k < original_lp_.num_cols; k++) {
+          if (!marked_cols[k]) {
+            new_objective[h] = original_lp_.objective[k];
+            new_lower[h] = original_lp_.lower[k];
+            new_upper[h] = original_lp_.upper[k];
+            new_var_types[h] = var_types_[k];
+            new_vstatus[h] = root_vstatus_[k];
+            new_solution_x[h] = root_relax_soln_.x[k];
+            new_solution_z[h] = root_relax_soln_.z[k];
+            if (new_vstatus[h] != variable_status_t::BASIC) {
+              new_nonbasic_list.push_back(h);
+            } else {
+              new_basic_list.push_back(h);
+            }
+            h++;
+          }
+        }
+        original_lp_.A.remove_columns(marked_cols);
+        original_lp_.A.transpose(Arow);
+        original_lp_.objective = new_objective;
+        original_lp_.lower = new_lower;
+        original_lp_.upper = new_upper;
+        original_lp_.rhs = new_rhs;
+        var_types_ = new_var_types;
+        original_lp_.num_cols = original_lp_.A.n;
+        original_lp_.num_rows = original_lp_.A.m;
+        basic_list = new_basic_list;
+        nonbasic_list = new_nonbasic_list;
+        root_vstatus_ = new_vstatus;
+        root_relax_soln_.x = new_solution_x;
+        root_relax_soln_.y = new_solution_y;
+        root_relax_soln_.z = new_solution_z;
+
+#ifdef PRINT_SIZES
+        settings_.log.printf("A %d x %d\n", original_lp_.A.m, original_lp_.A.n);
+        settings_.log.printf("basic_list size %d\n", basic_list.size());
+        settings_.log.printf("nonbasic_list size %d\n", nonbasic_list.size());
+        settings_.log.printf("root_vstatus_ size %d\n", root_vstatus_.size());
+        settings_.log.printf("original_lp_.num_rows %d\n", original_lp_.num_rows);
+        settings_.log.printf("original_lp_.num_cols %d\n", original_lp_.num_cols);
+        settings_.log.printf("root_relax_soln_.x size %d\n", root_relax_soln_.x.size());
+        settings_.log.printf("root_relax_soln_.y size %d\n", root_relax_soln_.y.size());
+        settings_.log.printf("root_relax_soln_.z size %d\n", root_relax_soln_.z.size());
+        settings_.log.printf("rhs size %ld\n", original_lp_.rhs.size());
+        settings_.log.printf("lower size %ld\n", original_lp_.lower.size());
+        settings_.log.printf("upper size %ld\n", original_lp_.upper.size());
+        settings_.log.printf("objective size %ld\n", original_lp_.objective.size());
+        settings_.log.printf("var_types_ size %ld\n", var_types_.size());
+#endif
+
+        basis_update.resize(original_lp_.num_rows);
+        basis_update.refactor_basis(original_lp_.A, settings_, basic_list, nonbasic_list, root_vstatus_);
+      }
 
       fractional.clear();
       num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
+
+      // TODO: Get upper bound from heuristics
+      std::string gap = num_fractional != 0 ? "  -  " : "0.0%";
+      f_t obj = num_fractional != 0 ? inf : compute_user_objective(original_lp_, root_objective_);
+
+      settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d %6d   %7.1e     %s %9.2f\n",
+        0,
+        0,
+        obj,
+        compute_user_objective(original_lp_, root_objective_),
+        num_fractional,
+        0,
+        stats_.total_lp_iters.load(),
+        gap.c_str(),
+        toc(stats_.start_time));
     }
   }
 
@@ -1534,6 +1713,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   search_tree.branch(&search_tree.root,
                      branch_var,
                      root_relax_soln_.x[branch_var],
+                     num_fractional,
                      root_vstatus_,
                      original_lp_,
                      log);
@@ -1544,9 +1724,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     settings_.num_diving_threads,
     settings_.num_threads);
 
-  settings_.log.printf(
-    " | Explored | Unexplored |    Objective    |     Bound     | Depth | Iter/Node |   Gap    "
-    "|  Time  |\n");
+
 
 
   stats_.nodes_explored       = 0;

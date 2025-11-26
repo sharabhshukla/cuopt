@@ -361,6 +361,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     lp.upper[j]     = inf;
     lp.objective[j] = 0.0;
   }
+  settings.log.printf("Done adding slacks\n");
   new_A_col.col_start[lp.num_cols + p] = nz;
   new_A_col.n                          = lp.num_cols + p;
 
@@ -376,6 +377,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     const i_t h = k - old_rows;
     lp.rhs[k]   = cut_rhs[h];
   }
+  settings.log.printf("Done adding rhs\n");
 
   // Construct C_B = C(:, basic_list)
   std::vector<i_t> C_col_degree(lp.num_cols, 0);
@@ -388,12 +390,17 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     }
     C_col_degree[j]++;
   }
+  settings.log.printf("Done computing C_col_degree\n");
 
   std::vector<i_t> in_basis(old_cols, -1);
   const i_t num_basic = static_cast<i_t>(basic_list.size());
   i_t C_B_nz          = 0;
   for (i_t k = 0; k < num_basic; k++) {
     const i_t j = basic_list[k];
+    if (j < 0 || j >= old_cols) {
+      settings.log.printf("basic_list[%d] = %d is out of bounds %d old_cols %d\n", k, j, j, old_cols);
+      exit(1);
+    }
     in_basis[j] = k;
     if (j < cuts.n)
     {
@@ -444,7 +451,8 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   const f_t err = Diff.norm1();
   settings.log.printf("After || B - L*U || %e\n", err);
   if (err > 1e-6) {
-    Diff.print_matrix();
+    settings.log.printf("Diff matrix\n");
+    //Diff.print_matrix();
       exit(1);
   }
   // Adjust the vstatus
@@ -475,7 +483,8 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
                                                           solution,
                                                           iter,
                                                           edge_norms);
-
+  settings.log.printf("Phase 2 iterations %d\n", iter);
+  solution.iterations = iter;
   lp_status_t lp_status;
   if (status == dual::status_t::OPTIMAL) { lp_status = lp_status_t::OPTIMAL; }
   if (status == dual::status_t::DUAL_UNBOUNDED) { lp_status = lp_status_t::INFEASIBLE; }
