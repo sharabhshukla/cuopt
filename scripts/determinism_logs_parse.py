@@ -21,11 +21,12 @@ Parse log files containing algorithm feature logs and export to pickle format fo
 
 Supports parsing of:
 - FP (Feasibility Pump): FP_FEATURES and FP_RESULT logs
-- PDLP (LP Solver): PDLP_FEATURES and PDLP_RESULT logs
+- PDLP (LP Solver): PDLP_RESULT single-line logs
 - CP (Constraint Propagation): CP_FEATURES and CP_RESULT logs
 - FJ (Feasibility Jump): Legacy FJ: format
 - CPUFJ (CPU Feasibility Jump): CPUFJ_FEATURES single-line logs
 - BB (Branch and Bound): BB_NODE_FEATURES single-line logs
+- DS (Dual Simplex): DS_FEATURES single-line logs
 
 IMPORTANT - Grep Specificity:
 The parser uses EXACT pattern matching with grep to filter logs efficiently.
@@ -51,6 +52,7 @@ Usage:
     python determinism_logs_parse.py <input_directory> --algorithm FJ [-o output.feather]
     python determinism_logs_parse.py <input_directory> --algorithm CPUFJ [-o output.feather]
     python determinism_logs_parse.py <input_directory> --algorithm BB [-o output.feather]
+    python determinism_logs_parse.py <input_directory> --algorithm DS [-o output.feather]
 """
 
 import argparse
@@ -62,7 +64,7 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 
 
-SUPPORTED_ALGORITHMS = ["FP", "PDLP", "CP", "FJ", "CPUFJ", "BB"]
+SUPPORTED_ALGORITHMS = ["FP", "PDLP", "CP", "FJ", "CPUFJ", "BB", "DS"]
 
 
 def parse_value(value_str: str) -> Any:
@@ -310,8 +312,10 @@ def parse_fp_logs(log_files: List[str]) -> List[Dict[str, Any]]:
 
 
 def parse_pdlp_logs(log_files: List[str]) -> List[Dict[str, Any]]:
-    """Parse PDLP (LP Solver) feature and result logs."""
-    return parse_generic_algorithm_logs(log_files, "PDLP", "LP Solver")
+    """Parse PDLP (LP Solver) result logs."""
+    return parse_single_line_logs(
+        log_files, "PDLP_RESULT:", "PDLP (LP Solver)", "PDLP_RESULT:"
+    )
 
 
 def parse_cp_logs(log_files: List[str]) -> List[Dict[str, Any]]:
@@ -432,6 +436,13 @@ def parse_bb_logs(log_files: List[str]) -> List[Dict[str, Any]]:
     )
 
 
+def parse_ds_logs(log_files: List[str]) -> List[Dict[str, Any]]:
+    """Parse Dual Simplex feature logs."""
+    return parse_single_line_logs(
+        log_files, "DS_FEATURES:", "DS (Dual Simplex)", "DS_FEATURES:"
+    )
+
+
 def print_statistics(entries: List[Dict[str, Any]], algorithm: str) -> None:
     """Print statistics about parsed entries."""
     if not entries:
@@ -478,11 +489,12 @@ def main():
         epilog="""
 Supported Algorithms:
   FP     - Feasibility Pump (parses FP_FEATURES and FP_RESULT logs)
-  PDLP   - LP Solver (parses PDLP_FEATURES and PDLP_RESULT logs)
+  PDLP   - LP Solver (parses PDLP_RESULT single-line logs)
   CP     - Constraint Propagation (parses CP_FEATURES and CP_RESULT logs)
   FJ     - Feasibility Jump (parses legacy FJ: format)
   CPUFJ  - CPU Feasibility Jump (parses CPUFJ_FEATURES single-line logs)
   BB     - Branch and Bound (parses BB_NODE_FEATURES single-line logs)
+  DS     - Dual Simplex (parses DS_FEATURES single-line logs)
 
 Examples:
   python determinism_logs_parse.py logs/ --algorithm FP -o fp_data.feather
@@ -491,6 +503,7 @@ Examples:
   python determinism_logs_parse.py logs/ --algorithm FJ -o fj_data.feather
   python determinism_logs_parse.py logs/ --algorithm CPUFJ -o cpufj_data.feather
   python determinism_logs_parse.py logs/ --algorithm BB -o bb_data.feather
+  python determinism_logs_parse.py logs/ --algorithm DS -o ds_data.feather
 
   # Limit to first 10 files for testing
   python determinism_logs_parse.py logs/ --algorithm FP --max-files 10
@@ -565,15 +578,21 @@ Examples:
         entries = parse_cpufj_logs(log_files)
     elif args.algorithm == "BB":
         entries = parse_bb_logs(log_files)
+    elif args.algorithm == "DS":
+        entries = parse_ds_logs(log_files)
     else:
         print(f"Error: Unsupported algorithm: {args.algorithm}")
         return 1
 
     if not entries:
         print(f"\nError: No entries found for {args.algorithm}")
-        if args.algorithm in ["FP", "PDLP", "CP"]:
+        if args.algorithm in ["FP", "CP"]:
             print(
                 f"Make sure your logs contain {args.algorithm}_FEATURES and {args.algorithm}_RESULT lines"
+            )
+        elif args.algorithm == "PDLP":
+            print(
+                "Make sure your logs contain PDLP_RESULT: lines with key=value pairs"
             )
         elif args.algorithm == "FJ":
             print("Make sure your logs contain FJ: lines with key=value pairs")
@@ -584,6 +603,10 @@ Examples:
         elif args.algorithm == "BB":
             print(
                 "Make sure your logs contain BB_NODE_FEATURES lines with key=value pairs"
+            )
+        elif args.algorithm == "DS":
+            print(
+                "Make sure your logs contain DS_FEATURES: lines with key=value pairs"
             )
         return 1
 

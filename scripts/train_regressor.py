@@ -141,6 +141,11 @@ FEATURES_TO_EXCLUDE = [
     "h_tabu_lastinc_stores",
     "h_tabu_lastinc_loads",
     "max_weight",
+    "fixed",
+    "phase",
+    "iters",
+    "nnz/s",
+    "nnz/iter",
 ]
 
 # Alternatively, specify ONLY the features you want to use
