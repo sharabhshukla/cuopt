@@ -188,11 +188,11 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
                                 : 0.0;
 
   // Compute sparsity metrics
-  const double sparsity = (n_cstrs > 0 && n_vars > 0)
-                            ? static_cast<double>(nnz) / (static_cast<double>(n_cstrs) * n_vars)
-                            : 0.0;
-  double nnz_stddev     = 0.0;
-  double unbalancedness = 0.0;
+  const double sparsity                  = (n_cstrs > 0 && n_vars > 0)
+                                             ? static_cast<double>(nnz) / (static_cast<double>(n_cstrs) * n_vars)
+                                             : 0.0;
+  double nnz_stddev                      = 0.0;
+  [[maybe_unused]] double unbalancedness = 0.0;
   if (op_problem.offsets.size() == static_cast<size_t>(n_cstrs + 1) && n_cstrs > 0) {
     std::vector<i_t> h_offsets(n_cstrs + 1);
     raft::copy(h_offsets.data(),

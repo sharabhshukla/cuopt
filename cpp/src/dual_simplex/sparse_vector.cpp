@@ -72,8 +72,8 @@ void sparse_vector_t<i_t, f_t>::to_csc(csc_matrix_t<i_t, f_t>& A) const
   A.col_start.resize(2);
   A.col_start[0] = 0;
   A.col_start[1] = i.size();
-  A.i            = i.array;
-  A.x            = x.array;
+  A.i            = i.underlying();
+  A.x            = x.underlying();
 }
 
 template <typename i_t, typename f_t>
@@ -201,7 +201,7 @@ void sparse_vector_t<i_t, f_t>::sort()
       perm[k] = k;
     }
     // Need to capture the underlying array for the lambda
-    auto& iunsorted = i.array;
+    auto& iunsorted = i;
     std::sort(
       perm.begin(), perm.end(), [&iunsorted](i_t a, i_t b) { return iunsorted[a] < iunsorted[b]; });
     for (i_t k = 0; k < nz; ++k) {

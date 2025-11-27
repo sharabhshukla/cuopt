@@ -13,6 +13,7 @@
 #include <dual_simplex/presolve.hpp>
 #include <dual_simplex/simplex_solver_settings.hpp>
 #include <dual_simplex/types.hpp>
+#include <utilities/memory_instrumentation.hpp>
 
 #include <vector>
 

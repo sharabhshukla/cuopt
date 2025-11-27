@@ -1260,7 +1260,7 @@ class iteration_data_t {
     // v = alpha * A * w + beta * v = alpha * A * Dinv * A^T * y + beta * v
     matrix_vector_multiply(A, alpha, w, beta, v);
     if (debug) {
-      printf("||A|| = %.16e\n", vector_norm2<i_t, f_t>(A.x.array));
+      printf("||A|| = %.16e\n", vector_norm2<i_t, f_t>(A.x.underlying()));
       printf("||w|| = %.16e\n", vector_norm2<i_t, f_t>(w));
       printf("||v|| = %.16e\n", vector_norm2<i_t, f_t>(v));
     }

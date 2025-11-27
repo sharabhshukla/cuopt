@@ -663,8 +663,8 @@ void update_single_primal_infeasibility(const std::vector<f_t>& lower,
                                         const std::vector<f_t>& upper,
                                         const std::vector<f_t>& x,
                                         f_t primal_tol,
-                                        ins_vector<f_t>& squared_infeasibilities,
-                                        ins_vector<i_t>& infeasibility_indices,
+                                        std::vector<f_t>& squared_infeasibilities,
+                                        std::vector<i_t>& infeasibility_indices,
                                         i_t j,
                                         f_t& primal_inf)
 {
@@ -705,9 +705,9 @@ void update_primal_infeasibilities(const lp_problem_t<i_t, f_t>& lp,
                                    const std::vector<f_t>& x,
                                    i_t entering_index,
                                    i_t leaving_index,
-                                   ins_vector<i_t>& basic_change_list,
-                                   ins_vector<f_t>& squared_infeasibilities,
-                                   ins_vector<i_t>& infeasibility_indices,
+                                   std::vector<i_t>& basic_change_list,
+                                   std::vector<f_t>& squared_infeasibilities,
+                                   std::vector<i_t>& infeasibility_indices,
                                    f_t& primal_inf)
 {
   const f_t primal_tol = settings.primal_tol;
@@ -764,7 +764,7 @@ void clean_up_infeasibilities(ins_vector<f_t>& squared_infeasibilities,
 template <typename i_t, typename f_t>
 i_t steepest_edge_pricing_with_infeasibilities(const lp_problem_t<i_t, f_t>& lp,
                                                const simplex_solver_settings_t<i_t, f_t>& settings,
-                                               const std::vector<f_t>& x,
+                                               const ins_vector<f_t>& x,
                                                const std::vector<f_t>& dy_steepest_edge,
                                                const ins_vector<i_t>& basic_mark,
                                                ins_vector<f_t>& squared_infeasibilities,
@@ -866,7 +866,7 @@ i_t steepest_edge_pricing(const lp_problem_t<i_t, f_t>& lp,
 template <typename i_t, typename f_t>
 i_t phase2_pricing(const lp_problem_t<i_t, f_t>& lp,
                    const simplex_solver_settings_t<i_t, f_t>& settings,
-                   const std::vector<f_t>& x,
+                   const ins_vector<f_t>& x,
                    const std::vector<i_t>& basic_list,
                    i_t& direction,
                    i_t& basic_leaving,
@@ -911,7 +911,7 @@ template <typename i_t, typename f_t>
 f_t first_stage_harris(const lp_problem_t<i_t, f_t>& lp,
                        const std::vector<variable_status_t>& vstatus,
                        const std::vector<i_t>& nonbasic_list,
-                       std::vector<f_t>& z,
+                       ins_vector<f_t>& z,
                        ins_vector<f_t>& delta_z)
 {
   const i_t n             = lp.num_cols;
@@ -945,7 +945,7 @@ template <typename i_t, typename f_t>
 i_t second_stage_harris(const lp_problem_t<i_t, f_t>& lp,
                         const std::vector<variable_status_t>& vstatus,
                         const std::vector<i_t>& nonbasic_list,
-                        const std::vector<f_t>& z,
+                        const ins_vector<f_t>& z,
                         const ins_vector<f_t>& delta_z,
                         f_t max_step_length,
                         f_t& step_length,
@@ -986,9 +986,9 @@ i_t second_stage_harris(const lp_problem_t<i_t, f_t>& lp,
 template <typename i_t, typename f_t>
 i_t phase2_ratio_test(const lp_problem_t<i_t, f_t>& lp,
                       const simplex_solver_settings_t<i_t, f_t>& settings,
-                      const std::vector<variable_status_t>& vstatus,
-                      const std::vector<i_t>& nonbasic_list,
-                      std::vector<f_t>& z,
+                      std::vector<variable_status_t>& vstatus,
+                      std::vector<i_t>& nonbasic_list,
+                      ins_vector<f_t>& z,
                       ins_vector<f_t>& delta_z,
                       f_t& step_length,
                       i_t& nonbasic_entering)
@@ -1040,8 +1040,8 @@ template <typename i_t, typename f_t>
 i_t flip_bounds(const lp_problem_t<i_t, f_t>& lp,
                 const simplex_solver_settings_t<i_t, f_t>& settings,
                 const ins_vector<uint8_t>& bounded_variables,
-                const std::vector<f_t>& objective,
-                const std::vector<f_t>& z,
+                const ins_vector<f_t>& objective,
+                const ins_vector<f_t>& z,
                 const ins_vector<i_t>& delta_z_indices,
                 const std::vector<i_t>& nonbasic_list,
                 i_t entering_index,
@@ -1377,8 +1377,8 @@ template <typename i_t, typename f_t>
 i_t compute_perturbation(const lp_problem_t<i_t, f_t>& lp,
                          const simplex_solver_settings_t<i_t, f_t>& settings,
                          const ins_vector<i_t>& delta_z_indices,
-                         std::vector<f_t>& z,
-                         std::vector<f_t>& objective,
+                         ins_vector<f_t>& z,
+                         ins_vector<f_t>& objective,
                          f_t& sum_perturb)
 {
   const i_t n         = lp.num_cols;
@@ -1498,8 +1498,8 @@ i_t update_dual_variables(const sparse_vector_t<i_t, f_t>& delta_y_sparse,
                           const ins_vector<f_t>& delta_z,
                           f_t step_length,
                           i_t leaving_index,
-                          std::vector<f_t>& y,
-                          std::vector<f_t>& z)
+                          ins_vector<f_t>& y,
+                          ins_vector<f_t>& z)
 {
   // Update dual variables
   // y <- y + steplength * delta_y
@@ -1528,7 +1528,7 @@ void adjust_for_flips(const basis_update_mpf_t<i_t, f_t>& ft,
                       sparse_vector_t<i_t, f_t>& atilde_sparse,
                       sparse_vector_t<i_t, f_t>& delta_xB_0_sparse,
                       ins_vector<f_t>& delta_x_flip,
-                      std::vector<f_t>& x)
+                      ins_vector<f_t>& x)
 {
   const i_t atilde_nz = atilde_index.size();
   // B*delta_xB_0 = atilde
@@ -1573,7 +1573,7 @@ i_t compute_delta_x(const lp_problem_t<i_t, f_t>& lp,
                     const std::vector<i_t>& basic_list,
                     const ins_vector<f_t>& delta_x_flip,
                     const sparse_vector_t<i_t, f_t>& rhs_sparse,
-                    const std::vector<f_t>& x,
+                    const ins_vector<f_t>& x,
                     sparse_vector_t<i_t, f_t>& utilde_sparse,
                     sparse_vector_t<i_t, f_t>& scaled_delta_xB_sparse,
                     ins_vector<f_t>& delta_x)
@@ -1636,7 +1636,7 @@ void update_primal_variables(const sparse_vector_t<i_t, f_t>& scaled_delta_xB_sp
                              const std::vector<i_t>& basic_list,
                              const ins_vector<f_t>& delta_x,
                              i_t entering_index,
-                             std::vector<f_t>& x)
+                             ins_vector<f_t>& x)
 {
   // x <- x + delta_x
   const i_t scaled_delta_xB_nz = scaled_delta_xB_sparse.i.size();
@@ -2008,7 +2008,7 @@ void set_primal_variables_on_bounds(const lp_problem_t<i_t, f_t>& lp,
 }
 
 template <typename f_t>
-f_t compute_perturbed_objective(const std::vector<f_t>& objective, const std::vector<f_t>& x)
+f_t compute_perturbed_objective(const ins_vector<f_t>& objective, const ins_vector<f_t>& x)
 {
   const size_t n = objective.size();
   f_t obj_val    = 0.0;
@@ -2019,7 +2019,7 @@ f_t compute_perturbed_objective(const std::vector<f_t>& objective, const std::ve
 }
 
 template <typename i_t, typename f_t>
-f_t amount_of_perturbation(const lp_problem_t<i_t, f_t>& lp, const std::vector<f_t>& objective)
+f_t amount_of_perturbation(const lp_problem_t<i_t, f_t>& lp, const ins_vector<f_t>& objective)
 {
   f_t perturbation = 0.0;
   const i_t n      = lp.num_cols;
@@ -2033,7 +2033,7 @@ template <typename i_t, typename f_t>
 void prepare_optimality(const lp_problem_t<i_t, f_t>& lp,
                         const simplex_solver_settings_t<i_t, f_t>& settings,
                         basis_update_mpf_t<i_t, f_t>& ft,
-                        const std::vector<f_t>& objective,
+                        const ins_vector<f_t>& objective,
                         const std::vector<i_t>& basic_list,
                         const std::vector<i_t>& nonbasic_list,
                         const std::vector<variable_status_t>& vstatus,
@@ -2041,9 +2041,9 @@ void prepare_optimality(const lp_problem_t<i_t, f_t>& lp,
                         f_t start_time,
                         f_t max_val,
                         i_t iter,
-                        const std::vector<f_t>& x,
-                        std::vector<f_t>& y,
-                        std::vector<f_t>& z,
+                        const ins_vector<f_t>& x,
+                        ins_vector<f_t>& y,
+                        ins_vector<f_t>& z,
                         lp_solution_t<i_t, f_t>& sol)
 {
   const i_t m = lp.num_rows;
@@ -2074,8 +2074,8 @@ void prepare_optimality(const lp_problem_t<i_t, f_t>& lp,
 
   sol.l2_primal_residual  = l2_primal_residual(lp, sol);
   sol.l2_dual_residual    = l2_dual_residual(lp, sol);
-  const f_t dual_infeas   = phase2::dual_infeasibility(lp, settings, vstatus, z, 0.0, 0.0);
-  const f_t primal_infeas = phase2::primal_infeasibility(lp, settings, vstatus, x);
+  const f_t dual_infeas   = phase2::dual_infeasibility(lp, settings, vstatus, sol.z, 0.0, 0.0);
+  const f_t primal_infeas = phase2::primal_infeasibility(lp, settings, vstatus, sol.x);
   if (phase == 1 && iter > 0) {
     settings.log.printf("Dual phase I complete. Iterations %d. Time %.2f\n", iter, toc(start_time));
   }
@@ -2139,20 +2139,20 @@ class phase2_timers_t {
                            delta_z_time + lu_update_time + se_norms_time + se_entering_time +
                            perturb_time + vector_time + objective_time + update_infeasibility_time;
     // clang-format off
-    settings.log.printf("BFRT time       %.2fs %4.1f%\n", bfrt_time, 100.0 * bfrt_time / total_time);
-    settings.log.printf("Pricing time    %.2fs %4.1f%\n", pricing_time, 100.0 * pricing_time / total_time);
-    settings.log.printf("BTran time      %.2fs %4.1f%\n", btran_time, 100.0 * btran_time / total_time);
-    settings.log.printf("FTran time      %.2fs %4.1f%\n", ftran_time, 100.0 * ftran_time / total_time);
-    settings.log.printf("Flip time       %.2fs %4.1f%\n", flip_time, 100.0 * flip_time / total_time);
-    settings.log.printf("Delta_z time    %.2fs %4.1f%\n", delta_z_time, 100.0 * delta_z_time / total_time);
-    settings.log.printf("LU update time  %.2fs %4.1f%\n", lu_update_time, 100.0 * lu_update_time / total_time);
-    settings.log.printf("SE norms time   %.2fs %4.1f%\n", se_norms_time, 100.0 * se_norms_time / total_time);
-    settings.log.printf("SE enter time   %.2fs %4.1f%\n", se_entering_time, 100.0 * se_entering_time / total_time);
-    settings.log.printf("Perturb time    %.2fs %4.1f%\n", perturb_time, 100.0 * perturb_time / total_time);
-    settings.log.printf("Vector time     %.2fs %4.1f%\n", vector_time, 100.0 * vector_time / total_time);
-    settings.log.printf("Objective time  %.2fs %4.1f%\n", objective_time, 100.0 * objective_time / total_time);
-    settings.log.printf("Inf update time %.2fs %4.1f%\n", update_infeasibility_time, 100.0 * update_infeasibility_time / total_time);
-    settings.log.printf("Sum             %.2fs\n", total_time);
+    printf("BFRT time       %.2fs %4.1f%\n", bfrt_time, 100.0 * bfrt_time / total_time);
+    printf("Pricing time    %.2fs %4.1f%\n", pricing_time, 100.0 * pricing_time / total_time);
+    printf("BTran time      %.2fs %4.1f%\n", btran_time, 100.0 * btran_time / total_time);
+    printf("FTran time      %.2fs %4.1f%\n", ftran_time, 100.0 * ftran_time / total_time);
+    printf("Flip time       %.2fs %4.1f%\n", flip_time, 100.0 * flip_time / total_time);
+    printf("Delta_z time    %.2fs %4.1f%\n", delta_z_time, 100.0 * delta_z_time / total_time);
+    printf("LU update time  %.2fs %4.1f%\n", lu_update_time, 100.0 * lu_update_time / total_time);
+    printf("SE norms time   %.2fs %4.1f%\n", se_norms_time, 100.0 * se_norms_time / total_time);
+    printf("SE enter time   %.2fs %4.1f%\n", se_entering_time, 100.0 * se_entering_time / total_time);
+    printf("Perturb time    %.2fs %4.1f%\n", perturb_time, 100.0 * perturb_time / total_time);
+    printf("Vector time     %.2fs %4.1f%\n", vector_time, 100.0 * vector_time / total_time);
+    printf("Objective time  %.2fs %4.1f%\n", objective_time, 100.0 * objective_time / total_time);
+    printf("Inf update time %.2fs %4.1f%\n", update_infeasibility_time, 100.0 * update_infeasibility_time / total_time);
+    printf("Sum             %.2fs\n", total_time);
     // clang-format on
   }
   f_t bfrt_time;
@@ -2237,16 +2237,18 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   assert(lp.upper.size() == n);
   assert(lp.rhs.size() == m);
 
-  std::vector<f_t>& x = sol.x;
-  std::vector<f_t>& y = sol.y;
-  std::vector<f_t>& z = sol.z;
+  // Create instrumented wrappers around sol vectors (no ownership transfer)
+  ins_vector<f_t> x, y, z;
+  x.wrap(sol.x);
+  y.wrap(sol.y);
+  z.wrap(sol.z);
 
   dual::status_t status = dual::status_t::UNSET;
 
   raft::common::nvtx::push_range("DualSimplex::phase2_advanced_init");
 
-  // Perturbed objective
-  std::vector<f_t> objective = lp.objective;
+  // Perturbed objective (instrumented for main loop tracking)
+  ins_vector<f_t> objective(lp.objective);
 
   settings.log.printf("Dual Simplex Phase %d\n", phase);
   std::vector<variable_status_t> vstatus_old = vstatus;
@@ -2275,7 +2277,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   }
 
   // Solve B'*y = cB
-  ft.b_transpose_solve(c_basic, y);
+  ft.b_transpose_solve(c_basic, sol.y);
   if (toc(start_time) > settings.time_limit) { return dual::status_t::TIME_LIMIT; }
   constexpr bool print_norms = false;
   if constexpr (print_norms) {
@@ -2283,7 +2285,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       "|| y || %e || cB || %e\n", vector_norm_inf<i_t, f_t>(y), vector_norm_inf<i_t, f_t>(c_basic));
   }
 
-  phase2::compute_reduced_costs(objective, lp.A, y, basic_list, nonbasic_list, z);
+  phase2::compute_reduced_costs(
+    objective.underlying(), lp.A, sol.y, basic_list, nonbasic_list, sol.z);
   if constexpr (print_norms) { settings.log.printf("|| z || %e\n", vector_norm_inf<i_t, f_t>(z)); }
 
 #ifdef COMPUTE_DUAL_RESIDUAL
@@ -2296,7 +2299,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   assert(dual_res_norm < 1e-3);
 #endif
 
-  phase2::set_primal_variables_on_bounds(lp, settings, z, vstatus, x);
+  phase2::set_primal_variables_on_bounds(lp, settings, sol.z, vstatus, sol.x);
 
 #ifdef PRINT_VSTATUS_CHANGES
   i_t num_vstatus_changes;
@@ -2307,7 +2310,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 #endif
 
   const f_t init_dual_inf =
-    phase2::dual_infeasibility(lp, settings, vstatus, z, settings.tight_tol, settings.dual_tol);
+    phase2::dual_infeasibility(lp, settings, vstatus, sol.z, settings.tight_tol, settings.dual_tol);
   if (init_dual_inf > settings.dual_tol) {
     settings.log.printf("Initial dual infeasibility %e\n", init_dual_inf);
   }
@@ -2319,10 +2322,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   }
 
   phase2::compute_primal_variables(
-    ft, lp.rhs, lp.A, basic_list, nonbasic_list, settings.tight_tol, x);
+    ft, lp.rhs, lp.A, basic_list, nonbasic_list, settings.tight_tol, sol.x);
 
   if (toc(start_time) > settings.time_limit) { return dual::status_t::TIME_LIMIT; }
-  if (print_norms) { settings.log.printf("|| x || %e\n", vector_norm2<i_t, f_t>(x)); }
+  if (print_norms) { settings.log.printf("|| x || %e\n", vector_norm2<i_t, f_t>(sol.x)); }
 
 #ifdef COMPUTE_PRIMAL_RESIDUAL
   std::vector<f_t> residual = lp.rhs;
@@ -2380,7 +2383,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   phase2::compute_bounded_info(lp.lower, lp.upper, bounded_variables);
 
   f_t primal_infeasibility = phase2::compute_initial_primal_infeasibilities(
-    lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
+    lp, settings, basic_list, sol.x, squared_infeasibilities, infeasibility_indices);
 
 #ifdef CHECK_BASIC_INFEASIBILITIES
   phase2::check_basic_infeasibilities(basic_list, basic_mark, infeasibility_indices, 0);
@@ -2389,7 +2392,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   csc_matrix_t<i_t, f_t> A_transpose(1, 1, 0);
   lp.A.transpose(A_transpose);
 
-  f_t obj = compute_objective(lp, x);
+  f_t obj = compute_objective(lp, sol.x);
 
   raft::common::nvtx::pop_range();
 
@@ -2400,7 +2403,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   i_t num_refactors         = 0;
   i_t total_bound_flips     = 0;
   f_t delta_y_nz_percentage = 0.0;
-  phase2::phase2_timers_t<i_t, f_t> timers(false);
+  phase2::phase2_timers_t<i_t, f_t> timers(true);
 
   // Feature collection for regression training
   dual_simplex_features_t<i_t, f_t> features;
@@ -2434,6 +2437,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   manifold.add("squared_infeasibilities", squared_infeasibilities);
   manifold.add("infeasibility_indices", infeasibility_indices);
   manifold.add("bounded_variables", bounded_variables);
+  // Ratio test vectors
+  // manifold.add("vstatus", vstatus);
+  // manifold.add("nonbasic_list", nonbasic_list);
+  manifold.add("z", z);
 
   // Add sparse vector internal arrays to manifold
   manifold.add("delta_y_sparse.i", delta_y_sparse.i);
@@ -2614,12 +2621,12 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                                    slope,
                                                    lp.lower,
                                                    lp.upper,
-                                                   bounded_variables,
+                                                   bounded_variables.underlying(),
                                                    vstatus,
                                                    nonbasic_list,
-                                                   z,
-                                                   delta_z,
-                                                   delta_z_indices,
+                                                   sol.z,
+                                                   delta_z.underlying(),
+                                                   delta_z_indices.underlying(),
                                                    nonbasic_mark);
         entering_index = bfrt.compute_step_length(step_length, nonbasic_entering_index);
         if (entering_index == -4) {
@@ -2658,9 +2665,9 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
             std::vector<f_t> unperturbed_x(n);
             phase2::compute_primal_solution_from_basis(
               lp, ft, basic_list, nonbasic_list, vstatus, unperturbed_x);
-            x                    = unperturbed_x;
+            sol.x                = unperturbed_x;
             primal_infeasibility = phase2::compute_initial_primal_infeasibilities(
-              lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
+              lp, settings, basic_list, sol.x, squared_infeasibilities, infeasibility_indices);
             settings.log.printf("Updated primal infeasibility: %e\n", primal_infeasibility);
 
             objective = lp.objective;
@@ -2695,12 +2702,12 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
             std::vector<f_t> unperturbed_x(n);
             phase2::compute_primal_solution_from_basis(
               lp, ft, basic_list, nonbasic_list, vstatus, unperturbed_x);
-            x                    = unperturbed_x;
+            sol.x                = unperturbed_x;
             primal_infeasibility = phase2::compute_initial_primal_infeasibilities(
-              lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
+              lp, settings, basic_list, sol.x, squared_infeasibilities, infeasibility_indices);
 
             const f_t orig_dual_infeas = phase2::dual_infeasibility(
-              lp, settings, vstatus, z, settings.tight_tol, settings.dual_tol);
+              lp, settings, vstatus, sol.z, settings.tight_tol, settings.dual_tol);
 
             if (primal_infeasibility <= settings.primal_tol &&
                 orig_dual_infeas <= settings.dual_tol) {
@@ -2757,10 +2764,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
         }
       }
 
-      const f_t dual_infeas =
-        phase2::dual_infeasibility(lp, settings, vstatus, z, settings.tight_tol, settings.dual_tol);
+      const f_t dual_infeas = phase2::dual_infeasibility(
+        lp, settings, vstatus, sol.z, settings.tight_tol, settings.dual_tol);
       settings.log.printf("Dual infeasibility %e\n", dual_infeas);
-      const f_t primal_inf = phase2::primal_infeasibility(lp, settings, vstatus, x);
+      const f_t primal_inf = phase2::primal_infeasibility(lp, settings, vstatus, sol.x);
       settings.log.printf("Primal infeasibility %e\n", primal_inf);
       settings.log.printf("Updates %d\n", ft.num_updates());
       settings.log.printf("Steepest edge %e\n", max_val);
@@ -2912,32 +2919,32 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     phase2::update_primal_infeasibilities(lp,
                                           settings,
                                           basic_list,
-                                          x,
+                                          sol.x,
                                           entering_index,
                                           leaving_index,
-                                          delta_xB_0_sparse.i,
-                                          squared_infeasibilities,
-                                          infeasibility_indices,
+                                          delta_xB_0_sparse.i.underlying(),
+                                          squared_infeasibilities.underlying(),
+                                          infeasibility_indices.underlying(),
                                           primal_infeasibility);
     // Update primal infeasibilities due to changes in basic variables
     // from the leaving and entering variables
     phase2::update_primal_infeasibilities(lp,
                                           settings,
                                           basic_list,
-                                          x,
+                                          sol.x,
                                           entering_index,
                                           leaving_index,
-                                          scaled_delta_xB_sparse.i,
-                                          squared_infeasibilities,
-                                          infeasibility_indices,
+                                          scaled_delta_xB_sparse.i.underlying(),
+                                          squared_infeasibilities.underlying(),
+                                          infeasibility_indices.underlying(),
                                           primal_infeasibility);
     // Update the entering variable
     phase2::update_single_primal_infeasibility(lp.lower,
                                                lp.upper,
-                                               x,
+                                               sol.x,
                                                settings.primal_tol,
-                                               squared_infeasibilities,
-                                               infeasibility_indices,
+                                               squared_infeasibilities.underlying(),
+                                               infeasibility_indices.underlying(),
                                                entering_index,
                                                primal_infeasibility);
 
@@ -3022,10 +3029,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
           std::vector<f_t> unperturbed_x(n);
           phase2::compute_primal_solution_from_basis(
             lp, ft, basic_list, nonbasic_list, vstatus, unperturbed_x);
-          x = unperturbed_x;
+          sol.x = unperturbed_x;
         }
         phase2::compute_initial_primal_infeasibilities(
-          lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
+          lp, settings, basic_list, sol.x, squared_infeasibilities, infeasibility_indices);
       }
 #ifdef CHECK_BASIC_INFEASIBILITIES
       phase2::check_basic_infeasibilities(basic_list, basic_mark, infeasibility_indices, 7);

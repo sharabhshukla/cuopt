@@ -200,8 +200,8 @@ i_t find_singletons(const csc_matrix_t<i_t, f_t>& A,
     // Find column singletons
     row_col_graph_t<i_t> graph{Cdeg.begin(),
                                col_perm.begin(),
-                               A.col_start.array.cbegin(),
-                               A.i.array.cbegin(),
+                               A.col_start.underlying().cbegin(),
+                               A.i.underlying().cbegin(),
                                Rdeg.begin(),
                                row_perm.begin(),
                                Rp.cbegin(),
@@ -235,8 +235,8 @@ i_t find_singletons(const csc_matrix_t<i_t, f_t>& A,
                                Rj.cbegin(),
                                Cdeg.begin(),
                                col_perm.begin(),
-                               A.col_start.array.cbegin(),
-                               A.i.array.cbegin()};
+                               A.col_start.underlying().cbegin(),
+                               A.i.underlying().cbegin()};
 #ifdef SINGLETON_DEBUG
     printf("Searching for row singletons %ld\n", singleton_queue.size());
 #endif

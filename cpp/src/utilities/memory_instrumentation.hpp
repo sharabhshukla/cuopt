@@ -491,28 +491,28 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   // Constructors
-  memop_instrumentation_wrapper_t() : array()
+  memop_instrumentation_wrapper_t() : array_(), wrapped_ptr(nullptr)
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
-      data_ptr = array.data();
+      data_ptr = array_.data();
     } else {
       data_ptr = nullptr;
     }
   }
 
   // Copy/move from underlying type
-  memop_instrumentation_wrapper_t(const T& array) : array(array)
+  memop_instrumentation_wrapper_t(const T& arr) : array_(arr)
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
-      data_ptr = const_cast<value_type*>(array.data());
+      data_ptr = const_cast<value_type*>(array_.data());
     } else {
       data_ptr = nullptr;
     }
   }
-  memop_instrumentation_wrapper_t(T&& array) : array(std::move(array))
+  memop_instrumentation_wrapper_t(T&& arr) : array_(std::move(arr))
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
-      data_ptr = array.data();
+      data_ptr = array_.data();
     } else {
       data_ptr = nullptr;
     }
@@ -527,10 +527,10 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
               !std::is_same_v<std::decay_t<Arg>, T> &&
               (sizeof...(Args) > 0 || !std::is_convertible_v<Arg, T>)>>
   explicit memop_instrumentation_wrapper_t(Arg&& arg, Args&&... args)
-    : array(std::forward<Arg>(arg), std::forward<Args>(args)...)
+    : array_(std::forward<Arg>(arg), std::forward<Args>(args)...)
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
-      data_ptr = array.data();
+      data_ptr = array_.data();
     } else {
       data_ptr = nullptr;
     }
@@ -538,10 +538,10 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
 
   // Copy constructor - must update data_ptr to point to our own array
   memop_instrumentation_wrapper_t(const memop_instrumentation_wrapper_t& other)
-    : memory_instrumentation_base_t(other), array(other.array)
+    : memory_instrumentation_base_t(other), array_(other.array_)
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
-      data_ptr = array.data();
+      data_ptr = array_.data();
     } else {
       data_ptr = nullptr;
     }
@@ -549,10 +549,10 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
 
   // Move constructor - must update data_ptr to point to our own array
   memop_instrumentation_wrapper_t(memop_instrumentation_wrapper_t&& other) noexcept
-    : memory_instrumentation_base_t(std::move(other)), array(std::move(other.array))
+    : memory_instrumentation_base_t(std::move(other)), array_(std::move(other.array_))
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
-      data_ptr = array.data();
+      data_ptr = array_.data();
     } else {
       data_ptr = nullptr;
     }
@@ -563,9 +563,9 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   {
     if (this != &other) {
       memory_instrumentation_base_t::operator=(other);
-      array = other.array;
+      array_ = other.array_;
       if constexpr (type_traits_utils::has_data<T>::value) {
-        data_ptr = array.data();
+        data_ptr = array_.data();
       } else {
         data_ptr = nullptr;
       }
@@ -578,9 +578,9 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   {
     if (this != &other) {
       memory_instrumentation_base_t::operator=(std::move(other));
-      array = std::move(other.array);
+      array_ = std::move(other.array_);
       if constexpr (type_traits_utils::has_data<T>::value) {
-        data_ptr = array.data();
+        data_ptr = array_.data();
       } else {
         data_ptr = nullptr;
       }
@@ -588,7 +588,10 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
     return *this;
   }
 
-  element_proxy_t operator[](size_type index) { return element_proxy_t(array[index], *this); }
+  element_proxy_t operator[](size_type index)
+  {
+    return element_proxy_t(underlying()[index], *this);
+  }
 
   HDI value_type operator[](size_type index) const
   {
@@ -597,47 +600,50 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
     if constexpr (type_traits_utils::has_data<T>::value) {
       return data_ptr[index];
     } else {
-      return array[index];
+      return underlying()[index];
     }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_front<U>::value, element_proxy_t> front()
   {
-    return element_proxy_t(array.front(), *this);
+    return element_proxy_t(underlying().front(), *this);
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_front<U>::value, value_type> front() const
   {
     this->template record_load<value_type>();
-    return array.front();
+    return underlying().front();
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_back<U>::value, element_proxy_t> back()
   {
-    return element_proxy_t(array.back(), *this);
+    return element_proxy_t(underlying().back(), *this);
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_back<U>::value, value_type> back() const
   {
     this->template record_load<value_type>();
-    return array.back();
+    return underlying().back();
   }
 
   // Iterators
-  iterator begin() noexcept { return iterator(std::begin(array), this); }
-  const_iterator begin() const noexcept { return const_iterator(std::begin(array), this); }
-  const_iterator cbegin() const noexcept { return const_iterator(std::begin(array), this); }
+  iterator begin() noexcept { return iterator(std::begin(underlying()), this); }
+  const_iterator begin() const noexcept { return const_iterator(std::begin(underlying()), this); }
+  const_iterator cbegin() const noexcept { return const_iterator(std::begin(underlying()), this); }
 
-  iterator end() noexcept { return iterator(std::end(array), this); }
-  const_iterator end() const noexcept { return const_iterator(std::end(array), this); }
-  const_iterator cend() const noexcept { return const_iterator(std::end(array), this); }
+  iterator end() noexcept { return iterator(std::end(underlying()), this); }
+  const_iterator end() const noexcept { return const_iterator(std::end(underlying()), this); }
+  const_iterator cend() const noexcept { return const_iterator(std::end(underlying()), this); }
 
   reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-  const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(std::end(array)); }
+  const_reverse_iterator rbegin() const noexcept
+  {
+    return const_reverse_iterator(std::end(underlying()));
+  }
   const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(cend()); }
 
   reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
@@ -645,41 +651,44 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   const_reverse_iterator crend() const noexcept { return const_reverse_iterator(cbegin()); }
 
   // Capacity
-  bool empty() const noexcept { return std::begin(array) == std::end(array); }
-  size_type size() const noexcept { return std::distance(std::begin(array), std::end(array)); }
+  bool empty() const noexcept { return std::begin(underlying()) == std::end(underlying()); }
+  size_type size() const noexcept
+  {
+    return std::distance(std::begin(underlying()), std::end(underlying()));
+  }
 
   // Conditional methods - only available if underlying type supports them
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_max_size<U>::value, size_type> max_size() const noexcept
   {
-    return array.max_size();
+    return underlying().max_size();
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_capacity<U>::value, size_type> capacity() const noexcept
   {
-    return array.capacity();
+    return underlying().capacity();
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_reserve<U>::value> reserve(size_type new_cap)
   {
-    array.reserve(new_cap);
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().reserve(new_cap);
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_shrink_to_fit<U>::value> shrink_to_fit()
   {
-    array.shrink_to_fit();
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().shrink_to_fit();
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_clear<U>::value> clear() noexcept
   {
-    array.clear();
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().clear();
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
@@ -688,74 +697,97 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
     // we should probably take into account possible copies done by std::vector. oh well.
     // hot loops shouldn't be doing such operations anyway
     this->template record_store<value_type>();
-    array.push_back(value);
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().push_back(value);
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_push_back<U>::value> push_back(value_type&& value)
   {
     this->template record_store<value_type>();
-    array.push_back(std::move(value));
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().push_back(std::move(value));
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T, typename... Args>
   std::enable_if_t<type_traits_utils::has_emplace_back<U>::value> emplace_back(Args&&... args)
   {
     this->template record_store<value_type>();
-    array.emplace_back(std::forward<Args>(args)...);
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().emplace_back(std::forward<Args>(args)...);
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_pop_back<U>::value> pop_back()
   {
     this->template record_load<value_type>();  // Reading the element before removal
-    array.pop_back();
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    underlying().pop_back();
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_resize<U>::value> resize(size_type count)
   {
-    size_type old_size = array.size();
-    array.resize(count);
+    size_type old_size = underlying().size();
+    underlying().resize(count);
     if (count > old_size) {
       this->byte_stores += (count - old_size) * type_size;  // New elements initialized
     }
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_resize<U>::value> resize(size_type count,
                                                                    const value_type& value)
   {
-    size_type old_size = array.size();
-    array.resize(count, value);
+    size_type old_size = underlying().size();
+    underlying().resize(count, value);
     if (count > old_size) { this->byte_stores += (count - old_size) * type_size; }
-    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array.data(); }
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = underlying().data(); }
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_data<U>::value, value_type*> data() noexcept
   {
-    return array.data();
+    return underlying().data();
   }
 
   template <typename U = T>
   std::enable_if_t<type_traits_utils::has_data<U>::value, const value_type*> data() const noexcept
   {
-    return array.data();
+    return underlying().data();
   }
 
   // Access to underlying array
-  operator T&() { return array; }
-  operator const T&() const { return array; }
+  operator T&() { return underlying(); }
+  operator const T&() const { return underlying(); }
 
-  T&& release_array() { return std::move(array); }
+  T&& release_array() { return std::move(array_); }
 
-  T array;
+  // Wrap an external vector without taking ownership
+  void wrap(T& external_array)
+  {
+    wrapped_ptr = &external_array;
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = external_array.data(); }
+  }
+
+  // Stop wrapping and return to using the owned array
+  void unwrap()
+  {
+    wrapped_ptr = nullptr;
+    if constexpr (type_traits_utils::has_data<T>::value) { data_ptr = array_.data(); }
+  }
+
+  // Check if currently wrapping an external array
+  bool is_wrapping() const { return wrapped_ptr != nullptr; }
+
+  // Get the underlying container (wrapped or owned)
+  T& underlying() { return wrapped_ptr ? *wrapped_ptr : array_; }
+  const T& underlying() const { return wrapped_ptr ? *wrapped_ptr : array_; }
+
+ private:
+  T array_;
+  T* wrapped_ptr{nullptr};
   value_type* data_ptr{nullptr};
 };
 
