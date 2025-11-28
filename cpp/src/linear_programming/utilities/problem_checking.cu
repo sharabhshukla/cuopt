@@ -199,9 +199,10 @@ void problem_checking_t<i_t, f_t>::check_problem_representation(
 
   // Check sizes only if user has set it (we can't compare lower/upper bounds size because one might
   // have not been set by the user)
+  // TODO batch mode: is this ok?
   if (!op_problem.get_variable_lower_bounds().is_empty()) {
-    cuopt_expects(op_problem.get_variable_lower_bounds().size() ==
-                    op_problem.get_objective_coefficients().size(),
+    cuopt_expects(op_problem.get_variable_lower_bounds().size() %
+                    op_problem.get_objective_coefficients().size() == 0,
                   error_type_t::ValidationError,
                   "Sizes for vectors related to the variables are not the same. The objective "
                   "vector has size %zu and the variable lower bounds vector has size %zu.",
@@ -209,8 +210,8 @@ void problem_checking_t<i_t, f_t>::check_problem_representation(
                   op_problem.get_variable_lower_bounds().size());
   }
   if (!op_problem.get_variable_upper_bounds().is_empty()) {
-    cuopt_expects(op_problem.get_variable_upper_bounds().size() ==
-                    op_problem.get_objective_coefficients().size(),
+    cuopt_expects(op_problem.get_variable_upper_bounds().size() %
+                    op_problem.get_objective_coefficients().size() == 0,
                   error_type_t::ValidationError,
                   "Sizes for vectors related to the variables are not the same. The objective "
                   "vector has size %zu and the variable upper bounds vector has size %zu.",

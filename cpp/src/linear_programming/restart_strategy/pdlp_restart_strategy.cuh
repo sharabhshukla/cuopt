@@ -332,7 +332,7 @@ class pdlp_restart_strategy_t {
   const rmm::device_scalar<i_t> reusable_device_scalar_value_0_i_t_;
   const rmm::device_scalar<f_t> reusable_device_scalar_value_neg_1_;
   rmm::device_buffer dot_product_storage;
-  size_t dot_product_bytes;
+  size_t dot_product_bytes{0};
 
   // Used to store temporarily on the device the kkt scores before host retrival
   rmm::device_scalar<f_t> tmp_kkt_score_;
@@ -357,11 +357,16 @@ class pdlp_restart_strategy_t {
 };
 
 template <typename i_t, typename f_t>
-bool is_KKT_restart()
+bool is_trust_region_restart()
 {
   return pdlp_hyper_params::restart_strategy ==
-           static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::KKT_RESTART) ||
-         pdlp_hyper_params::restart_strategy ==
+           static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::TRUST_REGION_RESTART);
+}
+
+template <typename i_t, typename f_t>
+bool is_cupdlpx_restart()
+{
+  return pdlp_hyper_params::restart_strategy ==
            static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::CUPDLPX_RESTART);
 }
 

@@ -203,6 +203,7 @@ struct batch_wrapped_iterator {
 // Used to wrap the problem input around a problem inside the batch
 // This is used to iterate over (for example) the objective coefficient when they are the same for all climbers
 // Every variable with the same index across problems in the batch should have the same bounds
+// This also work if the bound are actually batch wide since the size will be bigger
 template <typename f_t>
 struct problem_wrapped_iterator {
   problem_wrapped_iterator(const f_t* problem_input, int problem_size) : problem_input_(problem_input), problem_size_(problem_size) {}
@@ -214,6 +215,17 @@ struct problem_wrapped_iterator {
   // TODO use i_t
   int problem_size_;
 };
+
+//
+template <typename f_t>
+static inline auto problem_wrap_container(const rmm::device_uvector<f_t>& in)
+{
+  // TODO batch mode: couldn't we find a way to get rid of the % 
+  // TODO batch mode: is TMA used here if called with DeviceTransform? (nvbench it)
+  return thrust::make_transform_iterator(
+                            thrust::make_counting_iterator(0),
+                            problem_wrapped_iterator<f_t>(in.data(), in.size()));
+}
 
 template <typename f_t>
 struct power_two_func_t {
@@ -246,12 +258,8 @@ void inline combine_constraint_bounds(const problem_t<i_t, f_t>& op_problem,
     cuopt_assert(combined_bounds.size() % op_problem.n_constraints == 0, "combined_bounds size must be a multiple of op_problem.n_constraints");
     // TODO batch mode: different constraint bounds
     cub::DeviceTransform::Transform(cuda::std::make_tuple(
-      thrust::make_transform_iterator(
-        thrust::make_counting_iterator(0),
-        problem_wrapped_iterator<f_t>(op_problem.constraint_lower_bounds.data(), op_problem.n_constraints)),
-      thrust::make_transform_iterator(
-        thrust::make_counting_iterator(0),
-        problem_wrapped_iterator<f_t>(op_problem.constraint_upper_bounds.data(), op_problem.n_constraints))
+      problem_wrap_container(op_problem.constraint_lower_bounds),
+      problem_wrap_container(op_problem.constraint_upper_bounds)
       ),
       combined_bounds.data(),
       combined_bounds.size(),

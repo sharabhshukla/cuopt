@@ -32,6 +32,9 @@ inline constexpr int dual_stride   = 1;
 
 // #define CUPDLP_DEBUG_MODE
 
+// Used only for batch PDLP, uses a serie of SpMV rather than SpMM to be deterministic for tests
+static bool deterministic_batch_pdlp = 0;
+
 // Value used to determine what we see as too small (the value) or too large (1/value) values when
 // computing the new primal weight during the restart.
 template <typename f_t>

@@ -6,6 +6,7 @@
 /* clang-format on */
 
 #include <cuopt/error.hpp>
+#include <utilities/macros.cuh>
 
 #include <linear_programming/cusparse_view.hpp>
 #include <linear_programming/utils.cuh>
@@ -264,7 +265,8 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
     tmp_dual_vector(climber_strategies.size()),
     dual_gradients_vector(climber_strategies.size()),
     current_AtYs_vector(climber_strategies.size()),
-    tmp_primal_vector(climber_strategies.size())
+    tmp_primal_vector(climber_strategies.size()),
+    reflected_primal_solution_vector(climber_strategies.size())
 {
   raft::common::nvtx::range fun_scope("Initializing cuSparse view");
 
@@ -552,19 +554,21 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(raft::handle_t const* handle_ptr,
   tmp_dual.create(op_problem.n_constraints, _tmp_dual.data());
 
   if (batch_mode_) {
+    // TODO batch mode: also use container
+    cuopt_assert(!pdlp_hyper_params::use_adaptive_step_size_strategy, "pdlp_hyper_params::use_adaptive_step_size_strategy not supported for batch mode");
     RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(
       &batch_primal_solutions,
       op_problem.n_variables,
       climber_strategies.size(),
       op_problem.n_variables,
-      _primal_solution.data(),
+      _potential_next_primal.data(),
       CUSPARSE_ORDER_COL));
     RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(
         &batch_dual_solutions,
         op_problem.n_constraints,
         climber_strategies.size(),
         op_problem.n_constraints,
-        _dual_solution.data(),
+        _potential_next_dual.data(),
         CUSPARSE_ORDER_COL));
     RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(
       &batch_tmp_duals,
@@ -585,11 +589,11 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(raft::handle_t const* handle_ptr,
       RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednvec(
         &primal_solution_vector[i],
         op_problem.n_variables,
-        _primal_solution.data() + i * op_problem.n_variables));
+        _potential_next_primal.data() + i * op_problem.n_variables));
       RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednvec(
         &dual_solution_vector[i],
         op_problem.n_constraints,
-        _dual_solution.data() + i * op_problem.n_constraints));
+        _potential_next_dual.data() + i * op_problem.n_constraints));
       RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednvec(
             &tmp_dual_vector[i],
             op_problem.n_constraints,

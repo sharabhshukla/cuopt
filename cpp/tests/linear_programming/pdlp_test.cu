@@ -275,8 +275,8 @@ TEST(pdlp_class, initial_solution_test)
     auto pdlp_timer = timer_t(solver_settings.time_limit);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
   }
 
   // First add an initial primal then dual, then both, which shouldn't influence the values as the
@@ -289,8 +289,8 @@ TEST(pdlp_class, initial_solution_test)
     solver.set_initial_primal_solution(d_initial_primal);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
   }
   {
     cuopt::linear_programming::detail::pdlp_solver_t<int, double> solver(problem, solver_settings);
@@ -300,8 +300,8 @@ TEST(pdlp_class, initial_solution_test)
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
   }
   {
     cuopt::linear_programming::detail::pdlp_solver_t<int, double> solver(problem, solver_settings);
@@ -314,8 +314,8 @@ TEST(pdlp_class, initial_solution_test)
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
   }
 
   // Toggle the scale on initial solution while not providing should yield the same
@@ -325,8 +325,8 @@ TEST(pdlp_class, initial_solution_test)
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution = true;
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution = false;
   }
   {
@@ -335,8 +335,8 @@ TEST(pdlp_class, initial_solution_test)
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = true;
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
   {
@@ -346,8 +346,8 @@ TEST(pdlp_class, initial_solution_test)
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution     = true;
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution     = false;
   }
@@ -363,8 +363,8 @@ TEST(pdlp_class, initial_solution_test)
     solver.set_initial_primal_solution(d_initial_primal);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution = false;
   }
   {
@@ -376,8 +376,8 @@ TEST(pdlp_class, initial_solution_test)
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution = false;
   }
 
@@ -391,8 +391,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_primal = device_copy(initial_primal, handle_.get_stream());
     solver.set_initial_primal_solution(d_initial_primal);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
   {
@@ -403,8 +403,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
 
@@ -421,8 +421,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution = false;
   }
 
@@ -436,8 +436,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_primal = device_copy(initial_primal, handle_.get_stream());
     solver.set_initial_primal_solution(d_initial_primal);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
   {
@@ -448,8 +448,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
   {
@@ -463,8 +463,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
 
@@ -481,8 +481,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NOT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NOT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
   }
   {
@@ -496,8 +496,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NOT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NOT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution = false;
   }
   {
@@ -512,8 +512,8 @@ TEST(pdlp_class, initial_solution_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    EXPECT_NOT_NEAR(initial_step_size_afiro, solver.get_step_size_h(), factor_tolerance);
-    EXPECT_NOT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NOT_NEAR(initial_step_size_afiro, solver.get_step_size_h(0), factor_tolerance);
+    EXPECT_NOT_NEAR(initial_primal_weight_afiro, solver.get_primal_weight_h(0), factor_tolerance);
     cuopt::linear_programming::pdlp_hyper_params::update_primal_weight_on_initial_solution = false;
     cuopt::linear_programming::pdlp_hyper_params::update_step_size_on_initial_solution     = false;
   }
@@ -551,8 +551,8 @@ TEST(pdlp_class, initial_primal_weight_step_size_test)
     solver.set_initial_step_size(test_initial_step_size);
     solver.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_EQ(test_initial_step_size, solver.get_step_size_h());
-    EXPECT_EQ(test_initial_primal_weight, solver.get_primal_weight_h());
+    EXPECT_EQ(test_initial_step_size, solver.get_step_size_h(0));
+    EXPECT_EQ(test_initial_primal_weight, solver.get_primal_weight_h(0));
   }
 
   // Check that after setting an initial step size and primal weight, the computed one when adding
@@ -570,8 +570,8 @@ TEST(pdlp_class, initial_primal_weight_step_size_test)
     auto d_initial_dual = device_copy(initial_dual, handle_.get_stream());
     solver.set_initial_dual_solution(d_initial_dual);
     solver.run_solver(pdlp_timer);
-    const double previous_step_size     = solver.get_step_size_h();
-    const double previous_primal_weight = solver.get_primal_weight_h();
+    const double previous_step_size     = solver.get_step_size_h(0);
+    const double previous_primal_weight = solver.get_primal_weight_h(0);
 
     // Start again but with an initial and check the impact
     cuopt::linear_programming::detail::pdlp_solver_t<int, double> solver2(problem, solver_settings);
@@ -584,8 +584,8 @@ TEST(pdlp_class, initial_primal_weight_step_size_test)
     solver2.set_initial_dual_solution(d_initial_dual);
     solver2.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    const double sovler2_step_size     = solver2.get_step_size_h();
-    const double sovler2_primal_weight = solver2.get_primal_weight_h();
+    const double sovler2_step_size     = solver2.get_step_size_h(0);
+    const double sovler2_primal_weight = solver2.get_primal_weight_h(0);
     EXPECT_NOT_NEAR(previous_step_size, sovler2_step_size, factor_tolerance);
     EXPECT_NOT_NEAR(previous_primal_weight, sovler2_primal_weight, factor_tolerance);
 
@@ -600,8 +600,8 @@ TEST(pdlp_class, initial_primal_weight_step_size_test)
     solver3.set_initial_dual_solution(d_initial_dual);
     solver3.run_solver(pdlp_timer);
     RAFT_CUDA_TRY(cudaStreamSynchronize(handle_.get_stream()));
-    EXPECT_NOT_NEAR(sovler2_step_size, solver3.get_step_size_h(), factor_tolerance);
-    EXPECT_NEAR(sovler2_primal_weight, solver3.get_primal_weight_h(), factor_tolerance);
+    EXPECT_NOT_NEAR(sovler2_step_size, solver3.get_step_size_h(0), factor_tolerance);
+    EXPECT_NEAR(sovler2_primal_weight, solver3.get_primal_weight_h(0), factor_tolerance);
   }
 }
 
@@ -679,7 +679,6 @@ TEST(pdlp_class, per_constraint_test)
                handle.get_stream());
 
     auto& current_termination_strategy = solver.get_current_termination_strategy();
-    pdlp_termination_status_t termination_average =
       current_termination_strategy.evaluate_termination_criteria(
         solver.pdhg_solver_,
         d_initial_primal,
@@ -687,8 +686,9 @@ TEST(pdlp_class, per_constraint_test)
         solver.pdhg_solver_.get_dual_slack(),
         problem.combined_bounds,
         problem.objective_coefficients);
+    pdlp_termination_status_t termination_current = current_termination_strategy.get_termination_status(0);
 
-    EXPECT_TRUE(termination_average != pdlp_termination_status_t::Optimal);
+    EXPECT_TRUE(termination_current != pdlp_termination_status_t::Optimal);
   }
   {
     solver_settings.per_constraint_residual = true;
@@ -700,14 +700,14 @@ TEST(pdlp_class, per_constraint_test)
                handle.get_stream());
 
     auto& current_termination_strategy = solver.get_current_termination_strategy();
-    pdlp_termination_status_t termination_average =
-      current_termination_strategy.evaluate_termination_criteria(
+    current_termination_strategy.evaluate_termination_criteria(
         solver.pdhg_solver_,
         d_initial_primal,
         d_initial_primal,
         solver.pdhg_solver_.get_dual_slack(),
         problem.combined_bounds,
         problem.objective_coefficients);
+      
     EXPECT_EQ(current_termination_strategy.get_convergence_information()
                 .get_relative_linf_primal_residual()
                 .value(handle.get_stream()),
@@ -962,6 +962,273 @@ TEST(pdlp_class, test_lp_no_constraints)
   EXPECT_EQ((int)solution.get_termination_status(), CUOPT_TERIMINATION_STATUS_OPTIMAL);
   EXPECT_NEAR(
     solution.get_additional_termination_information().primal_objective, 1.0, factor_tolerance);
+
+}
+
+TEST(pdlp_class, simple_batch_afiro)
+{
+  const raft::handle_t handle_{};
+
+  EXPECT_FALSE(cuopt::linear_programming::detail::deterministic_batch_pdlp);
+
+  cuopt::linear_programming::detail::deterministic_batch_pdlp = true;
+
+  auto path = make_path_absolute("linear_programming/afiro_original.mps");
+  cuopt::mps_parser::mps_data_model_t<int, double> op_problem =
+    cuopt::mps_parser::parse_mps<int, double>(path, true);
+
+  auto solver_settings   = pdlp_solver_settings_t<int, double>{};
+  solver_settings.method = cuopt::linear_programming::method_t::PDLP;
+
+  constexpr int batch_size = 5;
+
+  // Setup a larger batch afiro but with all same primal/dual bounds
+
+  const auto& variable_lower_bounds = op_problem.get_variable_lower_bounds();
+  const auto& variable_upper_bounds = op_problem.get_variable_upper_bounds();
+
+  std::vector<double> new_variable_lower_bounds(variable_lower_bounds.size() * batch_size);
+  std::vector<double> new_variable_upper_bounds(variable_upper_bounds.size() * batch_size);
+
+  // Copy the bounds
+  for (size_t i = 0; i < batch_size; i++)
+    for (size_t j = 0; j < variable_lower_bounds.size(); ++j)
+      new_variable_lower_bounds[i * variable_lower_bounds.size() + j] = variable_lower_bounds[j];
+  for (size_t i = 0; i < batch_size; i++)
+    for (size_t j = 0; j < variable_upper_bounds.size(); ++j)
+      new_variable_upper_bounds[i * variable_upper_bounds.size() + j] = variable_upper_bounds[j];
+
+  op_problem.set_variable_lower_bounds(new_variable_lower_bounds.data(), new_variable_lower_bounds.size());
+  op_problem.set_variable_upper_bounds(new_variable_upper_bounds.data(), new_variable_upper_bounds.size());
+
+
+  optimization_problem_solution_t<int, double> solution =
+    solve_lp(&handle_, op_problem, solver_settings);
+
+  // All should be optimal with 
+  for (size_t i = 0; i < batch_size; ++i)
+  {
+    EXPECT_EQ((int)solution.get_termination_status(i), CUOPT_TERIMINATION_STATUS_OPTIMAL);
+    EXPECT_FALSE(is_incorrect_objective(
+      afiro_primal_objective, solution.get_additional_termination_information(i).primal_objective));
+  }
+
+  // All should have the bitwise same primal/dual objective, termination reason, and iterations
+  const auto ref_stats = (int)solution.get_termination_status(0);
+  const auto ref_primal = solution.get_additional_termination_information(0).primal_objective;
+  const auto ref_dual = solution.get_additional_termination_information(0).dual_objective;
+  const auto ref_it = solution.get_additional_termination_information(0).number_of_steps_taken;
+  const auto ref_it_total = solution.get_additional_termination_information(0).total_number_of_attempted_steps;
+  // TODO batch mode: check primal / dual vectors
+
+  for (size_t i = 1; i < batch_size; ++i)
+  {
+    EXPECT_EQ(ref_stats, (int)solution.get_termination_status(i));
+    EXPECT_EQ(ref_primal, solution.get_additional_termination_information(i).primal_objective);
+    EXPECT_EQ(ref_dual, solution.get_additional_termination_information(i).dual_objective);
+    EXPECT_EQ(ref_it, solution.get_additional_termination_information(i).number_of_steps_taken);
+    EXPECT_EQ(ref_it_total, solution.get_additional_termination_information(i).total_number_of_attempted_steps);
+  }
+
+  cuopt::linear_programming::detail::deterministic_batch_pdlp = false;
+}
+
+TEST(pdlp_class, simple_batch_different_bounds)
+{
+  const raft::handle_t handle_{};
+
+  EXPECT_FALSE(cuopt::linear_programming::detail::deterministic_batch_pdlp);
+
+  cuopt::linear_programming::detail::deterministic_batch_pdlp = true;
+
+  auto path = make_path_absolute("linear_programming/afiro_original.mps");
+  cuopt::mps_parser::mps_data_model_t<int, double> op_problem =
+    cuopt::mps_parser::parse_mps<int, double>(path, true);
+
+  auto solver_settings   = pdlp_solver_settings_t<int, double>{};
+  solver_settings.method = cuopt::linear_programming::method_t::PDLP;
+
+  constexpr int batch_size = 2;
+
+  // Setup a larger batch afiro but with different bounds on the first climber
+  std::vector<double> old_variable_lower_bounds = op_problem.get_variable_lower_bounds();
+  std::vector<double> old_variable_upper_bounds = op_problem.get_variable_upper_bounds();
+  auto& variable_lower_bounds = op_problem.get_variable_lower_bounds();
+  auto& variable_upper_bounds = op_problem.get_variable_upper_bounds();
+
+  // Create new variable bounds for the first climber in the batch
+  for (size_t i = 5; i < 15; ++i) 
+  {
+    variable_lower_bounds[i] = 4.0;
+    variable_upper_bounds[i] = 5.0;
+  }
+
+  // Solve alone to get ref
+
+  optimization_problem_solution_t<int, double> solution =
+    solve_lp(&handle_, op_problem, solver_settings);
+
+  const auto new_primal = solution.get_additional_termination_information(0).primal_objective;
+
+  // Now setup and solve batch containing a different climber #0
+
+  std::vector<double> new_variable_lower_bounds(variable_lower_bounds.size() * batch_size);
+  std::vector<double> new_variable_upper_bounds(variable_upper_bounds.size() * batch_size);
+
+  for (size_t i = 0; i < batch_size; i++)
+    for (size_t j = 0; j < variable_lower_bounds.size(); ++j)
+      new_variable_lower_bounds[i * variable_lower_bounds.size() + j] = old_variable_lower_bounds[j];
+  for (size_t i = 0; i < batch_size; i++)
+    for (size_t j = 0; j < variable_upper_bounds.size(); ++j)
+      new_variable_upper_bounds[i * variable_upper_bounds.size() + j] = old_variable_upper_bounds[j];
+
+  for (size_t i = 5; i < 15; ++i) 
+  {
+    new_variable_lower_bounds[i] = 4.0;
+    new_variable_upper_bounds[i] = 5.0;
+  }
+
+  op_problem.set_variable_lower_bounds(new_variable_lower_bounds.data(), new_variable_lower_bounds.size());
+  op_problem.set_variable_upper_bounds(new_variable_upper_bounds.data(), new_variable_upper_bounds.size());
+
+  optimization_problem_solution_t<int, double> solution2 =
+    solve_lp(&handle_, op_problem, solver_settings);
+
+  // Both should be optimal
+  // Climber #0 should have same objective as ref and #1 as the usual
+
+  EXPECT_EQ((int)solution2.get_termination_status(0), CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_FALSE(is_incorrect_objective(
+    new_primal, solution2.get_additional_termination_information(0).primal_objective));
+    EXPECT_EQ((int)solution2.get_termination_status(1), CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_FALSE(is_incorrect_objective(
+    afiro_primal_objective, solution2.get_additional_termination_information(1).primal_objective));
+
+  cuopt::linear_programming::detail::deterministic_batch_pdlp = false;
+}
+
+TEST(pdlp_class, more_complex_batch_different_bounds)
+{
+  const raft::handle_t handle_{};
+
+  EXPECT_FALSE(cuopt::linear_programming::detail::deterministic_batch_pdlp);
+
+  cuopt::linear_programming::detail::deterministic_batch_pdlp = true;
+
+  auto path = make_path_absolute("linear_programming/afiro_original.mps");
+  cuopt::mps_parser::mps_data_model_t<int, double> op_problem =
+    cuopt::mps_parser::parse_mps<int, double>(path, true);
+
+  auto solver_settings   = pdlp_solver_settings_t<int, double>{};
+  solver_settings.method = cuopt::linear_programming::method_t::PDLP;
+
+  constexpr int batch_size = 5;
+
+  // Setup a larger batch afiro but with different bounds on climbers #1 and #3
+  std::vector<double> old_variable_lower_bounds = op_problem.get_variable_lower_bounds();
+  std::vector<double> old_variable_upper_bounds = op_problem.get_variable_upper_bounds();
+
+  std::vector<double> new_first_variable_lower_bounds = op_problem.get_variable_lower_bounds();
+  std::vector<double> new_first_variable_upper_bounds = op_problem.get_variable_upper_bounds();
+
+  // Create new variable bounds for the #1 climber in the batch
+  for (size_t i = 5; i < 15; ++i) 
+  {
+    new_first_variable_lower_bounds[i] = 4.0;
+    new_first_variable_upper_bounds[i] = 5.0;
+  }
+
+  // Get ref for climber #1
+
+  op_problem.set_variable_lower_bounds(new_first_variable_lower_bounds.data(), new_first_variable_lower_bounds.size());
+  op_problem.set_variable_upper_bounds(new_first_variable_upper_bounds.data(), new_first_variable_upper_bounds.size());
+
+  optimization_problem_solution_t<int, double> solution1 =
+    solve_lp(&handle_, op_problem, solver_settings);
+
+  const auto first_new_primal = solution1.get_additional_termination_information(0).primal_objective;
+
+  std::vector<double> new_second_variable_lower_bounds = old_variable_lower_bounds;
+  std::vector<double> new_second_variable_upper_bounds = old_variable_upper_bounds;
+
+  // Create new variable bounds for the #3 climber in the batch
+  for (size_t i = 1; i < 8; ++i) 
+  {
+    new_second_variable_lower_bounds[i] = -7.0;
+    new_second_variable_upper_bounds[i] = 13.0;
+  }
+  for (size_t i = 13; i < 27; ++i) 
+  {
+    new_second_variable_lower_bounds[i] = 1.0;
+    new_second_variable_upper_bounds[i] = 58.0;
+  }
+
+  // Get ref for climber #3
+
+  op_problem.set_variable_lower_bounds(new_second_variable_lower_bounds.data(), new_second_variable_lower_bounds.size());
+  op_problem.set_variable_upper_bounds(new_second_variable_upper_bounds.data(), new_second_variable_upper_bounds.size());
+
+  optimization_problem_solution_t<int, double> solution2 =
+    solve_lp(&handle_, op_problem, solver_settings);
+
+  const auto second_new_primal = solution2.get_additional_termination_information(0).primal_objective;
+
+  // Setup for batch
+
+  std::vector<double> batch_variable_lower_bounds(old_variable_lower_bounds.size() * batch_size);
+  std::vector<double> batch_variable_upper_bounds(old_variable_upper_bounds.size() * batch_size);
+
+  for (size_t i = 0; i < batch_size; i++)
+    for (size_t j = 0; j < old_variable_lower_bounds.size(); ++j)
+      batch_variable_lower_bounds[i * old_variable_lower_bounds.size() + j] = old_variable_lower_bounds[j];
+  for (size_t i = 0; i < batch_size; i++)
+    for (size_t j = 0; j < old_variable_upper_bounds.size(); ++j)
+      batch_variable_upper_bounds[i * old_variable_upper_bounds.size() + j] = old_variable_upper_bounds[j];
+
+  // Change bounds for climber #1
+  for (size_t i = 5; i < 15; ++i) 
+  {
+    batch_variable_lower_bounds[i + old_variable_lower_bounds.size()] = 4.0;
+    batch_variable_upper_bounds[i + old_variable_lower_bounds.size()] = 5.0;
+  }
+
+  // Change bounds for climber #3
+  for (size_t i = 1; i < 8; ++i) 
+  {
+    batch_variable_lower_bounds[i + old_variable_lower_bounds.size() * 3] = -7.0;
+    batch_variable_upper_bounds[i + old_variable_lower_bounds.size() * 3] = 13.0;
+  }
+  for (size_t i = 13; i < 27; ++i) 
+  {
+    batch_variable_lower_bounds[i + old_variable_lower_bounds.size() * 3] = 1.0;
+    batch_variable_upper_bounds[i + old_variable_lower_bounds.size() * 3] = 58.0;
+  }
+
+  op_problem.set_variable_lower_bounds(batch_variable_lower_bounds.data(), batch_variable_lower_bounds.size());
+  op_problem.set_variable_upper_bounds(batch_variable_upper_bounds.data(), batch_variable_upper_bounds.size());
+
+  optimization_problem_solution_t<int, double> solution3 =
+    solve_lp(&handle_, op_problem, solver_settings);
+
+  // All should be optimal
+  for (size_t i = 0; i < batch_size; ++i)
+    EXPECT_EQ((int)solution3.get_termination_status(i), CUOPT_TERIMINATION_STATUS_OPTIMAL);
+
+
+  // Climber #0 #2 #4 should have the same primal objective which is the unmodified one 
+  EXPECT_FALSE(is_incorrect_objective(
+    afiro_primal_objective, solution3.get_additional_termination_information(0).primal_objective));
+  EXPECT_TRUE(solution3.get_additional_termination_information(0).primal_objective == solution3.get_additional_termination_information(2).primal_objective
+&& solution3.get_additional_termination_information(2).primal_objective == solution3.get_additional_termination_information(4).primal_objective);
+
+  // Climber #1 and #3 should have same objective as to when ran alone
+  EXPECT_FALSE(is_incorrect_objective(
+    first_new_primal, solution3.get_additional_termination_information(1).primal_objective));
+
+  EXPECT_FALSE(is_incorrect_objective(
+    second_new_primal, solution3.get_additional_termination_information(3).primal_objective));
+
+  cuopt::linear_programming::detail::deterministic_batch_pdlp = false;
 }
 
 }  // namespace cuopt::linear_programming::test

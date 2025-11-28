@@ -51,19 +51,24 @@ struct transform_bounds_functor {
 template <typename i_t, typename f_t>
 static void set_variable_bounds(detail::problem_t<i_t, f_t>& op_problem)
 {
-  op_problem.variable_bounds.resize(op_problem.n_variables, op_problem.handle_ptr->get_stream());
-  auto vars_bnd = make_span(op_problem.variable_bounds);
-
   auto orig_problem          = op_problem.original_problem_ptr;
   auto variable_lower_bounds = make_span(orig_problem->get_variable_lower_bounds());
   auto variable_upper_bounds = make_span(orig_problem->get_variable_upper_bounds());
+
+  cuopt_assert(orig_problem->get_variable_lower_bounds().size() == 
+orig_problem->get_variable_upper_bounds().size(), "Lower and upper bounds have different size");
+
+  const size_t var_bound_size = orig_problem->get_variable_lower_bounds().size();
+
+  op_problem.variable_bounds.resize(var_bound_size, op_problem.handle_ptr->get_stream());
+  auto vars_bnd = make_span(op_problem.variable_bounds);
 
   bool default_variable_lb = (orig_problem->get_variable_lower_bounds().is_empty());
   bool default_variable_ub = (orig_problem->get_variable_upper_bounds().is_empty());
 
   thrust::for_each(op_problem.handle_ptr->get_thrust_policy(),
                    thrust::make_counting_iterator<i_t>(0),
-                   thrust::make_counting_iterator<i_t>(op_problem.n_variables),
+                   thrust::make_counting_iterator<i_t>(var_bound_size),
                    [vars_bnd,
                     variable_lower_bounds,
                     variable_upper_bounds,

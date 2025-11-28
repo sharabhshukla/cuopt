@@ -15,6 +15,8 @@
 #include <rmm/exec_policy.hpp>
 
 #include <thrust/transform.h>
+#include <thrust/universal_vector.h>
+
 #include <cuda/std/functional>
 
 namespace cuopt {
@@ -338,6 +340,12 @@ template <typename T>
 raft::device_span<T> make_span(rmm::device_uvector<T>& container)
 {
   return raft::device_span<T>(container.data(), container.size());
+}
+
+template <typename T>
+raft::device_span<T> make_span(thrust::universal_host_pinned_vector<T>& container)
+{
+  return raft::device_span<T>(thrust::raw_pointer_cast(container.data()), container.size());
 }
 
 template <typename T>

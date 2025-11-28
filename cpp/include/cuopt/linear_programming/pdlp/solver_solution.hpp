@@ -132,8 +132,8 @@ class optimization_problem_solution_t : public base_solution_t {
                                   const std::string objective_name,
                                   const std::vector<std::string>& var_names,
                                   const std::vector<std::string>& row_names,
-                                  std::vector<additional_termination_information_t>& termination_stats,
-                                  pdlp_termination_status_t termination_status_);
+                                  std::vector<additional_termination_information_t>&& termination_stats,
+                                  std::vector<pdlp_termination_status_t>&& termination_status_);
 
   optimization_problem_solution_t(rmm::device_uvector<f_t>& final_primal_solution,
                                   rmm::device_uvector<f_t>& final_dual_solution,
@@ -141,8 +141,8 @@ class optimization_problem_solution_t : public base_solution_t {
                                   const std::string objective_name,
                                   const std::vector<std::string>& var_names,
                                   const std::vector<std::string>& row_names,
-                                  std::vector<additional_termination_information_t>& termination_stats,
-                                  pdlp_termination_status_t termination_status_);
+                                  std::vector<additional_termination_information_t>&& termination_stats,
+                                  std::vector<pdlp_termination_status_t>&& termination_status_);
 
   /**
    * @brief Construct variant used in best_primal_so_far to do a deep copy instead of move since we
@@ -163,7 +163,7 @@ class optimization_problem_solution_t : public base_solution_t {
                                   const std::string objective_name,
                                   const std::vector<std::string>& var_names,
                                   const std::vector<std::string>& row_names,
-                                  std::vector<additional_termination_information_t>& termination_stats,
+                                  additional_termination_information_t& termination_stats,
                                   pdlp_termination_status_t termination_status,
                                   const raft::handle_t* handler_ptr,
                                   bool deep_copy);
@@ -238,7 +238,8 @@ class optimization_problem_solution_t : public base_solution_t {
    * @brief Get termination reason
    * @return Termination reason
    */
-  pdlp_termination_status_t get_termination_status() const;
+  pdlp_termination_status_t get_termination_status(i_t id = 0) const;
+  std::vector<pdlp_termination_status_t>& get_terminations_status();
 
   /**
    * @brief Get the error status
@@ -291,7 +292,7 @@ class optimization_problem_solution_t : public base_solution_t {
   rmm::device_uvector<f_t> reduced_cost_;
   pdlp_warm_start_data_t<i_t, f_t> pdlp_warm_start_data_;
 
-  pdlp_termination_status_t termination_status_;
+  std::vector<pdlp_termination_status_t> termination_status_;
 
   std::vector<additional_termination_information_t> termination_stats_;
 

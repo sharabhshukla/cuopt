@@ -422,21 +422,22 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   // Scale c
-  raft::linalg::eltwiseMultiply(
-    const_cast<rmm::device_uvector<f_t>&>(op_problem_scaled_.objective_coefficients).data(),
-    op_problem_scaled_.objective_coefficients.data(),
-    cummulative_variable_scaling_.data(),
-    primal_size_h_,
-    stream_view_);
+  cub::DeviceTransform::Transform(cuda::std::make_tuple(op_problem_scaled_.objective_coefficients.data(),
+                                                      problem_wrap_container(cummulative_variable_scaling_)),
+                                op_problem_scaled_.objective_coefficients.data(),
+                                op_problem_scaled_.objective_coefficients.size(),
+                                cuda::std::multiplies<f_t>{},
+                                stream_view_);
 
   using f_t2 = typename type_2<f_t>::type;
   cub::DeviceTransform::Transform(cuda::std::make_tuple(op_problem_scaled_.variable_bounds.data(),
-                                                        cummulative_variable_scaling_.data()),
+                                                        problem_wrap_container(cummulative_variable_scaling_)),
                                   op_problem_scaled_.variable_bounds.data(),
-                                  primal_size_h_,
+                                  op_problem_scaled_.variable_bounds.size(),
                                   divide_check_zero<f_t, f_t2>(),
                                   stream_view_);
 
+  // TODO batch mode: handle different constraints bounds
   raft::linalg::eltwiseMultiply(
     const_cast<rmm::device_uvector<f_t>&>(op_problem_scaled_.constraint_lower_bounds).data(),
     op_problem_scaled_.constraint_lower_bounds.data(),
@@ -473,18 +474,24 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
       },
       stream_view_);
 
+  cub::DeviceTransform::Transform(op_problem_scaled_.variable_bounds.data(),
+                                  op_problem_scaled_.variable_bounds.data(),
+        op_problem_scaled_.variable_bounds.size(),
+        [bound_rescaling     = bound_rescaling_.data(),
+        objective_rescaling = objective_rescaling_.data()] __device__(f_t2 variable_bounds)
+          -> f_t2 {
+          return {variable_bounds.x * *bound_rescaling, variable_bounds.y * *bound_rescaling};
+        },
+        stream_view_);
+
     cub::DeviceTransform::Transform(
-      cuda::std::make_tuple(op_problem_scaled_.variable_bounds.data(),
-                            op_problem_scaled_.objective_coefficients.data()),
-      thrust::make_zip_iterator(op_problem_scaled_.variable_bounds.data(),
-                                op_problem_scaled_.objective_coefficients.data()),
-      op_problem_scaled_.variable_bounds.size(),
+                    op_problem_scaled_.objective_coefficients.data(),
+                    op_problem_scaled_.objective_coefficients.data(),
+      op_problem_scaled_.objective_coefficients.size(),
       [bound_rescaling     = bound_rescaling_.data(),
-       objective_rescaling = objective_rescaling_.data()] __device__(f_t2 variable_bounds,
-                                                                     f_t objective_coefficient)
-        -> thrust::tuple<f_t2, f_t> {
-        return {{variable_bounds.x * *bound_rescaling, variable_bounds.y * *bound_rescaling},
-                objective_coefficient * *objective_rescaling};
+       objective_rescaling = objective_rescaling_.data()] __device__(f_t objective_coefficient)
+        -> f_t {
+        return  objective_coefficient * *objective_rescaling;
       },
       stream_view_);
   }
@@ -553,7 +560,7 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_solutions(
       cub::DeviceTransform::Transform(dual_solution.data(),
                           dual_solution.data(),
                           dual_solution.size(),
-                          a_times_scalar<f_t>(h_bound_rescaling),
+                          a_times_scalar<f_t>(h_objective_rescaling),
                           stream_view_); 
     }
   }
@@ -672,7 +679,7 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::unscale_solutions(
       cub::DeviceTransform::Transform(dual_solution.data(),
                           dual_solution.data(),
                           dual_solution.size(),
-                          a_times_scalar<f_t>(f_t(1.0) / h_bound_rescaling),
+                          a_times_scalar<f_t>(f_t(1.0) / h_objective_rescaling),
                           stream_view_); 
     }
   }

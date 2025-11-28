@@ -39,6 +39,7 @@ convergence_information_t<i_t, f_t>::convergence_information_t(
   i_t dual_size,
   const std::vector<pdlp_climber_strategy_t>& climber_strategies)
   : batch_mode_(climber_strategies.size() > 1),
+    handle_ptr_(handle_ptr),
     stream_view_(handle_ptr_->get_stream()),
     primal_size_h_(primal_size),
     dual_size_h_(dual_size),
@@ -226,9 +227,19 @@ void convergence_information_t<i_t, f_t>::compute_convergence_information(
 
   raft::common::nvtx::range fun_scope("compute_convergence_information");
 
+#ifdef CUPDLP_DEBUG_MODE
+  print("primal_iterate", primal_iterate);
+  print("dual_iterate", dual_iterate);
+  print("dual_slack", dual_slack);
+#endif
+
   compute_primal_residual(
     op_problem_cusparse_view_, current_pdhg_solver.get_dual_tmp_resource(), dual_iterate);
   compute_primal_objective(primal_iterate);
+
+  #ifdef CUPDLP_DEBUG_MODE
+  print("Primal Residual", primal_residual_);
+#endif
   
   if (!batch_mode_)
     my_l2_norm<i_t, f_t>(primal_residual_, l2_primal_residual_, handle_ptr_);
@@ -238,13 +249,13 @@ void convergence_information_t<i_t, f_t>::compute_convergence_information(
     dot_product_storage_.data(), dot_product_bytes_, 
     thrust::make_transform_iterator(primal_residual_.data(),
     power_two_func_t<f_t>{}),
-    l2_primal_residual_.data(), climber_strategies_.size(), primal_size_h_, stream_view_);
+    l2_primal_residual_.data(), climber_strategies_.size(), dual_size_h_, stream_view_);
     cub::DeviceTransform::Transform(l2_primal_residual_.data(),
-    l2_primal_residual_.data(), l2_primal_residual_.size(), [] HD (float x){return raft::sqrt(x);}, stream_view_);
+    l2_primal_residual_.data(), l2_primal_residual_.size(), [] HD (f_t x){return raft::sqrt(x);}, stream_view_);
   }
 
 #ifdef CUPDLP_DEBUG_MODE
-  printf("Absolute Primal Residual: %lf\n", l2_primal_residual_.value(stream_view_));
+  print("Absolute Primal Residual", l2_primal_residual_);
 #endif
   // If per_constraint_residual is false we still need to perform the l2 since it's used in kkt
   if (settings.per_constraint_residual) {
@@ -281,6 +292,11 @@ void convergence_information_t<i_t, f_t>::compute_convergence_information(
                         primal_iterate,
                         dual_slack);
   compute_dual_objective(dual_iterate, primal_iterate, dual_slack);
+
+#ifdef CUPDLP_DEBUG_MODE
+  print("Dual Residual", dual_residual_);
+#endif
+
   if (!batch_mode_)
     my_l2_norm<i_t, f_t>(dual_residual_, l2_dual_residual_, handle_ptr_);
   else
@@ -289,12 +305,12 @@ void convergence_information_t<i_t, f_t>::compute_convergence_information(
     dot_product_storage_.data(), dot_product_bytes_, 
     thrust::make_transform_iterator(dual_residual_.data(),
     power_two_func_t<f_t>{}),
-    l2_dual_residual_.data(), climber_strategies_.size(), dual_size_h_, stream_view_);
+    l2_dual_residual_.data(), climber_strategies_.size(), primal_size_h_, stream_view_);
     cub::DeviceTransform::Transform(l2_dual_residual_.data(),
-    l2_dual_residual_.data(), l2_dual_residual_.size(), [] HD (float x){return raft::sqrt(x);}, stream_view_);
+    l2_dual_residual_.data(), l2_dual_residual_.size(), [] HD (f_t x){return raft::sqrt(x);}, stream_view_);
   }
 #ifdef CUPDLP_DEBUG_MODE
-  printf("Absolute Dual Residual: %lf\n", l2_dual_residual_.value(stream_view_));
+  print("Absolute Dual Residual", l2_dual_residual_);
 #endif
   // If per_constraint_residual is false we still need to perform the l2 since it's used in kkt
   if (settings.per_constraint_residual) {
@@ -384,14 +400,13 @@ void convergence_information_t<i_t, f_t>::compute_primal_residual(
                                                  stream_view_);
   } else {
     // TODO batch mode: multiple constraint bound per problem
+    #ifdef CUPDLP_DEBUG_MODE
+    print("tmp_dual", tmp_dual);
+    #endif
     cub::DeviceTransform::Transform(
       cuda::std::make_tuple(tmp_dual.data(),
-                            thrust::make_transform_iterator(
-                                                                thrust::make_counting_iterator(0),
-                                                                problem_wrapped_iterator<f_t>(problem_ptr->constraint_lower_bounds.data(), dual_size_h_)),
-                            thrust::make_transform_iterator(
-                                                                thrust::make_counting_iterator(0),
-                                                                problem_wrapped_iterator<f_t>(problem_ptr->constraint_upper_bounds.data(), dual_size_h_)),
+                            problem_wrap_container(problem_ptr->constraint_lower_bounds),
+                            problem_wrap_container(problem_ptr->constraint_upper_bounds),
                             dual_iterate.data()),
       thrust::make_zip_iterator(primal_residual_.data(), primal_slack_.data()),
       primal_residual_.size(),
@@ -439,12 +454,9 @@ void convergence_information_t<i_t, f_t>::compute_primal_objective(
                                                   stream_view_));
   }
   else {
-    // TODO batch mode: handle different objective coefficient
     cub::DeviceSegmentedReduce::Sum(
   dot_product_storage_.data(), dot_product_bytes_, 
-  thrust::make_transform_iterator(thrust::make_zip_iterator(primal_solution.data(), thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->objective_coefficients.data(), primal_size_h_))),
+  thrust::make_transform_iterator(thrust::make_zip_iterator(primal_solution.data(), problem_wrap_container(problem_ptr->objective_coefficients)),
   tuple_multiplies<f_t>{}),
   primal_objective_.data(), climber_strategies_.size(), primal_size_h_, stream_view_);
   }
@@ -462,7 +474,7 @@ void convergence_information_t<i_t, f_t>::compute_primal_objective(
   }
 
 #ifdef CUPDLP_DEBUG_MODE
-  printf("Primal objective %lf\n", primal_objective_.value(stream_view_));
+  print("Primal objective", primal_objective_);
 #endif
 }
 
@@ -476,7 +488,6 @@ void convergence_information_t<i_t, f_t>::compute_dual_residual(
   cuopt_assert(tmp_primal.size() == primal_solution.size(), "tmp_primal size must be equal to primal_solution size");
   cuopt_assert(tmp_primal.size() == dual_slack.size(), "tmp_primal size must be equal to primal_solution size");
   cuopt_assert(dual_residual_.size() == primal_solution.size(), "dual_residual_ size must be equal to primal_solution size");
-  cuopt_assert(reduced_cost_.size() == primal_solution.size(), "reduced_cost_ size must be equal to primal_solution size");
 
   raft::common::nvtx::range fun_scope("compute_dual_residual");
   // compute objective product (Q*x) if QP
@@ -515,11 +526,9 @@ void convergence_information_t<i_t, f_t>::compute_dual_residual(
 
   // Substract with the objective vector manually to avoid possible cusparse bug w/ nonzero beta and
   // len(X)=1
-  // TODO batch mode: handle mutliple objective coefficient
-  cub::DeviceTransform::Transform(cuda::std::make_tuple(tmp_primal.data(), 
-  thrust::make_transform_iterator(
-                                                                thrust::make_counting_iterator(0),
-                                                                problem_wrapped_iterator<f_t>(problem_ptr->objective_coefficients.data(), primal_size_h_))),
+  cub::DeviceTransform::Transform(cuda::std::make_tuple( 
+  problem_wrap_container(problem_ptr->objective_coefficients),
+                                                              tmp_primal.data()),
                                     tmp_primal.data(),
                                     tmp_primal.size(),
                                     cuda::std::minus<>{},
@@ -639,8 +648,7 @@ void convergence_information_t<i_t, f_t>::compute_dual_objective(
   }
 
 #ifdef CUPDLP_DEBUG_MODE
-  // TODO batch mode: handle batch
-  printf("Dual objective %lf\n", dual_objective_.value(stream_view_));
+  print("Dual objective", dual_objective_);
 #endif
 }
 

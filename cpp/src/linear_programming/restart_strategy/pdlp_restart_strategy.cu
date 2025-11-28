@@ -111,17 +111,17 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
     dual_size_h_(dual_size),
     problem_ptr(&op_problem),
     primal_norm_weight_{stream_view_},
-    weights_{(is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+    weights_{(!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
              stream_view_},
     dual_norm_weight_{stream_view_},
     restart_triggered_{0, stream_view_},
     candidate_is_avg_{0, stream_view_},
-    avg_duality_gap_{handle_ptr_, primal_size, dual_size, climber_strategies},
-    current_duality_gap_{handle_ptr_, primal_size, dual_size, climber_strategies},
-    last_restart_duality_gap_{handle_ptr_, primal_size, dual_size, climber_strategies},
+    avg_duality_gap_{handle_ptr_, is_cupdlpx_restart<f_t, i_t>() ? 0 : primal_size, is_cupdlpx_restart<f_t, i_t>() ? 0 : dual_size, climber_strategies},
+    current_duality_gap_{handle_ptr_, is_cupdlpx_restart<f_t, i_t>() ? 0 : primal_size, is_cupdlpx_restart<f_t, i_t>() ? 0 : dual_size, climber_strategies},
+    last_restart_duality_gap_{handle_ptr_, primal_size, dual_size, climber_strategies}, // Only this one is also used in cuPDLPx so also in batch mode
     // If KKT restart, call the empty cusparse_view constructor
     avg_duality_gap_cusparse_view_{
-      (is_KKT_restart<i_t, f_t>())
+      (!is_trust_region_restart<i_t, f_t>())
         ? cusparse_view_t<i_t, f_t>(handle_ptr_, cusparse_view.A_, cusparse_view.A_indices_, climber_strategies)
         : cusparse_view_t<i_t, f_t>(handle_ptr_,
                                     op_problem,
@@ -131,7 +131,7 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
                                     avg_duality_gap_.primal_gradient_.data(),
                                     avg_duality_gap_.dual_gradient_.data())},
     current_duality_gap_cusparse_view_{
-      (is_KKT_restart<i_t, f_t>())
+      (!is_trust_region_restart<i_t, f_t>())
         ? cusparse_view_t<i_t, f_t>(handle_ptr_, cusparse_view.A_, cusparse_view.A_indices_, climber_strategies)
         : cusparse_view_t<i_t, f_t>(handle_ptr_,
                                     op_problem,
@@ -141,7 +141,7 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
                                     current_duality_gap_.primal_gradient_.data(),
                                     current_duality_gap_.dual_gradient_.data())},
     last_restart_duality_gap_cusparse_view_{
-      (is_KKT_restart<i_t, f_t>())
+      (!is_trust_region_restart<i_t, f_t>())
         ? cusparse_view_t<i_t, f_t>(handle_ptr_, cusparse_view.A_, cusparse_view.A_indices_, climber_strategies)
         : cusparse_view_t<i_t, f_t>(handle_ptr_,
                                     op_problem,
@@ -154,33 +154,33 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
     last_restart_length_{0},
     // If KKT restart, don't need to init all of those
     center_point_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     objective_vector_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     unsorted_direction_full_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     direction_full_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     threshold_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     lower_bound_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     upper_bound_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     test_point_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
       stream_view_},
     transformed_constraint_lower_bounds_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(dual_size_h_), stream_view_},
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(dual_size_h_), stream_view_},
     transformed_constraint_upper_bounds_{
-      (is_KKT_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(dual_size_h_), stream_view_},
+      (!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(dual_size_h_), stream_view_},
     shared_live_kernel_accumulator_{0, stream_view_},
     target_threshold_{stream_view_},
     low_radius_squared_{stream_view_},
@@ -199,6 +199,12 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
     reusable_device_scalar_1_{stream_view_},
     reusable_device_scalar_2_{stream_view_},
     reusable_device_scalar_3_{stream_view_},
+    fixed_point_error_(climber_strategies.size()),
+    initial_fixed_point_error_(climber_strategies.size()),
+    last_trial_fixed_point_error_(climber_strategies.size()),
+    primal_weight_error_sum_(climber_strategies.size()),
+    primal_weight_last_error_(climber_strategies.size()),
+    best_primal_dual_residual_gap_(climber_strategies.size()),
     climber_strategies_(climber_strategies)
 {
   raft::common::nvtx::range fun_scope("Initializing restart strategy");
@@ -206,11 +212,11 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
   // Init the vectors
   RAFT_CUDA_TRY(cudaMemsetAsync(last_restart_duality_gap_.primal_solution_.data(),
                                 0.0,
-                                sizeof(f_t) * primal_size_h_,
+                                sizeof(f_t) * last_restart_duality_gap_.primal_solution_.size(),
                                 stream_view_));
   RAFT_CUDA_TRY(cudaMemsetAsync(last_restart_duality_gap_.dual_solution_.data(),
                                 0.0,
-                                sizeof(f_t) * dual_size_h_,
+                                sizeof(f_t) * last_restart_duality_gap_.primal_solution_.size(),
                                 stream_view_));
 
   // Trigger the costly (costly for ms instances) GetDeviceProperty only if need trust region
@@ -517,10 +523,10 @@ bool pdlp_restart_strategy_t<i_t, f_t>::run_kkt_restart(
   RAFT_CUDA_TRY(cudaDeviceSynchronize());
   std::cout << "  Current convergeance information:"
             << "    l2_primal_residual="
-            << current_convergence_information.get_l2_primal_residual().value(stream_view_)
+            << current_convergence_information.get_l2_primal_residual().element(0, stream_view_)
             << "    l2_dual_residual="
-            << current_convergence_information.get_l2_dual_residual().value(stream_view_)
-            << "    gap=" << current_convergence_information.get_gap().value(stream_view_)
+            << current_convergence_information.get_l2_dual_residual().element(0, stream_view_)
+            << "    gap=" << current_convergence_information.get_gap().element(0, stream_view_)
             << std::endl;
 #endif
 
@@ -850,11 +856,11 @@ void pdlp_restart_strategy_t<i_t, f_t>::cupdlpx_restart(
     }
 
     #ifdef CUPDLP_DEBUG_MODE
-      printf("New primal weight %lf\n", primal_weight.value(stream_view_));
-      printf("New best_primal_weight %lf\n", best_primal_weight.value(stream_view_));
-      printf("New primal_weight_error_sum_ %lf\n", primal_weight_error_sum_);
-      printf("New primal_weight_last_error_ %lf\n", primal_weight_last_error_);
-      printf("New best_primal_dual_residual_gap_ %lf\n", best_primal_dual_residual_gap_);
+      printf("New primal weight %lf\n", primal_weight.element(i, stream_view_));
+      printf("New best_primal_weight %lf\n", best_primal_weight.element(i, stream_view_));
+      printf("New primal_weight_error_sum_ %lf\n", primal_weight_error_sum_[i]);
+      printf("New primal_weight_last_error_ %lf\n", primal_weight_last_error_[i]);
+      printf("New best_primal_dual_residual_gap_ %lf\n", best_primal_dual_residual_gap_[i]);
     #endif
   }
 
@@ -940,7 +946,8 @@ void pdlp_restart_strategy_t<i_t, f_t>::compute_restart(
 {
   raft::common::nvtx::range fun_scope("compute_restart");
 
-  if (is_KKT_restart<i_t, f_t>()) {
+  if (pdlp_hyper_params::restart_strategy ==
+             static_cast<int>(restart_strategy_t::KKT_RESTART)) {
     cuopt_expects(climber_strategies_.size() == 1, cuopt::error_type_t::ValidationError, "KKT restart not supported for batch mode");
     if (run_kkt_restart(pdhg_solver,
                            primal_solution_avg,
@@ -1051,7 +1058,7 @@ void pdlp_restart_strategy_t<i_t, f_t>::compute_new_primal_weight(
 {
   raft::common::nvtx::range fun_scope("compute_new_primal_weight");
 
-  cuopt_assert(!batch_mode_, "compute_new_primal_weight  not supported in batch mode")
+  cuopt_assert(!batch_mode_, "compute_new_primal_weight  not supported in batch mode");
 
   compute_new_primal_weight_kernel<i_t, f_t><<<1, 1, 0, stream_view_>>>(duality_gap.view(),
                                                                         primal_weight.data(),

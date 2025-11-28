@@ -469,13 +469,9 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
         // TODO batch mode: handle different objective coefficient and variable bounds
           cub::DeviceTransform::Transform(
         cuda::std::make_tuple(current_saddle_point_state_.get_primal_solution().data(),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->objective_coefficients.data(), primal_size_h_)),
+                              problem_wrap_container(problem_ptr->objective_coefficients),
                               current_saddle_point_state_.get_current_AtY().data(),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t2>(problem_ptr->variable_bounds.data(), primal_size_h_)),
+                              problem_wrap_container(problem_ptr->variable_bounds),
                             thrust::make_transform_iterator(
                             thrust::make_counting_iterator(0),
                             batch_wrapped_iterator<f_t>(primal_step_size.data(), primal_size_h_))
@@ -513,12 +509,10 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
         cub::DeviceTransform::Transform(
         cuda::std::make_tuple(current_saddle_point_state_.get_dual_solution().data(),
                               current_saddle_point_state_.get_dual_gradient().data(),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->constraint_lower_bounds.data(), dual_size_h_)),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->constraint_upper_bounds.data(), dual_size_h_)),
+                              problem_wrap_container(
+                            problem_ptr->constraint_lower_bounds),
+                              problem_wrap_container(
+                            problem_ptr->constraint_upper_bounds),
                             thrust::make_transform_iterator(
                             thrust::make_counting_iterator(0),
                             batch_wrapped_iterator<f_t>(dual_step_size.data(), dual_size_h_))),
@@ -557,16 +551,18 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
       }
       else
       {
-        // TODO batch mode: handle different objective coefficient and variable bound per problem
+#ifdef CUPDLP_DEBUG_MODE
+print("current_saddle_point_state_.get_primal_solution()", current_saddle_point_state_.get_primal_solution());
+print("problem_ptr->objective_coefficients", problem_ptr->objective_coefficients);
+print("current_saddle_point_state_.get_current_AtY()", current_saddle_point_state_.get_current_AtY());
+
+#endif
+
         cub::DeviceTransform::Transform(
         cuda::std::make_tuple(current_saddle_point_state_.get_primal_solution().data(),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->objective_coefficients.data(), primal_size_h_)),
+                              problem_wrap_container(problem_ptr->objective_coefficients),
                               current_saddle_point_state_.get_current_AtY().data(),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t2>(problem_ptr->variable_bounds.data(), primal_size_h_)),
+                              problem_wrap_container(problem_ptr->variable_bounds),
                             thrust::make_transform_iterator(
                             thrust::make_counting_iterator(0),
                             batch_wrapped_iterator<f_t>(primal_step_size.data(), primal_size_h_))
@@ -577,7 +573,7 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
           stream_view_);
       }
 #ifdef CUPDLP_DEBUG_MODE
-      print("reflected_primal_", reflected_primal_);
+print("reflected_primal_", reflected_primal_);
 #endif
 
       // Compute next dual
@@ -601,12 +597,8 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
         cub::DeviceTransform::Transform(
         cuda::std::make_tuple(current_saddle_point_state_.get_dual_solution().data(),
                               current_saddle_point_state_.get_dual_gradient().data(),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->constraint_lower_bounds.data(), dual_size_h_)),
-                              thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(problem_ptr->constraint_upper_bounds.data(), dual_size_h_)),
+                              problem_wrap_container(problem_ptr->constraint_lower_bounds),
+                              problem_wrap_container(problem_ptr->constraint_upper_bounds),
                             thrust::make_transform_iterator(
                             thrust::make_counting_iterator(0),
                             batch_wrapped_iterator<f_t>(dual_step_size.data(), dual_size_h_))),

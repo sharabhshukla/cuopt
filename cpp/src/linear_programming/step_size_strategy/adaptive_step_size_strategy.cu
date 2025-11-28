@@ -162,7 +162,7 @@ __global__ void compute_step_sizes_from_movement_and_interaction(
 #ifdef PDLP_DEBUG_MODE
   printf("    interaction=%lf movement=%lf\n", interaction, movement);
   printf("    step_size_=%lf step_size_limit=%lf pdhg_iteration=%d iteration_coefficient_=%lf\n",
-         step_size_,
+         step_size,
          step_size_limit,
          *pdhg_iteration,
          iteration_coefficient_);
@@ -199,7 +199,7 @@ __global__ void compute_step_sizes_from_movement_and_interaction(
     "-pdlp_hyper_params::default_growth_exponent=%lf step_size_=%lf\n",
     iteration_coefficient_,
     -pdlp_hyper_params::default_growth_exponent,
-    step_size_);
+    step_size);
   printf(
     "Compute adaptative step size: potential_new_step_size_1=%lf potential_new_step_size_2=%lf\n",
     potential_new_step_size_1,

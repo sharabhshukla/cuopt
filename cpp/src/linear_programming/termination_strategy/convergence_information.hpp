@@ -184,7 +184,7 @@ class convergence_information_t {
   const rmm::device_scalar<f_t> reusable_device_scalar_value_0_;
   const rmm::device_scalar<f_t> reusable_device_scalar_value_neg_1_;
   rmm::device_buffer dot_product_storage_;
-  size_t dot_product_bytes_;
+  size_t dot_product_bytes_{0};
 
 
   rmm::device_uvector<f_t> dual_dot_;

@@ -71,14 +71,17 @@ f_t pdlp_termination_strategy_t<i_t, f_t>::get_relative_primal_tolerance_factor(
 }
 
 template <typename i_t, typename f_t>
-pdlp_termination_status_t pdlp_termination_strategy_t<i_t, f_t>::get_termination_status(int id) const
+pdlp_termination_status_t pdlp_termination_strategy_t<i_t, f_t>::get_termination_status(i_t id) const
 {
-  // TODO batch mode: TMP just for determism
-  if (id == -1)
-  {
-    return (pdlp_termination_status_t)termination_status_[0];
-  }
   return (pdlp_termination_status_t)termination_status_[id];
+}
+
+template <typename i_t, typename f_t>
+std::vector<pdlp_termination_status_t> pdlp_termination_strategy_t<i_t, f_t>::get_terminations_status()
+{
+  std::vector<pdlp_termination_status_t> out(climber_strategies_.size());
+  std::transform(termination_status_.begin(), termination_status_.end(), out.begin(), [](i_t in) { return (pdlp_termination_status_t)in;});
+  return out;
 }
 
 // TODO batch mode: all 3 of those below might be useless
@@ -127,7 +130,7 @@ void pdlp_termination_strategy_t<i_t, f_t>::evaluate_termination_criteria(
                                                            objective_coefficients,
                                                            settings_);
   if (settings_.detect_infeasibility) {
-    cuopt_expects(!settings_.batch_mode, error_type_t::ValidationError, "Infeasibility detection is not supported in batch mode");
+    cuopt_expects(!(climber_strategies_.size() > 1), error_type_t::ValidationError, "Infeasibility detection is not supported in batch mode");
     infeasibility_information_.compute_infeasibility_information(
       current_pdhg_solver, primal_iterate, dual_iterate);
   }
@@ -159,6 +162,8 @@ __global__ void check_termination_criteria_kernel(
   if (idx >= batch_size) { return; }
 
 #ifdef PDLP_VERBOSE_MODE
+if (idx == 0)
+{
   printf(
     "Gap : %lf <= %lf [%d] (tolerance.absolute_gap_tolerance %lf + "
     "tolerance.relative_gap_tolerance %lf * convergence_information.abs_objective %lf)\n",
@@ -171,7 +176,7 @@ __global__ void check_termination_criteria_kernel(
     tolerance.absolute_gap_tolerance,
     tolerance.relative_gap_tolerance,
     convergence_information.abs_objective[idx]);
-
+  }
   if (per_constraint_residual) {
     printf(
       "Primal residual : convergence_information.linf_relative_primal_resiprimal %lf < "
@@ -185,6 +190,8 @@ __global__ void check_termination_criteria_kernel(
       tolerance.absolute_dual_tolerance);
   } else {
     // TODO batch mode: per problem rhs
+    if (idx == 0)
+{
     printf(
       "Primal residual  %lf <= %lf [%d] (tolerance.absolute_primal_tolerance %lf + "
       "tolerance.relative_primal_tolerance %lf * "
@@ -200,7 +207,6 @@ __global__ void check_termination_criteria_kernel(
       tolerance.absolute_primal_tolerance,
       tolerance.relative_primal_tolerance,
       *convergence_information.l2_norm_primal_right_hand_side);
-  }
   printf(
     "Dual residual  %lf <= %lf [%d] (tolerance.absolute_dual_tolerance %lf + "
     "tolerance.relative_dual_tolerance %lf * "
@@ -215,6 +221,8 @@ __global__ void check_termination_criteria_kernel(
     tolerance.absolute_dual_tolerance,
     tolerance.relative_dual_tolerance,
     *convergence_information.l2_norm_primal_linear_objective);
+  }
+}
 #endif
 
   // test if gap optimal
@@ -314,11 +322,12 @@ pdlp_termination_strategy_t<i_t, f_t>::fill_return_problem_solution(
   rmm::device_uvector<f_t>& primal_iterate,
   rmm::device_uvector<f_t>& dual_iterate,
   pdlp_warm_start_data_t<i_t, f_t> warm_start_data,
-  pdlp_termination_status_t termination_status,
+  std::vector<pdlp_termination_status_t>&& termination_status,
   bool deep_copy)
 {
-  cuopt_assert(primal_iterate.size() == current_pdhg_solver.get_primal_size(), "Primal iterate size mismatch");
-  cuopt_assert(dual_iterate.size() == current_pdhg_solver.get_dual_size(), "Dual iterate size mismatch");
+  // TODO batch mode: handle this properly
+  //cuopt_assert(primal_iterate.size() == current_pdhg_solver.get_primal_size() * 2, "Primal iterate size mismatch");
+  //cuopt_assert(dual_iterate.size() == current_pdhg_solver.get_dual_size() * 2, "Dual iterate size mismatch");
 
   typename convergence_information_t<i_t, f_t>::view_t convergence_information_view =
     convergence_information_.view();
@@ -375,12 +384,13 @@ pdlp_termination_strategy_t<i_t, f_t>::fill_return_problem_solution(
             infeasibility_information_view.dual_ray_linear_objective,
             1,
             stream_view_);
-  term_stats_vector[i].solved_by_pdlp = (termination_status != pdlp_termination_status_t::ConcurrentLimit);
+  term_stats_vector[i].solved_by_pdlp = (termination_status[i] != pdlp_termination_status_t::ConcurrentLimit);
   }
 
   RAFT_CUDA_TRY(cudaStreamSynchronize(stream_view_));
 
   if (deep_copy) {
+    cuopt_assert(climber_strategies_.size() == 1, "Deep copy is linked to first primal feasible which is not supported in batch PDLP");
     optimization_problem_solution_t<i_t, f_t> op_solution{
       primal_iterate,
       dual_iterate,
@@ -388,8 +398,8 @@ pdlp_termination_strategy_t<i_t, f_t>::fill_return_problem_solution(
       problem_ptr->objective_name,
       problem_ptr->var_names,
       problem_ptr->row_names,
-      term_stats_vector,
-      termination_status,
+      term_stats_vector[0],
+      termination_status[0],
       handle_ptr_,
       deep_copy};
     return op_solution;
@@ -402,8 +412,9 @@ pdlp_termination_strategy_t<i_t, f_t>::fill_return_problem_solution(
       problem_ptr->objective_name,
       problem_ptr->var_names,
       problem_ptr->row_names,
-      term_stats_vector,
-      termination_status};
+      std::move(term_stats_vector),
+      std::move(termination_status)
+    };
     return op_solution;
   }
 }
@@ -415,7 +426,7 @@ pdlp_termination_strategy_t<i_t, f_t>::fill_return_problem_solution(
   pdhg_solver_t<i_t, f_t>& current_pdhg_solver,
   rmm::device_uvector<f_t>& primal_iterate,
   rmm::device_uvector<f_t>& dual_iterate,
-  pdlp_termination_status_t termination_status,
+  std::vector<pdlp_termination_status_t>&& termination_status,
   bool deep_copy)
 {
   // Empty warm start data
@@ -424,13 +435,14 @@ pdlp_termination_strategy_t<i_t, f_t>::fill_return_problem_solution(
                                       primal_iterate,
                                       dual_iterate,
                                       pdlp_warm_start_data_t<i_t, f_t>(),
-                                      termination_status,
+                                      std::move(termination_status),
                                       deep_copy);
 }
 
 template <typename i_t, typename f_t>
 void pdlp_termination_strategy_t<i_t, f_t>::print_termination_criteria(i_t iteration, f_t elapsed, i_t best_id) const
 {
+  // TODO batch mode: handle this
   CUOPT_LOG_INFO("%7d %+.8e %+.8e  %8.2e   %8.2e     %8.2e   %.3fs",
                 iteration,
                 convergence_information_.get_primal_objective().element(best_id, stream_view_),

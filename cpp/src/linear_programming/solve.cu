@@ -366,8 +366,8 @@ optimization_problem_solution_t<i_t, f_t> convert_dual_simplex_sol(
                                                        problem.objective_name,
                                                        problem.var_names,
                                                        problem.row_names,
-                                                       info,
-                                                       termination_status);
+                                                       std::move(info),
+                                                       {termination_status});
 
   if (termination_status != pdlp_termination_status_t::Optimal &&
       termination_status != pdlp_termination_status_t::TimeLimit &&
@@ -611,8 +611,8 @@ optimization_problem_solution_t<i_t, f_t> run_pdlp(detail::problem_t<i_t, f_t>& 
                                                                    problem.objective_name,
                                                                    problem.var_names,
                                                                    problem.row_names,
-                                                                   info,
-                                                                   termination_status);
+                                                                   std::move(info),
+                                                                   {termination_status});
     sol.copy_from(problem.handle_ptr, sol_crossover);
     CUOPT_LOG_INFO("Crossover status %s", sol.get_termination_status_string().c_str());
   }
@@ -888,7 +888,10 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(optimization_problem_t<i_t, f
                    reduced_costs.data() + reduced_costs.size(),
                    std::numeric_limits<f_t>::signaling_NaN());
 
-      auto full_stats = solution.get_additional_termination_informations();
+      std::vector<pdlp_termination_status_t> term_vec =
+    solution.get_terminations_status();
+
+      std::vector<typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t> full_stats = solution.get_additional_termination_informations();
 
       // Create a new solution with the full problem solution
       solution = optimization_problem_solution_t<i_t, f_t>(primal_solution,
@@ -898,8 +901,8 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(optimization_problem_t<i_t, f
                                                            op_problem.get_objective_name(),
                                                            op_problem.get_variable_names(),
                                                            op_problem.get_row_names(),
-                                                           full_stats,
-                                                           solution.get_termination_status());
+                                                           std::move(full_stats),
+                                                           std::move(term_vec));
     }
 
     if (settings.sol_file != "") {

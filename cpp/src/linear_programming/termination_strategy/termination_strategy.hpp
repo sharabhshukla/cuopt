@@ -55,7 +55,8 @@ class pdlp_termination_strategy_t {
   f_t get_relative_dual_tolerance_factor() const;
   f_t get_relative_primal_tolerance_factor() const;
 
-  pdlp_termination_status_t get_termination_status(int id = 0) const;
+  pdlp_termination_status_t get_termination_status(i_t id) const;
+  std::vector<pdlp_termination_status_t> get_terminations_status();
   bool all_optimal_status();
   bool has_optimal_status(int custom_climber_log = -1) const;
   i_t nb_optimal_solutions() const;
@@ -70,16 +71,17 @@ class pdlp_termination_strategy_t {
     rmm::device_uvector<f_t>& primal_iterate,
     rmm::device_uvector<f_t>& dual_iterate,
     pdlp_warm_start_data_t<i_t, f_t> warm_start_data,
-    pdlp_termination_status_t termination_status,
+    std::vector<pdlp_termination_status_t>&& termination_status,
     bool deep_copy = false);
 
-  // Call the above with an empty pdlp_warm_start_data
+  // This verions simply calls the above with an empty pdlp_warm_start_data
+  // It is used when we return without an optimal solution (infeasible, time limit...)
   optimization_problem_solution_t<i_t, f_t> fill_return_problem_solution(
     i_t number_of_iterations,
     pdhg_solver_t<i_t, f_t>& current_pdhg_solver,
     rmm::device_uvector<f_t>& primal_iterate,
     rmm::device_uvector<f_t>& dual_iterate,
-    pdlp_termination_status_t termination_status,
+    std::vector<pdlp_termination_status_t>&& termination_status,
     bool deep_copy = false);
 
  private:

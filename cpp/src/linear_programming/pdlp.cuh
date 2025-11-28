@@ -63,8 +63,8 @@ class pdlp_solver_t {
 
   optimization_problem_solution_t<i_t, f_t> run_solver(const timer_t& timer);
 
-  f_t get_primal_weight_h() const;
-  f_t get_step_size_h() const;
+  f_t get_primal_weight_h(i_t id) const;
+  f_t get_step_size_h(i_t id) const;
   i_t get_total_pdhg_iterations() const;
   f_t get_relative_dual_tolerance_factor() const;
   f_t get_relative_primal_tolerance_factor() const;

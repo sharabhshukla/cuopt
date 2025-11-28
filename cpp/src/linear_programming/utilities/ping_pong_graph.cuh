@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <linear_programming/pdlp_constants.hpp>
+
 #include <cuda_runtime.h>
 
 namespace cuopt::linear_programming::detail {
@@ -25,14 +27,17 @@ class ping_pong_graph_t {
 
   ~ping_pong_graph_t()
   {
+    #ifndef CUPDLP_DEBUG_MODE
     if (!is_batch_mode_) {
       if (even_initialized) { RAFT_CUDA_TRY_NO_THROW(cudaGraphExecDestroy(even_instance)); }
       if (odd_initialized) { RAFT_CUDA_TRY_NO_THROW(cudaGraphExecDestroy(odd_instance)); }
     }
+    #endif
   }
 
   void start_capture(i_t total_pdlp_iterations)
   {
+    #ifndef CUPDLP_DEBUG_MODE
     if (!is_batch_mode_) {
       if (total_pdlp_iterations % 2 == 0 && !even_initialized) {
         RAFT_CUDA_TRY(
@@ -42,10 +47,12 @@ class ping_pong_graph_t {
           cudaStreamBeginCapture(stream_view_.value(), cudaStreamCaptureModeThreadLocal));
       }
     }
+    #endif
   }
 
   void end_capture(i_t total_pdlp_iterations)
   {
+    #ifndef CUPDLP_DEBUG_MODE
     if (!is_batch_mode_) {
       if (total_pdlp_iterations % 2 == 0 && !even_initialized) {
         RAFT_CUDA_TRY(cudaStreamEndCapture(stream_view_.value(), &even_graph));
@@ -59,10 +66,12 @@ class ping_pong_graph_t {
         RAFT_CUDA_TRY_NO_THROW(cudaGraphDestroy(odd_graph));
       }
     }
+    #endif
   }
 
   void launch(i_t total_pdlp_iterations)
   {
+    #ifndef CUPDLP_DEBUG_MODE
     if (!is_batch_mode_) {
       if (total_pdlp_iterations % 2 == 0 && even_initialized) {
         RAFT_CUDA_TRY(cudaGraphLaunch(even_instance, stream_view_.value()));
@@ -70,14 +79,17 @@ class ping_pong_graph_t {
         RAFT_CUDA_TRY(cudaGraphLaunch(odd_instance, stream_view_.value()));
       }
     }
+    #endif
   }
 
   bool is_initialized(i_t total_pdlp_iterations)
   {
+    #ifndef CUPDLP_DEBUG_MODE
     if (!is_batch_mode_) {
       return (total_pdlp_iterations % 2 == 0 && even_initialized) ||
              (total_pdlp_iterations % 2 == 1 && odd_initialized);
     }
+    #endif
     return false;
   }
 
