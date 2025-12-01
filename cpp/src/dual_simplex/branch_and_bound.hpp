@@ -145,13 +145,15 @@ class branch_and_bound_t {
   // The main entry routine. Returns the solver status and populates solution with the incumbent.
   mip_status_t solve(mip_solution_t<i_t, f_t>& solution);
 
+  work_limit_context_t& get_work_unit_context() { return work_unit_context_; }
+
  private:
   const user_problem_t<i_t, f_t>& original_problem_;
   const simplex_solver_settings_t<i_t, f_t> settings_;
 
   // Work unit contexts for each worker
   // TODO: only one for now, sequential B&B for now
-  work_limit_context_t work_unit_context_;
+  work_limit_context_t work_unit_context_{"B&B"};
 
   // Initial guess.
   std::vector<f_t> guess_;

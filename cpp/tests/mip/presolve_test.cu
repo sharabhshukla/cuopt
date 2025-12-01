@@ -124,7 +124,7 @@ uint32_t test_probing_cache_determinism(std::string path,
   detail::mip_solver_t<int, double> solver(problem, default_settings, scaling, cuopt::timer_t(0));
   detail::bound_presolve_t<int, double> bnd_prb(solver.context);
 
-  work_limit_context_t work_limit_context;
+  work_limit_context_t work_limit_context("ProbingCache");
   // rely on the iteration limit
   compute_probing_cache(
     bnd_prb, problem, work_limit_timer_t(work_limit_context, std::numeric_limits<double>::max()));

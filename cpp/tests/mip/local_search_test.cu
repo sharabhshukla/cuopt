@@ -149,7 +149,7 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
   printf("LP optimal hash: 0x%x\n", detail::compute_hash(lp_optimal_solution));
   printf("running mode: %d\n", mode);
 
-  work_limit_context_t work_limit_context;
+  work_limit_context_t work_limit_context("LocalSearch");
   local_search.fp.timer = work_limit_timer_t(work_limit_context, 6000);
 
   detail::ls_config_t<int, double> ls_config{};

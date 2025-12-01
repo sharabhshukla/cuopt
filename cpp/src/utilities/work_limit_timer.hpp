@@ -18,19 +18,27 @@
 
 #include <algorithm>
 #include <string>
+
+#include <mip/logger.hpp>
+
 #include "timer.hpp"
+#include "work_unit_scheduler.hpp"
 
 namespace cuopt {
 
-// Context for tracking global work units across multiple timers in a single thread in deterministic
-// mode
 struct work_limit_context_t {
   double global_work_units_elapsed{0.0};
   bool deterministic{false};
+  work_unit_scheduler_t* scheduler{nullptr};
+  std::string name;
+
+  work_limit_context_t(const std::string& name) : name(name) {}
 
   void record_work(double work)
   {
-    if (deterministic) global_work_units_elapsed += work;
+    if (!deterministic) return;
+    global_work_units_elapsed += work;
+    if (scheduler) { scheduler->on_work_recorded(*this, global_work_units_elapsed); }
   }
 };
 
@@ -95,7 +103,6 @@ class work_limit_timer_t {
                    int line           = __builtin_LINE())
   {
     if (deterministic && work_context) {
-      work_context->global_work_units_elapsed += work_units;
       CUOPT_LOG_DEBUG("%s:%d: %s(): Recorded %f work units in %fs, total %f",
                       file,
                       line,
@@ -103,6 +110,7 @@ class work_limit_timer_t {
                       work_units,
                       timer.elapsed_time(),
                       work_context->global_work_units_elapsed);
+      work_context->record_work(work_units);
     }
   }
 

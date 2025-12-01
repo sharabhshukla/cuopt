@@ -110,7 +110,7 @@ static uint32_t test_full_run_determinism(std::string path,
   problem.tolerances = settings.get_tolerances();
 
   detail::diversity_manager_t<int, double> diversity_manager(solver.context);
-  work_limit_context_t work_limit_context;
+  work_limit_context_t work_limit_context("DiversityManager");
   diversity_manager.timer = work_limit_timer_t(work_limit_context, 60000);
   diversity_manager.run_solver();
 
@@ -165,7 +165,7 @@ static uint32_t test_initial_solution_determinism(std::string path,
   problem.tolerances = settings.get_tolerances();
 
   detail::diversity_manager_t<int, double> diversity_manager(solver.context);
-  work_limit_context_t work_limit_context;
+  work_limit_context_t work_limit_context("DiversityManager");
   diversity_manager.timer = work_limit_timer_t(work_limit_context, 60000);
   diversity_manager.diversity_config.initial_solution_only = true;
   diversity_manager.run_solver();
@@ -221,7 +221,7 @@ static uint32_t test_recombiners_determinism(std::string path,
   problem.tolerances = settings.get_tolerances();
 
   detail::diversity_manager_t<int, double> diversity_manager(solver.context);
-  work_limit_context_t work_limit_context;
+  work_limit_context_t work_limit_context("DiversityManager");
   diversity_manager.timer                    = work_limit_timer_t(work_limit_context, 60000);
   diversity_manager.diversity_config.dry_run = true;
   diversity_manager.run_solver();

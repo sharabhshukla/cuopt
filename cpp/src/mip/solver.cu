@@ -147,6 +147,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     return sol;
   }
 
+  context.work_unit_scheduler_.register_context(context.gpu_heur_loop);
+
   namespace dual_simplex = cuopt::linear_programming::dual_simplex;
   std::future<dual_simplex::mip_status_t> branch_and_bound_status_future;
   dual_simplex::user_problem_t<i_t, f_t> branch_and_bound_problem(context.problem_ptr->handle_ptr);
@@ -224,10 +226,14 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     context.branch_and_bound_ptr = branch_and_bound.get();
 
     // Set the primal heuristics -> branch and bound callback
-    context.problem_ptr->branch_and_bound_callback =
-      std::bind(&dual_simplex::branch_and_bound_t<i_t, f_t>::set_new_solution,
-                branch_and_bound.get(),
-                std::placeholders::_1);
+    if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
+      context.problem_ptr->branch_and_bound_callback =
+        std::bind(&dual_simplex::branch_and_bound_t<i_t, f_t>::set_new_solution,
+                  branch_and_bound.get(),
+                  std::placeholders::_1);
+    }
+
+    context.work_unit_scheduler_.register_context(branch_and_bound->get_work_unit_context());
 
     // Fork a thread for branch and bound
     // std::async and std::future allow us to get the return value of bb::solve()

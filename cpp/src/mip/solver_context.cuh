@@ -49,6 +49,9 @@ struct mip_solver_context_t {
     gpu_heur_loop.deterministic = settings.determinism_mode == CUOPT_MODE_DETERMINISTIC;
   }
 
+  mip_solver_context_t(const mip_solver_context_t&)            = delete;
+  mip_solver_context_t& operator=(const mip_solver_context_t&) = delete;
+
   raft::handle_t const* const handle_ptr;
   problem_t<i_t, f_t>* problem_ptr;
   dual_simplex::branch_and_bound_t<i_t, f_t>* branch_and_bound_ptr{nullptr};
@@ -59,9 +62,10 @@ struct mip_solver_context_t {
   mip_solver_work_unit_predictors_t work_unit_predictors;
   // Work limit context for tracking work units in deterministic mode (shared across all timers in
   // GPU heuristic loop)
-  cuopt::work_limit_context_t gpu_heur_loop;
-  cuopt::work_limit_context_t cpu_branch_and_bound;  // TODO: should be each per worker thread.
-                                                     // Works for now since threads_b&b = 1
+  work_limit_context_t gpu_heur_loop{"GPUHeur"};
+
+  // synchronization every 5 seconds for deterministic mode
+  work_unit_scheduler_t work_unit_scheduler_{5.0};
 };
 
 }  // namespace cuopt::linear_programming::detail
