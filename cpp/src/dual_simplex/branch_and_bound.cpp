@@ -863,9 +863,11 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
         work_unit_context_.global_work_units_elapsed >= settings_.work_limit) {
       lp_status = dual::status_t::WORK_LIMIT;
     }
-    printf("------ Total work unit progress B&B: %f / %f\n",
-           work_unit_context_.global_work_units_elapsed,
-           settings_.work_limit);
+    if (settings_.deterministic) {
+      printf("------ Total work unit progress B&B: %f / %f\n",
+             work_unit_context_.global_work_units_elapsed,
+             settings_.work_limit);
+    }
 
     if (lp_status == dual::status_t::NUMERICAL) {
       log.printf("Numerical issue node %d. Resolving from scratch.\n", node_ptr->node_id);

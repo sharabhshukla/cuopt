@@ -22,12 +22,6 @@
 #include <unordered_set>
 #include <vector>
 
-#ifdef __linux__
-#include <papi.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
-
 #define CPUFJ_TIMING_TRACE 0
 
 namespace cuopt::linear_programming::detail {
@@ -115,144 +109,6 @@ static void print_timing_stats(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
                     (fj_cpu.candidate_move_hits[2] + fj_cpu.candidate_move_misses[2]) * 100.0);
   CUOPT_LOG_TRACE("========================================");
 }
-
-#ifdef __linux__
-template <typename i_t, typename f_t>
-static void initialize_papi(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
-{
-  int retval = PAPI_library_init(PAPI_VER_CURRENT);
-  if (retval != PAPI_VER_CURRENT && retval > 0) {
-    CUOPT_LOG_TRACE("%sPAPI library version mismatch", fj_cpu.log_prefix.c_str());
-    return;
-  }
-  if (retval < 0) {
-    CUOPT_LOG_TRACE("%sPAPI library initialization failed", fj_cpu.log_prefix.c_str());
-    return;
-  }
-
-  fj_cpu.papi_event_set = PAPI_NULL;
-  retval                = PAPI_create_eventset(&fj_cpu.papi_event_set);
-  if (retval != PAPI_OK) {
-    CUOPT_LOG_TRACE("%sPAPI eventset creation failed", fj_cpu.log_prefix.c_str());
-    return;
-  }
-
-  // Define the events we want to track
-  int candidate_events[] = {
-    PAPI_L1_DCA,  // L1 data cache accesses
-    PAPI_L1_DCM,  // L1 data cache misses
-    PAPI_L2_DCA,  // L2 data cache accesses
-    PAPI_L2_DCM,  // L2 data cache misses
-    PAPI_L3_TCA,  // L3 total cache accesses
-    PAPI_L3_TCM,  // L3 total cache misses
-    PAPI_LD_INS,  // Load instructions
-    PAPI_SR_INS   // Store instructions
-  };
-
-  const char* event_names[] = {"PAPI_L1_DCA",
-                               "PAPI_L1_DCM",
-                               "PAPI_L2_DCA",
-                               "PAPI_L2_DCM",
-                               "PAPI_L3_TCA",
-                               "PAPI_L3_TCM",
-                               "PAPI_LD_INS",
-                               "PAPI_SR_INS"};
-
-  int num_candidate_events = sizeof(candidate_events) / sizeof(candidate_events[0]);
-
-  // Try to add each event, store -1 for unavailable ones
-  for (int i = 0; i < num_candidate_events; i++) {
-    retval = PAPI_add_event(fj_cpu.papi_event_set, candidate_events[i]);
-    if (retval == PAPI_OK) {
-      fj_cpu.papi_events.push_back(candidate_events[i]);
-    } else {
-      fj_cpu.papi_events.push_back(-1);
-      CUOPT_LOG_TRACE(
-        "%sPAPI event %s not available on this system", fj_cpu.log_prefix.c_str(), event_names[i]);
-    }
-  }
-  (void)event_names;  // Suppress unused warning when logging is disabled
-
-  // Start counting
-  retval = PAPI_start(fj_cpu.papi_event_set);
-  if (retval != PAPI_OK) {
-    CUOPT_LOG_TRACE("%sPAPI start failed", fj_cpu.log_prefix.c_str());
-    return;
-  }
-
-  fj_cpu.papi_initialized = true;
-  CUOPT_LOG_TRACE("%sPAPI initialized successfully", fj_cpu.log_prefix.c_str());
-}
-
-// template <typename i_t, typename f_t>
-// static void collect_and_print_papi_metrics(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
-// {
-//   if (!fj_cpu.papi_initialized) return;
-
-//   std::vector<long long> values(fj_cpu.papi_events.size(), 0);
-//   int retval = PAPI_read(fj_cpu.papi_event_set, values.data());
-//   if (retval != PAPI_OK) {
-//     CUOPT_LOG_TRACE("%sPAPI read failed", fj_cpu.log_prefix.c_str());
-//     return;
-//   }
-
-//   // Get thread ID
-//   pid_t tid = syscall(SYS_gettid);
-
-//   // Build map of actual values indexed by event position
-//   std::vector<long long> all_values(8, -1);
-//   int value_idx = 0;
-//   for (size_t i = 0; i < fj_cpu.papi_events.size(); i++) {
-//     if (fj_cpu.papi_events[i] != -1) { all_values[i] = values[value_idx++]; }
-//   }
-
-//   // Compute derived metrics
-//   double l1_miss_rate = -1.0;
-//   if (all_values[0] > 0 && all_values[1] != -1) {
-//     l1_miss_rate = (double)all_values[1] / all_values[0] * 100.0;
-//   }
-
-//   double l2_miss_rate = -1.0;
-//   if (all_values[2] > 0 && all_values[3] != -1) {
-//     l2_miss_rate = (double)all_values[3] / all_values[2] * 100.0;
-//   }
-
-//   // Lock to ensure thread-safe printing
-//   std::lock_guard<std::mutex> lock(papi_print_mutex);
-
-//   // Print everything on a single compact line
-//   CUOPT_LOG_DEBUG(
-//     "%sPAPI iter=%d tid=%d L1_DCA=%lld L1_DCM=%lld L2_DCA=%lld L2_DCM=%lld L3_TCA=%lld "
-//     "L3_TCM=%lld LD_INS=%lld SR_INS=%lld L1_miss=%.2f%% L2_miss=%.2f%%",
-//     fj_cpu.log_prefix.c_str(),
-//     fj_cpu.iterations,
-//     tid,
-//     all_values[0],
-//     all_values[1],
-//     all_values[2],
-//     all_values[3],
-//     all_values[4],
-//     all_values[5],
-//     all_values[6],
-//     all_values[7],
-//     l1_miss_rate,
-//     l2_miss_rate);
-
-//   // Reset counters for the next 1000 iterations
-//   retval = PAPI_reset(fj_cpu.papi_event_set);
-//   if (retval != PAPI_OK) { CUOPT_LOG_TRACE("%sPAPI reset failed", fj_cpu.log_prefix.c_str()); }
-// }
-
-template <typename i_t, typename f_t>
-static void cleanup_papi(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
-{
-  if (fj_cpu.papi_initialized) {
-    PAPI_stop(fj_cpu.papi_event_set, nullptr);
-    PAPI_cleanup_eventset(fj_cpu.papi_event_set);
-    PAPI_destroy_eventset(&fj_cpu.papi_event_set);
-  }
-}
-#endif
 
 template <typename i_t, typename f_t>
 static void precompute_problem_features(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
@@ -388,33 +244,6 @@ static void log_regression_features(fj_cpu_climber_t<i_t, f_t>& fj_cpu,
   double stores_per_iter = 0.0;
   double l1_miss         = -1.0;
   double l3_miss         = -1.0;
-
-#ifdef __linux__
-  // Get PAPI metrics if available
-  if (fj_cpu.papi_initialized) {
-    std::vector<long long> values(fj_cpu.papi_events.size(), 0);
-    int retval = PAPI_read(fj_cpu.papi_event_set, values.data());
-    if (retval == PAPI_OK) {
-      std::vector<long long> all_values(8, -1);
-      int value_idx = 0;
-      for (size_t i = 0; i < fj_cpu.papi_events.size(); i++) {
-        if (fj_cpu.papi_events[i] != -1) { all_values[i] = values[value_idx++]; }
-      }
-
-      // Compute cache miss rates
-      if (all_values[0] > 0 && all_values[1] != -1) {
-        l1_miss = (double)all_values[1] / all_values[0] * 100.0;
-      }
-      if (all_values[4] > 0 && all_values[5] != -1) {
-        l3_miss = (double)all_values[5] / all_values[4] * 100.0;
-      }
-
-      // Loads and stores per iteration
-      if (all_values[6] != -1) { loads_per_iter = (double)all_values[6] / 1000.0; }
-      if (all_values[7] != -1) { stores_per_iter = (double)all_values[7] / 1000.0; }
-    }
-  }
-#endif
 
   // Compute memory statistics
   double mem_loads_mb             = mem_loads_bytes / 1e6;
@@ -1544,11 +1373,6 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
   auto time_limit      = std::chrono::milliseconds((int)(in_time_limit * 1000));
   auto loop_time_start = std::chrono::high_resolution_clock::now();
 
-#ifdef __linux__
-  // Initialize PAPI for performance monitoring
-  initialize_papi(fj_cpu);
-#endif
-
   // Initialize feature tracking
   fj_cpu.last_feature_log_time = loop_start;
   fj_cpu.prev_best_objective   = fj_cpu.h_best_objective;
@@ -1686,10 +1510,6 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
         std::chrono::duration_cast<std::chrono::duration<double>>(now - loop_start).count() *
         1000.0;
 
-      // #ifdef __linux__
-      //       collect_and_print_papi_metrics(fj_cpu);
-      // #endif
-
       // Collect memory statistics
       auto [loads, stores] = fj_cpu.memory_manifold.collect();
 
@@ -1728,11 +1548,6 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
   // Print final timing statistics
   CUOPT_LOG_TRACE("=== Final Timing Statistics ===");
   print_timing_stats(fj_cpu);
-#endif
-
-#ifdef __linux__
-  // Cleanup PAPI
-  cleanup_papi(fj_cpu);
 #endif
 
   return fj_cpu.feasible_found;

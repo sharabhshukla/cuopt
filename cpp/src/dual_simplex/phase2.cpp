@@ -3179,7 +3179,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     }
   }
 
-  printf("Iterations: %d, time taken: %f\n", iter, toc(start_time));
+  // printf("Iterations: %d, time taken: %f\n", iter, toc(start_time));
   return status;
 }
 
