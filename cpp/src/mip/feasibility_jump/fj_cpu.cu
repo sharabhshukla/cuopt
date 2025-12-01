@@ -28,11 +28,6 @@ namespace cuopt::linear_programming::detail {
 
 static constexpr double BIGVAL_THRESHOLD = 1e20;
 
-// #ifdef __linux__
-// // Global mutex to protect PAPI metric printing across multiple threads
-// static std::mutex papi_print_mutex;
-// #endif
-
 template <typename i_t, typename f_t>
 class timing_raii_t {
  public:
