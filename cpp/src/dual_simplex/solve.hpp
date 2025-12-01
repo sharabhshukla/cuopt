@@ -27,7 +27,8 @@ enum class lp_status_t {
   NUMERICAL_ISSUES = 5,
   CUTOFF           = 6,
   CONCURRENT_LIMIT = 7,
-  UNSET            = 8
+  UNSET            = 8,
+  WORK_LIMIT       = 9
 };
 
 template <typename i_t, typename f_t>

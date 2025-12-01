@@ -22,8 +22,8 @@
 
 namespace cuopt {
 
-// Context for tracking global work units across multiple timers in deterministic mode
-// This allows different subsystems to have independent work unit tracking
+// Context for tracking global work units across multiple timers in a single thread in deterministic
+// mode
 struct work_limit_context_t {
   double global_work_units_elapsed{0.0};
   bool deterministic{false};

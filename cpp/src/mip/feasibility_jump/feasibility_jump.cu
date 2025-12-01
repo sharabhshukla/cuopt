@@ -1317,7 +1317,9 @@ i_t fj_t<i_t, f_t>::solve(solution_t<i_t, f_t>& solution)
 
   // settings.load_balancing_mode = fj_load_balancing_mode_t::ALWAYS_OFF;
 
-  if (context.settings.deterministic) { settings.work_limit = settings.time_limit; }
+  if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
+    settings.work_limit = settings.time_limit;
+  }
   // if work_limit is set: compute an estimate of the number of iterations required
   if (settings.work_limit != std::numeric_limits<double>::infinity()) {
     std::map<std::string, float> features_map = get_feature_vector(0);
@@ -1423,7 +1425,8 @@ i_t fj_t<i_t, f_t>::solve(solution_t<i_t, f_t>& solution)
       "FJ early exit at %d iterations (limit: %d)", iterations, settings.iteration_limit);
     // Compute the work unit corresponding to the number of iterations elapsed
     // by incrementally guessing work units until the model predicts >= actual iterations
-    if (context.settings.deterministic && iterations > 0) {
+    // TODO: awfully ugly, change
+    if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC && iterations > 0) {
       double guessed_work         = 0.0;
       const double work_increment = 0.1;
       const double max_work       = settings.work_limit * 2.0;  // Safety limit
@@ -1449,6 +1452,7 @@ i_t fj_t<i_t, f_t>::solve(solution_t<i_t, f_t>& solution)
     }
   }
 
+  CUOPT_LOG_DEBUG("FJ: recording work %fwu for %d iterations", work_to_record, iterations);
   timer.record_work(work_to_record);
 
   CUOPT_LOG_DEBUG("FJ sol hash %x", solution.get_hash());

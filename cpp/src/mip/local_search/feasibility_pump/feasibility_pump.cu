@@ -231,7 +231,7 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   // CHANGE
   // CUOPT_LOG_DEBUG("FP: lp_time_limit %f", lp_settings.time_limit);
   // CUOPT_LOG_DEBUG("FP: linproj sol hash 0x%x", solution.get_hash());
-  if (context.settings.deterministic) {
+  if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
     lp_settings.time_limit = std::numeric_limits<double>::infinity();
     lp_settings.work_limit = time_limit;
   }
@@ -327,7 +327,9 @@ bool feasibility_pump_t<i_t, f_t>::test_fj_feasible(solution_t<i_t, f_t>& soluti
   fj.settings.feasibility_run        = true;
   fj.settings.n_of_minimums_for_exit = 5000;
   fj.settings.time_limit             = std::min(time_limit, timer.remaining_time());
-  if (context.settings.deterministic) { fj.settings.work_limit = fj.settings.time_limit; }
+  if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
+    fj.settings.work_limit = fj.settings.time_limit;
+  }
   cuopt_func_call(solution.test_variable_bounds(true));
   is_feasible = fj.solve(solution);
   cuopt_func_call(solution.test_variable_bounds(true));
@@ -341,7 +343,7 @@ bool feasibility_pump_t<i_t, f_t>::test_fj_feasible(solution_t<i_t, f_t>& soluti
   } else {
     CUOPT_LOG_DEBUG("20%% FJ run found feasible!");
   }
-  timer.record_work(fj.settings.time_limit);
+  timer.record_work(fj.settings.work_limit);
   CUOPT_LOG_DEBUG("20%% FJ run finished, elapsed %fs remaining %fwu",
                   fj.settings.time_limit,
                   timer.remaining_time());

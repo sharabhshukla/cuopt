@@ -15,7 +15,10 @@
 #include <dual_simplex/simplex_solver_settings.hpp>
 #include <dual_simplex/solution.hpp>
 #include <dual_simplex/types.hpp>
+
 #include <utilities/omp_helpers.hpp>
+#include <utilities/work_limit_timer.hpp>
+#include <utilities/work_unit_predictor.hpp>
 
 #include <omp.h>
 #include <queue>
@@ -31,6 +34,7 @@ enum class mip_status_t {
   NODE_LIMIT = 4,  // The maximum number of nodes was reached (not implemented)
   NUMERICAL  = 5,  // The solver encountered a numerical error
   UNSET      = 6,  // The status is not set
+  WORK_LIMIT = 7,  // The solver reached a deterministic work limit
 };
 
 enum class mip_exploration_status_t {
@@ -40,6 +44,7 @@ enum class mip_exploration_status_t {
   NUMERICAL  = 3,  // The solver encountered a numerical error
   RUNNING    = 4,  // The solver is currently exploring the tree
   COMPLETED  = 5,  // The solver finished exploring the tree
+  WORK_LIMIT = 6,  // The solver reached a deterministic work limit
 };
 
 enum class node_solve_info_t {
@@ -48,7 +53,8 @@ enum class node_solve_info_t {
   DOWN_CHILD_FIRST = 2,  // The down child should be explored first
   TIME_LIMIT       = 3,  // The solver reached a time limit
   ITERATION_LIMIT  = 4,  // The solver reached a iteration limit
-  NUMERICAL        = 5   // The solver encounter a numerical error when solving the node
+  NUMERICAL        = 5,  // The solver encounter a numerical error when solving the node
+  WORK_LIMIT       = 6,  // The solver reached a deterministic work limit
 };
 
 // Indicate the search and variable selection algorithms used by the thread (See [1]).
@@ -142,6 +148,10 @@ class branch_and_bound_t {
  private:
   const user_problem_t<i_t, f_t>& original_problem_;
   const simplex_solver_settings_t<i_t, f_t> settings_;
+
+  // Work unit contexts for each worker
+  // TODO: only one for now, sequential B&B for now
+  work_limit_context_t work_unit_context_;
 
   // Initial guess.
   std::vector<f_t> guess_;

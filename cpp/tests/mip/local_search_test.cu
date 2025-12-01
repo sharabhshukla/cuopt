@@ -110,10 +110,10 @@ static uint32_t run_fp(std::string test_instance, local_search_mode_t mode)
                                                                nullptr,
                                                                true);
 
-  auto settings          = mip_solver_settings_t<int, double>{};
-  settings.time_limit    = 30.;
-  settings.deterministic = true;
-  auto timer             = cuopt::timer_t(30);
+  auto settings             = mip_solver_settings_t<int, double>{};
+  settings.time_limit       = 30.;
+  settings.determinism_mode = CUOPT_MODE_DETERMINISTIC;
+  auto timer                = cuopt::timer_t(30);
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
   problem.tolerances = settings.get_tolerances();
 

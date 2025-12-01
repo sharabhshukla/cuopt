@@ -123,7 +123,7 @@ void local_search_t<i_t, f_t>::start_cpufj_lptopt_scratch_threads(
   scratch_cpu_fj_on_lp_opt.fj_cpu =
     fj.create_cpu_climber(solution_lp, default_weights, default_weights, 0., cpu_fj_settings, true);
   scratch_cpu_fj_on_lp_opt.fj_cpu->log_prefix = "******* scratch on LP optimal: ";
-  if (!context.settings.deterministic) {
+  if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
     scratch_cpu_fj_on_lp_opt.fj_cpu->improvement_callback =
       [this, &population](f_t obj, const std::vector<f_t>& h_vec) {
         population.add_external_solution(h_vec, obj, solution_origin_t::CPUFJ);
@@ -167,7 +167,7 @@ bool local_search_t<i_t, f_t>::do_fj_solve(solution_t<i_t, f_t>& solution,
 
   // for now: always assign the CPUFJs to perform 1000 iters per s
   fj_settings_t cpu_fj_settings{};
-  if (!context.settings.deterministic) {
+  if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
     cpu_fj_settings.iteration_limit = std::numeric_limits<i_t>::max();
   } else {
     // TODO: CHANGE
@@ -192,7 +192,7 @@ bool local_search_t<i_t, f_t>::do_fj_solve(solution_t<i_t, f_t>& solution,
   in_fj.solve(solution);
 
   // Stop CPU solver
-  if (!context.settings.deterministic) {
+  if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
     for (auto& cpu_fj : ls_cpu_fj) {
       cpu_fj.stop_cpu_solver();
     }
@@ -264,14 +264,11 @@ void local_search_t<i_t, f_t>::generate_fast_solution(solution_t<i_t, f_t>& solu
   fj.settings.update_weights         = true;
   fj.settings.feasibility_run        = true;
   fj.settings.time_limit             = std::min(30., timer.remaining_time());
-  // CHANGE
-  fj.settings.time_limit = std::numeric_limits<f_t>::infinity();
   while (!timer.check_time_limit()) {
     work_limit_timer_t constr_prop_timer =
       work_limit_timer_t(context.gpu_heur_loop, std::min(timer.remaining_time(), 2.));
     // do constraint prop on lp optimal solution
     constraint_prop.apply_round(solution, 1., constr_prop_timer);
-    constr_prop_timer.record_work(0);
     if (solution.compute_feasibility()) { return; }
     if (timer.check_time_limit()) { return; };
     f_t time_limit = std::min(3., timer.remaining_time());
@@ -423,11 +420,12 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
     work_limit_timer_t(context.gpu_heur_loop, std::min(timer.remaining_time(), 10.));
   bool is_feasible =
     constraint_prop.apply_round(solution, lp_run_time_after_feasible, bounds_prop_timer);
-  bounds_prop_timer.record_work(0);
   if (!is_feasible) {
     f_t lp_run_time = 2.;
     // CHANGE
-    if (context.settings.deterministic) { lp_run_time = std::numeric_limits<f_t>::infinity(); }
+    if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
+      lp_run_time = std::numeric_limits<f_t>::infinity();
+    }
     relaxed_lp_settings_t lp_settings;
     lp_settings.time_limit = std::min(lp_run_time, timer.remaining_time());
     lp_settings.work_limit = lp_settings.time_limit;
@@ -444,7 +442,7 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
   fj.settings.update_weights         = true;
   fj.settings.feasibility_run        = false;
   f_t fj_time_limit                  = 30.;
-  if (context.settings.deterministic) {
+  if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
     fj_time_limit               = std::numeric_limits<f_t>::infinity();
     fj.settings.iteration_limit = 100'000;
   }

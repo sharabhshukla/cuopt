@@ -261,18 +261,19 @@ TEST(mip_solve, feasibility_jump_determinism)
   int seed =
     std::getenv("CUOPT_SEED") ? std::stoi(std::getenv("CUOPT_SEED")) : std::random_device{}();
 
-  for (const auto& instance : {"thor50dday.mps",
-                               "gen-ip054.mps",
-                               "50v-10.mps",
-                               "seymour1.mps",
-                               "rmatr200-p5.mps",
-                               "tr12-30.mps",
-                               "sct2.mps",
-                               "uccase9.mps"}) {
+  for (const auto& [instance, iter_limit] : {std::make_pair("thor50dday.mps", 1000),
+                                             std::make_pair("gen-ip054.mps", 1000),
+                                             std::make_pair("50v-10.mps", 1000),
+                                             std::make_pair("seymour1.mps", 1000),
+                                             std::make_pair("rmatr200-p5.mps", 1000),
+                                             std::make_pair("tr12-30.mps", 1000),
+                                             std::make_pair("sct2.mps", 1000),
+                                             std::make_pair("uccase9.mps", 1000),
+                                             std::make_pair("supportcase42.mps", 25000)}) {
     for (int i = 0; i < 10; i++) {
       // while (true) {
       cuopt::seed_generator::set_seed(seed);
-      run_fj_check_determinism(instance, 1000);
+      run_fj_check_determinism(instance, iter_limit);
     }
   }
 }

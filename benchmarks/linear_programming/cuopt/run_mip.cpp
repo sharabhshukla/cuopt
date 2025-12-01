@@ -198,11 +198,11 @@ int run_single_file(std::string file_path,
     }
   }
 
-  settings.time_limit                    = time_limit;
-  settings.heuristics_only               = heuristics_only;
-  settings.num_cpu_threads               = num_cpu_threads;
-  settings.log_to_console                = log_to_console;
-  settings.deterministic                 = deterministic;
+  settings.time_limit       = time_limit;
+  settings.heuristics_only  = heuristics_only;
+  settings.num_cpu_threads  = num_cpu_threads;
+  settings.log_to_console   = log_to_console;
+  settings.determinism_mode = deterministic ? CUOPT_MODE_DETERMINISTIC : CUOPT_MODE_OPPORTUNISTIC;
   settings.tolerances.relative_tolerance = 1e-12;
   settings.tolerances.absolute_tolerance = 1e-6;
   settings.presolve                      = true;

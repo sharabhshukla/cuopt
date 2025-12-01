@@ -47,8 +47,8 @@ static inline uint32_t compute_hash(std::vector<i_t> h_contents)
   return hash;
 }
 
-template <typename model_t>
-float work_unit_predictor_t<model_t>::predict_scalar(
+template <typename model_t, typename scaler_t>
+float work_unit_predictor_t<model_t, scaler_t>::predict_scalar(
   const std::map<std::string, float>& features) const
 {
   raft::common::nvtx::range range("work_unit_predictor_t::predict_scalar");
@@ -57,13 +57,12 @@ float work_unit_predictor_t<model_t>::predict_scalar(
   for (int i = 0; i < model_t::NUM_FEATURES; ++i) {
     if (features.find(std::string(model_t::feature_names[i])) == features.end()) {
       data[i].missing = -1;
-      printf("Feature %s: missing\n", model_t::feature_names[i]);
+      CUOPT_LOG_WARN("Feature %s: missing\n", model_t::feature_names[i]);
     } else {
       data[i].fvalue = features.at(std::string(model_t::feature_names[i]));
-      // printf("Feature %s: %f\n", model_t::feature_names[i], data[i].fvalue);
     }
   }
-  // Compute a hash key for the relevant inputs
+
   std::vector<float> cache_vec;
   cache_vec.reserve(model_t::NUM_FEATURES);
   for (int i = 0; i < model_t::NUM_FEATURES; ++i) {
@@ -75,20 +74,23 @@ float work_unit_predictor_t<model_t>::predict_scalar(
   auto cached_it = prediction_cache.find(key);
   if (cached_it != prediction_cache.end()) { return cached_it->second; }
 
-  // run predictor
   double result = 0.0;
   auto start    = std::chrono::high_resolution_clock::now();
   model_t::predict(data, 0, &result);
   auto end                                          = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> elapsed = end - start;
-  CUOPT_LOG_DEBUG("Prediction time: %f ms", elapsed.count());
-  CUOPT_LOG_DEBUG("Result: %f", result);
-  return result;
+  if (debug) CUOPT_LOG_DEBUG("Prediction time: %f ms", elapsed.count());
+
+  float scaled_result   = scaler_.scale_work_units(result);
+  prediction_cache[key] = scaled_result;
+  if (debug) CUOPT_LOG_DEBUG("Result: %f (scaled: %f)", result, scaled_result);
+
+  return scaled_result;
 }
 
-template class work_unit_predictor_t<fj_predictor>;
-template class work_unit_predictor_t<cpufj_predictor>;
-template class work_unit_predictor_t<dualsimplex_predictor>;
-template class work_unit_predictor_t<pdlp_predictor>;
+template class work_unit_predictor_t<fj_predictor, gpu_work_unit_scaler_t>;
+template class work_unit_predictor_t<cpufj_predictor, cpu_work_unit_scaler_t>;
+template class work_unit_predictor_t<dualsimplex_predictor, cpu_work_unit_scaler_t>;
+template class work_unit_predictor_t<pdlp_predictor, gpu_work_unit_scaler_t>;
 
 }  // namespace cuopt

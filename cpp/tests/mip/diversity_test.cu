@@ -100,12 +100,12 @@ static uint32_t test_full_run_determinism(std::string path,
                                                                nullptr,
                                                                true);
 
-  auto settings            = mip_solver_settings_t<int, double>{};
-  settings.time_limit      = 3000.;
-  settings.work_limit      = 10;  // about 10 seconds of runtime
-  settings.deterministic   = true;
-  settings.heuristics_only = true;
-  auto timer               = cuopt::timer_t(3000);
+  auto settings             = mip_solver_settings_t<int, double>{};
+  settings.time_limit       = 3000.;
+  settings.work_limit       = 10;  // about 10 seconds of runtime
+  settings.determinism_mode = CUOPT_MODE_DETERMINISTIC;
+  settings.heuristics_only  = true;
+  auto timer                = cuopt::timer_t(3000);
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
   problem.tolerances = settings.get_tolerances();
 
@@ -156,11 +156,11 @@ static uint32_t test_initial_solution_determinism(std::string path,
                                                                nullptr,
                                                                true);
 
-  auto settings            = mip_solver_settings_t<int, double>{};
-  settings.time_limit      = 3000.;
-  settings.deterministic   = true;
-  settings.heuristics_only = true;
-  auto timer               = cuopt::timer_t(3000);
+  auto settings             = mip_solver_settings_t<int, double>{};
+  settings.time_limit       = 3000.;
+  settings.determinism_mode = CUOPT_MODE_DETERMINISTIC;
+  settings.heuristics_only  = true;
+  auto timer                = cuopt::timer_t(3000);
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
   problem.tolerances = settings.get_tolerances();
 
@@ -212,11 +212,11 @@ static uint32_t test_recombiners_determinism(std::string path,
                                                                nullptr,
                                                                true);
 
-  auto settings            = mip_solver_settings_t<int, double>{};
-  settings.time_limit      = 3000.;
-  settings.deterministic   = true;
-  settings.heuristics_only = true;
-  auto timer               = cuopt::timer_t(3000);
+  auto settings             = mip_solver_settings_t<int, double>{};
+  settings.time_limit       = 3000.;
+  settings.determinism_mode = CUOPT_MODE_DETERMINISTIC;
+  settings.heuristics_only  = true;
+  auto timer                = cuopt::timer_t(3000);
   detail::mip_solver_t<int, double> solver(problem, settings, scaling, timer);
   problem.tolerances = settings.get_tolerances();
 

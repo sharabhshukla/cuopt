@@ -25,6 +25,7 @@ struct simplex_solver_settings_t {
     : iteration_limit(std::numeric_limits<i_t>::max()),
       node_limit(std::numeric_limits<i_t>::max()),
       time_limit(std::numeric_limits<f_t>::infinity()),
+      work_limit(std::numeric_limits<f_t>::infinity()),
       absolute_mip_gap_tol(0.0),
       relative_mip_gap_tol(1e-3),
       integer_tol(1e-5),
@@ -84,6 +85,7 @@ struct simplex_solver_settings_t {
   i_t iteration_limit;
   i_t node_limit;
   f_t time_limit;
+  f_t work_limit;
   f_t absolute_mip_gap_tol;  // Tolerance on mip gap to declare optimal
   f_t relative_mip_gap_tol;  // Tolerance on mip gap to declare optimal
   f_t integer_tol;           // Tolerance on integralitiy violation
@@ -118,7 +120,8 @@ struct simplex_solver_settings_t {
   bool print_presolve_stats;  // true to print presolve stats
   bool barrier_presolve;      // true to use barrier presolve
   bool cudss_deterministic;   // true to use cuDSS deterministic mode, false for non-deterministic
-  bool barrier;               // true to use barrier method, false to use dual simplex method
+  bool deterministic;  // true to use B&B   deterministic mode, false to use non-deterministic mode
+  bool barrier;        // true to use barrier method, false to use dual simplex method
   bool eliminate_dense_columns;  // true to eliminate dense columns from A*D*A^T
   i_t folding;                   // -1 automatic, 0 don't fold, 1 fold
   i_t augmented;  // -1 automatic, 0 to solve with ADAT, 1 to solve with augmented system

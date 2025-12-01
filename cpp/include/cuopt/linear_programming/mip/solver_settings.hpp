@@ -89,9 +89,18 @@ class mip_solver_settings_t {
 
   /** Initial primal solutions */
   std::vector<std::shared_ptr<rmm::device_uvector<f_t>>> initial_solutions;
-  bool mip_scaling   = true;
-  bool presolve      = true;
-  bool deterministic = false;
+  bool mip_scaling = true;
+  bool presolve    = true;
+  /**
+   * @brief Determinism mode for MIP solver.
+   *
+   * Controls the determinism behavior of the MIP solver:
+   * - CUOPT_MODE_OPPORTUNISTIC (0): Default mode, allows non-deterministic
+   *   parallelism for better performance
+   * - CUOPT_MODE_DETERMINISTIC (1): Ensures deterministic results across runs
+   *   at potential cost of performance
+   */
+  int determinism_mode = CUOPT_MODE_OPPORTUNISTIC;
   // this is for extracting info from different places of the solver during
   // benchmarks
   benchmark_info_t* benchmark_info_ptr = nullptr;

@@ -79,9 +79,13 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
   pdlp_settings.iteration_limit                      = settings.iteration_limit;
 
   // CHANGE
-  i_t work_limit           = pdlp_settings.time_limit;  // settings.work_limit
-  pdlp_settings.time_limit = std::numeric_limits<double>::infinity();
-  if (work_limit != std::numeric_limits<double>::infinity()) {
+  i_t work_limit                        = settings.work_limit;
+  bool determinism_mode                 = work_limit != std::numeric_limits<double>::infinity();
+  pdlp_settings.concurrent_halt         = settings.concurrent_halt;
+  pdlp_settings.per_constraint_residual = settings.per_constraint_residual;
+  pdlp_settings.first_primal_feasible   = settings.return_first_feasible;
+  pdlp_settings.pdlp_solver_mode        = pdlp_solver_mode_t::Stable2;
+  if (determinism_mode) {
     // try to estimate the iteration count based on the requested work limit
     int estim_iters = 100;
     do {
@@ -93,16 +97,8 @@ optimization_problem_solution_t<i_t, f_t> get_relaxed_lp_solution(
       estim_iters += 100;
     } while (true);
     CUOPT_LOG_DEBUG("estimated iterations %d for work limit %f", estim_iters, settings.work_limit);
-    pdlp_settings.iteration_limit = estim_iters;
-    pdlp_settings.time_limit      = std::numeric_limits<double>::infinity();
-  }
-  pdlp_settings.concurrent_halt         = settings.concurrent_halt;
-  pdlp_settings.per_constraint_residual = settings.per_constraint_residual;
-  pdlp_settings.first_primal_feasible   = settings.return_first_feasible;
-  pdlp_settings.pdlp_solver_mode        = pdlp_solver_mode_t::Stable2;
-  // Stable3 has a simpler and more predictable codepath
-  // if (work_limit != std::numeric_limits<double>::infinity())
-  {
+    pdlp_settings.iteration_limit  = estim_iters;
+    pdlp_settings.time_limit       = std::numeric_limits<double>::infinity();
     pdlp_settings.pdlp_solver_mode = pdlp_solver_mode_t::Stable3;
   }
   set_pdlp_solver_mode(pdlp_settings);

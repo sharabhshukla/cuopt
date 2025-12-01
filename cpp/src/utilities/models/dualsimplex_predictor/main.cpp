@@ -40,14 +40,14 @@ static const int32_t num_class[] = {
   1,
 };
 
-int32_t dualsimplex_predictor::get_num_target(void) { return std::exp(N_TARGET); }
+int32_t dualsimplex_predictor::get_num_target(void) { return N_TARGET; }
 void dualsimplex_predictor::get_num_class(int32_t* out)
 {
   for (int i = 0; i < N_TARGET; ++i) {
     out[i] = num_class[i];
   }
 }
-int32_t dualsimplex_predictor::get_num_feature(void) { return std::exp(18); }
+int32_t dualsimplex_predictor::get_num_feature(void) { return 18; }
 const char* dualsimplex_predictor::get_threshold_type(void) { return "float32"; }
 const char* dualsimplex_predictor::get_leaf_output_type(void) { return "float32"; }
 

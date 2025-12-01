@@ -17,6 +17,10 @@
 
 #include <vector>
 
+namespace cuopt {
+struct work_limit_context_t;
+}
+
 namespace cuopt::linear_programming::dual_simplex {
 
 namespace dual {
@@ -28,7 +32,8 @@ enum class status_t {
   TIME_LIMIT       = 4,
   ITERATION_LIMIT  = 5,
   CONCURRENT_LIMIT = 6,
-  UNSET            = 7
+  UNSET            = 7,
+  WORK_LIMIT       = 8
 };
 
 static std::string status_to_string(status_t status)
@@ -41,6 +46,7 @@ static std::string status_to_string(status_t status)
     case status_t::TIME_LIMIT: return "TIME_LIMIT";
     case status_t::ITERATION_LIMIT: return "ITERATION_LIMIT";
     case status_t::CONCURRENT_LIMIT: return "CONCURRENT_LIMIT";
+    case status_t::WORK_LIMIT: return "WORK_LIMIT";
     case status_t::UNSET: return "UNSET";
   }
   return "UNKNOWN";
@@ -71,6 +77,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                                std::vector<i_t>& nonbasic_list,
                                                lp_solution_t<i_t, f_t>& sol,
                                                i_t& iter,
-                                               std::vector<f_t>& delta_y_steepest_edge);
+                                               std::vector<f_t>& delta_y_steepest_edge,
+                                               work_limit_context_t* work_unit_context = nullptr);
 
 }  // namespace cuopt::linear_programming::dual_simplex

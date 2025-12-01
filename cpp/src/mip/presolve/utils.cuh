@@ -12,6 +12,7 @@ namespace cuopt::linear_programming::detail {
 enum class termination_criterion_t {
   TIME_LIMIT,
   ITERATION_LIMIT,
+  WORK_LIMIT,
   CONVERGENCE,
   INFEASIBLE,
   NO_UPDATE

@@ -18,6 +18,8 @@
 #include <dual_simplex/tic_toc.hpp>
 
 #include <utilities/models/dualsimplex_predictor/header.h>
+#include <utilities/scope_guard.hpp>
+#include <utilities/work_limit_timer.hpp>
 #include <utilities/work_unit_predictor.hpp>
 
 #include <utilities/version_info.hpp>
@@ -2223,7 +2225,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                                std::vector<i_t>& nonbasic_list,
                                                lp_solution_t<i_t, f_t>& sol,
                                                i_t& iter,
-                                               std::vector<f_t>& delta_y_steepest_edge)
+                                               std::vector<f_t>& delta_y_steepest_edge,
+                                               work_limit_context_t* work_unit_context)
 {
   raft::common::nvtx::range scope("DualSimplex::phase2_advanced");
   const i_t m = lp.num_rows;
@@ -2403,7 +2406,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   i_t num_refactors         = 0;
   i_t total_bound_flips     = 0;
   f_t delta_y_nz_percentage = 0.0;
-  phase2::phase2_timers_t<i_t, f_t> timers(true);
+  phase2::phase2_timers_t<i_t, f_t> timers(false);
 
   // Feature collection for regression training
   dual_simplex_features_t<i_t, f_t> features;
@@ -2466,9 +2469,44 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   manifold.add("A_transpose.x", A_transpose.x);
 
   // Track iteration interval start time for runtime measurement
-  f_t interval_start_time = toc(start_time);
+  f_t interval_start_time   = toc(start_time);
+  i_t last_feature_log_iter = iter;
 
-  // Note: Features are logged inline with DS_FEATURES: prefix
+  // Helper to compute scaled work units for a given number of iterations
+  cuopt::work_unit_predictor_t<dualsimplex_predictor, cpu_work_unit_scaler_t> work_predictor{};
+  auto predict_work_units = [&](i_t num_iters) -> f_t {
+    std::map<std::string, float> features_map;
+    features_map["m"]           = static_cast<float>(features.num_rows);
+    features_map["n"]           = static_cast<float>(features.num_cols);
+    features_map["nnz"]         = static_cast<float>(features.num_nonzeros);
+    features_map["density"]     = static_cast<float>(features.matrix_density);
+    features_map["avg_nnz_col"] = static_cast<float>(features.avg_nnz_per_col);
+    features_map["avg_nnz_row"] = static_cast<float>(features.avg_nnz_per_row);
+    features_map["bounded"]     = static_cast<float>(features.num_bounded_vars);
+    features_map["free"]        = static_cast<float>(features.num_free_vars);
+    features_map["refact_freq"] = static_cast<float>(features.refactor_frequency);
+    features_map["num_refacts"] = static_cast<float>(features.num_refactors);
+    features_map["num_updates"] = static_cast<float>(features.num_basis_updates);
+    features_map["sparse_dz"]   = static_cast<float>(features.sparse_delta_z_count);
+    features_map["dense_dz"]    = static_cast<float>(features.dense_delta_z_count);
+    features_map["bound_flips"] = static_cast<float>(features.total_bound_flips);
+    features_map["num_infeas"]  = static_cast<float>(features.num_infeasibilities);
+    features_map["dy_nz_pct"]   = static_cast<float>(features.delta_y_nz_percentage);
+    features_map["byte_loads"]  = static_cast<float>(features.byte_loads);
+    features_map["byte_stores"] = static_cast<float>(features.byte_stores);
+
+    f_t base_prediction = std::max((f_t)0.0, (f_t)work_predictor.predict_scalar(features_map));
+    return base_prediction * static_cast<f_t>(num_iters) / FEATURE_LOG_INTERVAL;
+  };
+
+  cuopt::scope_guard work_unit_guard([&]() {
+    if (!work_unit_context) return;
+    i_t remaining_iters = iter - last_feature_log_iter;
+    if (remaining_iters <= 0) return;
+    f_t prediction = predict_work_units(remaining_iters);
+    printf("DualSimplex determ (final): %d iters, predicted %.4f\n", remaining_iters, prediction);
+    work_unit_context->record_work(prediction);
+  });
 
   while (iter < iter_limit) {
     raft::common::nvtx::range scope_main("DualSimplex::phase2_main_loop");
@@ -3065,16 +3103,15 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
     // Feature logging for regression training (every FEATURE_LOG_INTERVAL iterations)
     if ((iter % FEATURE_LOG_INTERVAL) == 0) {
-      // Collect aggregated memory access statistics
+      i_t iters_elapsed = iter - last_feature_log_iter;
+
       auto [total_loads, total_stores] = manifold.collect_and_flush();
       features.byte_loads              = total_loads;
       features.byte_stores             = total_stores;
 
-      // Compute interval runtime
       features.interval_runtime = now - interval_start_time;
       interval_start_time       = now;
 
-      // Update dynamic features
       features.iteration             = iter;
       features.num_refactors         = num_refactors;
       features.num_basis_updates     = ft.num_updates();
@@ -3084,45 +3121,17 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       features.num_infeasibilities   = infeasibility_indices.size();
       features.delta_y_nz_percentage = delta_y_nz_percentage;
 
-      // Log all features on a single line
-      features.log_features(settings);
+      if (work_unit_context) {
+        f_t prediction = predict_work_units(iters_elapsed);
+        printf("DualSimplex determ: %d iters, predicted %.4f, actual %.4f, error %.4f\n",
+               iters_elapsed,
+               prediction,
+               features.interval_runtime,
+               prediction - features.interval_runtime);
+        work_unit_context->record_work(prediction);
+      }
 
-      // Populate features map for predictor
-      cuopt::work_unit_predictor_t<dualsimplex_predictor> dualsimplex_predictor{};
-      std::map<std::string, float> features_map;
-      features_map["m"]           = static_cast<float>(features.num_rows);
-      features_map["n"]           = static_cast<float>(features.num_cols);
-      features_map["nnz"]         = static_cast<float>(features.num_nonzeros);
-      features_map["density"]     = static_cast<float>(features.matrix_density);
-      features_map["avg_nnz_col"] = static_cast<float>(features.avg_nnz_per_col);
-      features_map["avg_nnz_row"] = static_cast<float>(features.avg_nnz_per_row);
-      features_map["bounded"]     = static_cast<float>(features.num_bounded_vars);
-      features_map["free"]        = static_cast<float>(features.num_free_vars);
-      features_map["refact_freq"] = static_cast<float>(features.refactor_frequency);
-      features_map["num_refacts"] = static_cast<float>(features.num_refactors);
-      features_map["num_updates"] = static_cast<float>(features.num_basis_updates);
-      features_map["sparse_dz"]   = static_cast<float>(features.sparse_delta_z_count);
-      features_map["dense_dz"]    = static_cast<float>(features.dense_delta_z_count);
-      features_map["bound_flips"] = static_cast<float>(features.total_bound_flips);
-      features_map["num_infeas"]  = static_cast<float>(features.num_infeasibilities);
-      features_map["dy_nz_pct"]   = static_cast<float>(features.delta_y_nz_percentage);
-      features_map["byte_loads"]  = static_cast<float>(features.byte_loads);
-      features_map["byte_stores"] = static_cast<float>(features.byte_stores);
-      auto time_prediction =
-        std::max((f_t)0.0, (f_t)dualsimplex_predictor.predict_scalar(features_map));
-      f_t baseline_max_clock       = 3800;  // 3.8Ghz
-      f_t max_clock                = cuopt::get_cpu_max_clock_mhz();
-      f_t scaling_factor           = baseline_max_clock / max_clock;
-      f_t adjusted_time_prediction = time_prediction * scaling_factor;
-      printf(
-        "DualSimplex determ: Estimated time for %d iters: %f, actual time: %f, error %f, CPU max "
-        "clock: %f MHz, scaling factor: %f\n",
-        FEATURE_LOG_INTERVAL,
-        adjusted_time_prediction,
-        features.interval_runtime,
-        adjusted_time_prediction - features.interval_runtime,
-        max_clock,
-        scaling_factor);
+      last_feature_log_iter = iter;
     }
 
     if ((iter - start_iter) < settings.first_iteration_log ||
@@ -3142,6 +3151,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     if (obj >= settings.cut_off) {
       settings.log.printf("Solve cutoff. Current objecive %e. Cutoff %e\n", obj, settings.cut_off);
       return dual::status_t::CUTOFF;
+    }
+
+    if (work_unit_context && work_unit_context->global_work_units_elapsed >= settings.work_limit) {
+      return dual::status_t::WORK_LIMIT;
     }
 
     if (now > settings.time_limit) { return dual::status_t::TIME_LIMIT; }
@@ -3196,7 +3209,8 @@ template dual::status_t dual_phase2_with_advanced_basis<int, double>(
   std::vector<int>& nonbasic_list,
   lp_solution_t<int, double>& sol,
   int& iter,
-  std::vector<double>& steepest_edge_norms);
+  std::vector<double>& steepest_edge_norms,
+  work_limit_context_t* work_unit_context);
 #endif
 
 }  // namespace cuopt::linear_programming::dual_simplex

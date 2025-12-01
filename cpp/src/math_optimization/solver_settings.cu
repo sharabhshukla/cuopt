@@ -86,7 +86,8 @@ solver_settings_t<i_t, f_t>::solver_settings_t() : pdlp_settings(), mip_settings
     {CUOPT_FOLDING, &pdlp_settings.folding, -1, 1, -1},
     {CUOPT_DUALIZE, &pdlp_settings.dualize, -1, 1, -1},
     {CUOPT_ORDERING, &pdlp_settings.ordering, -1, 1, -1},
-    {CUOPT_BARRIER_DUAL_INITIAL_POINT, &pdlp_settings.barrier_dual_initial_point, -1, 1, -1}
+    {CUOPT_BARRIER_DUAL_INITIAL_POINT, &pdlp_settings.barrier_dual_initial_point, -1, 1, -1},
+    {CUOPT_MIP_DETERMINISTIC, &mip_settings.determinism_mode, CUOPT_MODE_OPPORTUNISTIC, CUOPT_MODE_DETERMINISTIC, CUOPT_MODE_OPPORTUNISTIC}
   };
 
     // Bool parameters
@@ -105,8 +106,7 @@ solver_settings_t<i_t, f_t>::solver_settings_t() : pdlp_settings(), mip_settings
     {CUOPT_CUDSS_DETERMINISTIC, &pdlp_settings.cudss_deterministic, false},
     {CUOPT_PRESOLVE, &pdlp_settings.presolve, false},
     {CUOPT_PRESOLVE, &mip_settings.presolve, true},
-    {CUOPT_DUAL_POSTSOLVE, &pdlp_settings.dual_postsolve, true},
-    {CUOPT_MIP_DETERMINISTIC, &mip_settings.deterministic, false}
+    {CUOPT_DUAL_POSTSOLVE, &pdlp_settings.dual_postsolve, true}
   };
   // String parameters
   string_parameters = {

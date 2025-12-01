@@ -155,8 +155,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
   branch_and_bound_solution_helper_t solution_helper(&dm, branch_and_bound_settings);
   dual_simplex::mip_solution_t<i_t, f_t> branch_and_bound_solution(1);
 
-  // for now, disable B&B in deterministic mode
-  bool run_bb = !context.settings.deterministic && !context.settings.heuristics_only;
+  bool run_bb = !context.settings.heuristics_only;
   if (run_bb) {
     // Convert the presolved problem to dual_simplex::user_problem_t
     op_problem_.get_host_user_problem(branch_and_bound_problem);
@@ -169,6 +168,12 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_settings.absolute_mip_gap_tol = context.settings.tolerances.absolute_mip_gap;
     branch_and_bound_settings.relative_mip_gap_tol = context.settings.tolerances.relative_mip_gap;
     branch_and_bound_settings.integer_tol = context.settings.tolerances.integrality_tolerance;
+    branch_and_bound_settings.deterministic =
+      context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC;
+    branch_and_bound_settings.work_limit =
+      context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC
+        ? context.settings.time_limit
+        : std::numeric_limits<f_t>::infinity();
 
     if (context.settings.num_cpu_threads < 0) {
       branch_and_bound_settings.num_threads = omp_get_max_threads() - 1;
@@ -177,13 +182,11 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     }
     CUOPT_LOG_INFO("Using %d CPU threads for B&B", branch_and_bound_settings.num_threads);
 
-    CUOPT_LOG_ERROR("AAAAAA\n");
-
     i_t num_threads        = branch_and_bound_settings.num_threads;
     i_t num_bfs_threads    = std::max(1, num_threads / 4);
     i_t num_diving_threads = num_threads - num_bfs_threads;
     // deterministic mode: no diving for now
-    if (context.settings.deterministic) {
+    if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
       num_threads        = 1;
       num_bfs_threads    = 1;
       num_diving_threads = 0;
@@ -192,26 +195,28 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_settings.num_diving_threads = num_diving_threads;
 
     // Set the branch and bound -> primal heuristics callback
-    branch_and_bound_settings.solution_callback =
-      std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::solution_callback,
-                &solution_helper,
-                std::placeholders::_1,
-                std::placeholders::_2);
-    branch_and_bound_settings.heuristic_preemption_callback = std::bind(
-      &branch_and_bound_solution_helper_t<i_t, f_t>::preempt_heuristic_solver, &solution_helper);
+    if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
+      branch_and_bound_settings.solution_callback =
+        std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::solution_callback,
+                  &solution_helper,
+                  std::placeholders::_1,
+                  std::placeholders::_2);
+      branch_and_bound_settings.heuristic_preemption_callback = std::bind(
+        &branch_and_bound_solution_helper_t<i_t, f_t>::preempt_heuristic_solver, &solution_helper);
 
-    branch_and_bound_settings.set_simplex_solution_callback =
-      std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::set_simplex_solution,
-                &solution_helper,
-                std::placeholders::_1,
-                std::placeholders::_2,
-                std::placeholders::_3);
+      branch_and_bound_settings.set_simplex_solution_callback =
+        std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::set_simplex_solution,
+                  &solution_helper,
+                  std::placeholders::_1,
+                  std::placeholders::_2,
+                  std::placeholders::_3);
 
-    branch_and_bound_settings.node_processed_callback =
-      std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::node_processed_callback,
-                &solution_helper,
-                std::placeholders::_1,
-                std::placeholders::_2);
+      branch_and_bound_settings.node_processed_callback =
+        std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::node_processed_callback,
+                  &solution_helper,
+                  std::placeholders::_1,
+                  std::placeholders::_2);
+    }
 
     // Create the branch and bound object
     branch_and_bound = std::make_unique<dual_simplex::branch_and_bound_t<i_t, f_t>>(

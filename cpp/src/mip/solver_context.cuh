@@ -28,9 +28,9 @@ class branch_and_bound_t;
 namespace cuopt::linear_programming::detail {
 
 struct mip_solver_work_unit_predictors_t {
-  work_unit_predictor_t<fj_predictor> fj_predictor{};
-  work_unit_predictor_t<cpufj_predictor> cpufj_predictor{};
-  work_unit_predictor_t<pdlp_predictor> pdlp_predictor{};
+  work_unit_predictor_t<fj_predictor, gpu_work_unit_scaler_t> fj_predictor{};
+  work_unit_predictor_t<cpufj_predictor, cpu_work_unit_scaler_t> cpufj_predictor{};
+  work_unit_predictor_t<pdlp_predictor, gpu_work_unit_scaler_t> pdlp_predictor{};
 };
 
 // Aggregate structure containing the global context of the solving process for convenience:
@@ -46,7 +46,7 @@ struct mip_solver_context_t {
     cuopt_assert(problem_ptr != nullptr, "problem_ptr is nullptr");
     stats.solution_bound        = problem_ptr->maximize ? std::numeric_limits<f_t>::infinity()
                                                         : -std::numeric_limits<f_t>::infinity();
-    gpu_heur_loop.deterministic = settings.deterministic;
+    gpu_heur_loop.deterministic = settings.determinism_mode == CUOPT_MODE_DETERMINISTIC;
   }
 
   raft::handle_t const* const handle_ptr;
@@ -60,6 +60,8 @@ struct mip_solver_context_t {
   // Work limit context for tracking work units in deterministic mode (shared across all timers in
   // GPU heuristic loop)
   cuopt::work_limit_context_t gpu_heur_loop;
+  cuopt::work_limit_context_t cpu_branch_and_bound;  // TODO: should be each per worker thread.
+                                                     // Works for now since threads_b&b = 1
 };
 
 }  // namespace cuopt::linear_programming::detail

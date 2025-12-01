@@ -140,6 +140,8 @@ dual::status_t convert_lp_status_to_dual_status(lp_status_t status)
     return dual::status_t::ITERATION_LIMIT;
   } else if (status == lp_status_t::TIME_LIMIT) {
     return dual::status_t::TIME_LIMIT;
+  } else if (status == lp_status_t::WORK_LIMIT) {
+    return dual::status_t::WORK_LIMIT;
   } else if (status == lp_status_t::NUMERICAL_ISSUES) {
     return dual::status_t::NUMERICAL;
   } else if (status == lp_status_t::CUTOFF) {
@@ -619,6 +621,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t
     settings_.log.printf("Time limit reached. Stopping the solver...\n");
     mip_status = mip_status_t::TIME_LIMIT;
   }
+  if (solver_status_ == mip_exploration_status_t::WORK_LIMIT) {
+    settings_.log.printf("Work limit reached. Stopping the solver...\n");
+    mip_status = mip_status_t::WORK_LIMIT;
+  }
   if (solver_status_ == mip_exploration_status_t::NODE_LIMIT) {
     settings_.log.printf("Node limit reached. Stopping the solver...\n");
     mip_status = mip_status_t::NODE_LIMIT;
@@ -781,6 +787,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
   lp_settings.cut_off       = upper_bound + settings_.dual_tol;
   lp_settings.inside_mip    = 2;
   lp_settings.time_limit    = settings_.time_limit - toc(exploration_stats_.start_time);
+  lp_settings.work_limit    = settings_.work_limit;
   lp_settings.scale_columns = false;
 
 #ifdef LOG_NODE_SIMPLEX
@@ -836,20 +843,29 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
 
     {
       raft::common::nvtx::range scope_lp("BB::node_lp_solve");
-      lp_status = dual_phase2_with_advanced_basis(2,
-                                                  0,
-                                                  recompute_bounds_and_basis,
-                                                  lp_start_time,
-                                                  leaf_problem,
-                                                  lp_settings,
-                                                  leaf_vstatus,
-                                                  basis_factors,
-                                                  basic_list,
-                                                  nonbasic_list,
-                                                  leaf_solution,
-                                                  node_iter,
-                                                  leaf_edge_norms);
+      lp_status =
+        dual_phase2_with_advanced_basis(2,
+                                        0,
+                                        recompute_bounds_and_basis,
+                                        lp_start_time,
+                                        leaf_problem,
+                                        lp_settings,
+                                        leaf_vstatus,
+                                        basis_factors,
+                                        basic_list,
+                                        nonbasic_list,
+                                        leaf_solution,
+                                        node_iter,
+                                        leaf_edge_norms,
+                                        settings_.deterministic ? &work_unit_context_ : nullptr);
     }
+    if (settings_.deterministic &&
+        work_unit_context_.global_work_units_elapsed >= settings_.work_limit) {
+      lp_status = dual::status_t::WORK_LIMIT;
+    }
+    printf("------ Total work unit progress B&B: %f / %f\n",
+           work_unit_context_.global_work_units_elapsed,
+           settings_.work_limit);
 
     if (lp_status == dual::status_t::NUMERICAL) {
       log.printf("Numerical issue node %d. Resolving from scratch.\n", node_ptr->node_id);
@@ -983,6 +999,9 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
     search_tree.graphviz_node(log, node_ptr, "timeout", 0.0);
 
     return node_solve_info_t::TIME_LIMIT;
+  } else if (lp_status == dual::status_t::WORK_LIMIT) {
+    search_tree.graphviz_node(log, node_ptr, "work limit", 0.0);
+    return node_solve_info_t::WORK_LIMIT;
   } else {
     if (thread_type == thread_type_t::EXPLORATION) {
       fetch_min(lower_bound_ceiling_, node_ptr->lower_bound);
@@ -1096,6 +1115,10 @@ void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(mip_node_t<i_t, f_t>* nod
 
   if (status == node_solve_info_t::TIME_LIMIT) {
     solver_status_ = mip_exploration_status_t::TIME_LIMIT;
+    return;
+
+  } else if (status == node_solve_info_t::WORK_LIMIT) {
+    solver_status_ = mip_exploration_status_t::WORK_LIMIT;
     return;
 
   } else if (has_children(status)) {
@@ -1218,6 +1241,10 @@ void branch_and_bound_t<i_t, f_t>::explore_subtree(i_t task_id,
 
     if (status == node_solve_info_t::TIME_LIMIT) {
       solver_status_ = mip_exploration_status_t::TIME_LIMIT;
+      return;
+
+    } else if (status == node_solve_info_t::WORK_LIMIT) {
+      solver_status_ = mip_exploration_status_t::WORK_LIMIT;
       return;
 
     } else if (has_children(status)) {
@@ -1403,6 +1430,9 @@ void branch_and_bound_t<i_t, f_t>::diving_thread(const csr_matrix_t<i_t, f_t>& A
         if (status == node_solve_info_t::TIME_LIMIT) {
           solver_status_ = mip_exploration_status_t::TIME_LIMIT;
           return;
+        } else if (status == node_solve_info_t::WORK_LIMIT) {
+          solver_status_ = mip_exploration_status_t::WORK_LIMIT;
+          return;
 
         } else if (has_children(status)) {
           if (status == node_solve_info_t::UP_CHILD_FIRST) {
@@ -1502,6 +1532,11 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
   if (root_status == lp_status_t::TIME_LIMIT) {
     solver_status_ = mip_exploration_status_t::TIME_LIMIT;
+    return set_final_solution(solution, -inf);
+  }
+
+  if (root_status == lp_status_t::WORK_LIMIT) {
+    solver_status_ = mip_exploration_status_t::WORK_LIMIT;
     return set_final_solution(solution, -inf);
   }
 
@@ -1606,6 +1641,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   min_diving_queue_size_                  = 4 * settings_.num_diving_threads;
   solver_status_                          = mip_exploration_status_t::RUNNING;
   lower_bound_ceiling_                    = inf;
+  work_unit_context_.deterministic        = settings_.deterministic;
 
 #pragma omp parallel num_threads(settings_.num_threads)
   {

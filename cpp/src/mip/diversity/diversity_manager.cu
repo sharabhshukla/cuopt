@@ -104,7 +104,8 @@ diversity_manager_t<i_t, f_t>::diversity_manager_t(mip_solver_context_t<i_t, f_t
     }
   }
 
-  context.gpu_heur_loop.deterministic = context.settings.deterministic;
+  context.gpu_heur_loop.deterministic =
+    context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC;
 }
 
 // this function is to specialize the local search with config from diversity manager
@@ -185,7 +186,6 @@ bool diversity_manager_t<i_t, f_t>::run_presolve(f_t time_limit)
   CUOPT_LOG_INFO("Running presolve!");
   work_limit_timer_t presolve_timer(context.gpu_heur_loop, time_limit);
   auto term_crit = ls.constraint_prop.bounds_update.solve(*problem_ptr);
-  presolve_timer.record_work(0);
   if (ls.constraint_prop.bounds_update.infeas_constraints_count > 0) {
     stats.presolve_time = timer.elapsed_time();
     return false;
@@ -283,7 +283,9 @@ void diversity_manager_t<i_t, f_t>::run_fj_alone(solution_t<i_t, f_t>& solution)
     ls.fj.settings.iteration_limit        = iter_dist(rng);
     ls.fj.settings.time_limit             = std::numeric_limits<double>::infinity();
 
-    if (context.settings.deterministic) { ls.fj.settings.iteration_limit = iter_dist(rng); }
+    if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
+      ls.fj.settings.iteration_limit = iter_dist(rng);
+    }
 
     CUOPT_LOG_INFO(
       "FJ benchmark run %d/%d: iteration_limit=%d", run + 1, 1000, ls.fj.settings.iteration_limit);
@@ -349,18 +351,10 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   add_user_given_solutions(initial_sol_vector);
   // Run CPUFJ early to find quick initial solutions
   ls_cpufj_raii_guard_t ls_cpufj_raii_guard(ls);  // RAII to stop cpufj threads on solve stop
-  if (!context.settings.deterministic) {
-#if 0
-    ls.start_cpufj_scratch_threads(population);
-    // 30'000 iters
-    ls.scratch_cpu_fj[0].wait_for_cpu_solver();
-    // std::this_thread::sleep_for(std::chrono::seconds(30));
-    ls.stop_cpufj_scratch_threads();
-    exit(0);
-#endif
-  }
 
-  if (!context.settings.deterministic) { ls.start_cpufj_scratch_threads(population); }
+  if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
+    ls.start_cpufj_scratch_threads(population);
+  }
 
   // before probing cache or LP, run FJ to generate initial primal feasible solution
   const f_t time_ratio_of_probing_cache = diversity_config.time_ratio_of_probing_cache;
@@ -456,7 +450,9 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     lp_rounded_sol.round_nearest();
     lp_rounded_sol.compute_feasibility();
     population.add_solution(std::move(lp_rounded_sol));
-    if (!context.settings.deterministic) { ls.start_cpufj_lptopt_scratch_threads(population); }
+    if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
+      ls.start_cpufj_lptopt_scratch_threads(population);
+    }
   }
 
   population.add_solutions_from_vec(std::move(initial_sol_vector));
@@ -474,7 +470,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     run_fj_alone(sol);
     return sol;
   }
-  if (!context.settings.deterministic) { rins.enable(); }
+  if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) { rins.enable(); }
 
   generate_solution(timer.remaining_time(), false);
   printf("=======================================================\n");

@@ -22,15 +22,42 @@
 #include <unordered_map>
 #include <vector>
 
+#include <utilities/version_info.hpp>
+
 namespace cuopt {
 
-template <typename model_t>
+// Temporary scaling classes until I figure out better ways to do this
+// to account for performance differences between the regression learning machine and the user
+// machine. (e.g. integrate memory latency/bandwidth, cache topology, user-provided tuning...)
+struct cpu_work_unit_scaler_t {
+  cpu_work_unit_scaler_t()
+  {
+    constexpr double baseline_max_clock = 3800.0;
+    double max_clock                    = get_cpu_max_clock_mhz();
+    scaling_factor_                     = baseline_max_clock / max_clock;
+  }
+
+  double scale_work_units(double work_units) const { return work_units * scaling_factor_; }
+
+ private:
+  double scaling_factor_;
+};
+
+struct gpu_work_unit_scaler_t {
+  double scale_work_units(double work_units) const { return work_units; }
+};
+
+template <typename model_t, typename scaler_t>
 class work_unit_predictor_t {
  public:
   float predict_scalar(const std::map<std::string, float>& features) const;
 
+ public:
+  bool debug{false};
+
  private:
   mutable std::unordered_map<uint32_t, float> prediction_cache;
+  scaler_t scaler_;
 };
 
 }  // namespace cuopt

@@ -223,7 +223,9 @@ class recombiner_t {
       enabled_recombiners.erase(recombiner_enum_t::SUB_MIP);
     }
     // submip not supported in deterministic mode yet
-    if (context.settings.deterministic) { enabled_recombiners.erase(recombiner_enum_t::SUB_MIP); }
+    if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
+      enabled_recombiners.erase(recombiner_enum_t::SUB_MIP);
+    }
     recombiner_t::enabled_recombiners =
       std::vector<recombiner_enum_t>(enabled_recombiners.begin(), enabled_recombiners.end());
   }
