@@ -312,6 +312,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
   // adds the cuts into the LP and solves again.
 
 
+#ifdef CHECK_BASIS
   {
     csc_matrix_t<i_t, f_t> Btest(lp.num_rows, lp.num_rows, 1);
     basis_update.multiply_lu(Btest);
@@ -325,6 +326,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
       exit(1);
     }
   }
+#endif
 
   const i_t p = cuts.m;
   if (cut_rhs.size() != static_cast<size_t>(p)) {
@@ -439,6 +441,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     basic_list[j] = h++;
   }
 
+#ifdef CHECK_BASIS
   // Check the basis update
   csc_matrix_t<i_t, f_t> Btest(lp.num_rows, lp.num_rows, 1);
   basis_update.multiply_lu(Btest);
@@ -455,6 +458,7 @@ lp_status_t solve_linear_program_with_cuts(const f_t start_time,
     //Diff.print_matrix();
       exit(1);
   }
+#endif
   // Adjust the vstatus
   vstatus.resize(lp.num_cols);
   for (i_t j = old_cols; j < lp.num_cols; j++) {

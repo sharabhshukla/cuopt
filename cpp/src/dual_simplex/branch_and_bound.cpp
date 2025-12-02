@@ -1329,6 +1329,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           continue;
         }
 
+        const f_t f_val = b_bar[i] - std::floor(b_bar[i]);
+        if (f_val < 0.01 || f_val > 0.99) {
+          settings_.log.printf("Skipping cut %d. b_bar[%d] = %e f_val %e\n", i, i, b_bar[i], f_val);
+          continue;
+        }
+
 #ifdef PRINT_BASE_INEQUALITY
         // Print out the base inequality
         for (i_t k = 0; k < a_bar.i.size(); k++) {
@@ -1359,13 +1365,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
             f_t aj       = a_bar.x[k];
             if (var_types_[jj] == variable_type_t::INTEGER) {
               x_workspace[jj] += f(aj, b_bar[i]);
-              if (!x_mark[jj]) {
+              if (!x_mark[jj] && x_workspace[jj] != 0.0) {
                 x_mark[jj] = 1;
                 cut_indices.push_back(jj);
               }
             } else {
               x_workspace[jj] += h(aj);
-              if (!x_mark[jj]) {
+              if (!x_mark[jj] && x_workspace[jj] != 0.0) {
                 x_mark[jj] = 1;
                 cut_indices.push_back(jj);
               }
@@ -1417,7 +1423,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
               if (var_types_[jj] == variable_type_t::INTEGER) {
                 // Upper intersect I
                 x_workspace[jj] -= f(-aj, r);
-                if (!x_mark[jj]) {
+                if (!x_mark[jj] && x_workspace[jj] != 0.0) {
                   x_mark[jj] = 1;
                   cut_indices.push_back(jj);
                 }
@@ -1435,7 +1441,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
             } else if (var_types_[jj] == variable_type_t::INTEGER) {
               // I \ Upper
               x_workspace[jj] += f(aj, r);
-              if (!x_mark[jj]) {
+              if (!x_mark[jj] && x_workspace[jj] != 0.0) {
                 x_mark[jj] = 1;
                 cut_indices.push_back(jj);
               }
@@ -1453,11 +1459,31 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           }
         }
 
-        sparse_vector_t<i_t, f_t> cut(original_lp_.num_cols, cut_indices.size());
+        sparse_vector_t<i_t, f_t> cut(original_lp_.num_cols, 0);
+        cut.i.reserve(cut_indices.size());
+        cut.x.reserve(cut_indices.size());
         for (i_t k = 0; k < cut_indices.size(); k++) {
           const i_t jj = cut_indices[k];
-          cut.i[k]     = jj;
-          cut.x[k]     = x_workspace[jj];
+
+          // Check for small coefficients
+          const f_t aj = x_workspace[jj];
+          if (std::abs(aj) < 1e-6) {
+            if (aj >= 0.0 && original_lp_.upper[jj] < inf) {
+              // Move this to the right-hand side
+              //settings_.log.printf("Moving %e to the right-hand side for variable %d\n", aj * original_lp_.upper[jj], jj);
+              R -= aj * original_lp_.upper[jj];
+              continue;
+            } else if (aj <= 0.0 && original_lp_.lower[jj] > -inf) {
+              //settings_.log.printf("Moving %e to the right-hand side for variable %d\n", aj * original_lp_.lower[jj], jj);
+              R += aj * original_lp_.lower[jj];
+              continue;
+            }
+            else {
+              //settings_.log.printf("Small coefficient %e for variable %d lower %e upper %e\n", aj, jj, original_lp_.lower[jj], original_lp_.upper[jj]);
+            }
+          }
+          cut.i.push_back(jj);
+          cut.x.push_back(x_workspace[jj]);
         }
 
         // Clear the workspace
@@ -1466,14 +1492,21 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           x_mark[jj]      = 0;
         }
 
+        if (cut.x.size() == 0)
+        {
+          continue;
+        }
+        if (cut.x.size() >= 0.7 * original_lp_.num_cols)
+       {
+          settings_.log.printf("Cut %d has %d nonzeros. Skipping because it is too dense %.2f\n", i, cut.x.size(), static_cast<f_t>(cut.x.size()) / original_lp_.num_cols);
+          continue;
+        }
+
         // Sort the coefficients by their index
         cut.sort();
         // The new cut is: g'*x >= R
         // But we want to have it in the form h'*x <= b
-        for (i_t k = 0; k < cut.x.size(); k++) {
-          cut.x[k] *= -1.0;
-        }
-
+        cut.negate();
         C.append_row(cut);
         cut_rhs.push_back(-R);
       }
@@ -1663,6 +1696,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         settings_.log.printf("objective size %ld\n", original_lp_.objective.size());
         settings_.log.printf("var_types_ size %ld\n", var_types_.size());
 #endif
+        settings_.log.printf("After removal %d rows %d columns %d nonzeros\n",
+                            original_lp_.num_rows,
+                            original_lp_.num_cols,
+                            original_lp_.A.col_start[original_lp_.A.n]);
 
         basis_update.resize(original_lp_.num_rows);
         basis_update.refactor_basis(original_lp_.A, settings_, basic_list, nonbasic_list, root_vstatus_);
