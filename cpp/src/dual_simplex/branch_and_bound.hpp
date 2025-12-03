@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <dual_simplex/diving_heuristics.hpp>
 #include <dual_simplex/diving_queue.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/mip_node.hpp>
@@ -53,7 +54,8 @@ enum class node_solve_info_t {
   NUMERICAL        = 5   // The solver encounter a numerical error when solving the node
 };
 
-// Indicate the search and variable selection algorithms used by the thread (See [1]).
+// Indicate the search and variable selection algorithms used by each thread
+// in B&B (See [1]).
 //
 // [1] T. Achterberg, “Constraint Integer Programming,” PhD, Technischen Universität Berlin,
 // Berlin, 2007. doi: 10.14279/depositonce-1634.
@@ -70,6 +72,19 @@ class bounds_strengthening_t;
 
 template <typename i_t, typename f_t>
 void upper_bound_callback(f_t upper_bound);
+
+template <typename i_t, typename f_t>
+struct bnb_stats_t {
+  f_t start_time                        = 0.0;
+  omp_atomic_t<f_t> total_lp_solve_time = 0.0;
+  omp_atomic_t<i_t> nodes_explored      = 0;
+  omp_atomic_t<i_t> nodes_unexplored    = 0;
+  omp_atomic_t<f_t> total_lp_iters      = 0;
+
+  // This should only be used by the main thread
+  omp_atomic_t<f_t> last_log             = 0.0;
+  omp_atomic_t<i_t> nodes_since_last_log = 0;
+};
 
 template <typename i_t, typename f_t>
 class branch_and_bound_t {
@@ -148,17 +163,7 @@ class branch_and_bound_t {
   mip_solution_t<i_t, f_t> incumbent_;
 
   // Structure with the general info of the solver.
-  struct stats_t {
-    f_t start_time                        = 0.0;
-    omp_atomic_t<f_t> total_lp_solve_time = 0.0;
-    omp_atomic_t<i_t> nodes_explored      = 0;
-    omp_atomic_t<i_t> nodes_unexplored    = 0;
-    omp_atomic_t<f_t> total_lp_iters      = 0;
-
-    // This should only be used by the main thread
-    omp_atomic_t<f_t> last_log             = 0.0;
-    omp_atomic_t<i_t> nodes_since_last_log = 0;
-  } exploration_stats_;
+  bnb_stats_t<i_t, f_t> exploration_stats_;
 
   // Mutex for repair
   omp_mutex_t mutex_repair_;
@@ -254,7 +259,7 @@ class branch_and_bound_t {
                                bool recompute_basis_and_bounds,
                                const std::vector<f_t>& root_lower,
                                const std::vector<f_t>& root_upper,
-                               stats_t& stats,
+                               bnb_stats_t<i_t, f_t>& stats,
                                logger_t& log);
 
   // Selects the variable to branch on.

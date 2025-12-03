@@ -31,6 +31,7 @@ set(DUAL_SIMPLEX_SRC_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/triangle_solve.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/vector_math.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pinned_host_allocator.cu
+  ${CMAKE_CURRENT_SOURCE_DIR}/diving_heuristics.cpp
   )
 
 # Uncomment to enable debug info

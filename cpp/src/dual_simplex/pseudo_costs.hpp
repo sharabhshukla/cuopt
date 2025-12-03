@@ -17,12 +17,6 @@
 
 namespace cuopt::linear_programming::dual_simplex {
 
-template <typename i_t>
-struct branch_variable_t {
-  i_t variable;
-  rounding_direction_t direction;
-};
-
 template <typename i_t, typename f_t>
 class pseudo_costs_t {
  public:
@@ -86,29 +80,4 @@ void strong_branching(const lp_problem_t<i_t, f_t>& original_lp,
 template <typename f_t>
 rounding_direction_t martin_criteria(f_t val, f_t root_val);
 
-template <typename i_t, typename f_t>
-branch_variable_t<i_t> line_search_diving(const std::vector<i_t>& fractional,
-                                          const std::vector<f_t>& solution,
-                                          const std::vector<f_t>& root_solution,
-                                          logger_t& log);
-
-template <typename i_t, typename f_t>
-branch_variable_t<i_t> pseudocost_diving(pseudo_costs_t<i_t, f_t>& pc,
-                                         const std::vector<i_t>& fractional,
-                                         const std::vector<f_t>& solution,
-                                         const std::vector<f_t>& root_solution,
-                                         logger_t& log);
-
-template <typename i_t, typename f_t>
-branch_variable_t<i_t> guided_diving(pseudo_costs_t<i_t, f_t>& pc,
-                                     const std::vector<i_t>& fractional,
-                                     const std::vector<f_t>& solution,
-                                     const std::vector<f_t>& incumbent,
-                                     logger_t& log);
-
-template <typename i_t, typename f_t>
-branch_variable_t<i_t> coefficient_diving(const lp_problem_t<i_t, f_t>& lp_problem,
-                                          const std::vector<i_t>& fractional,
-                                          const std::vector<f_t>& solution,
-                                          logger_t& log);
 }  // namespace cuopt::linear_programming::dual_simplex

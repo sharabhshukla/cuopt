@@ -619,7 +619,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
   bool recompute_bounds_and_basis,
   const std::vector<f_t>& root_lower,
   const std::vector<f_t>& root_upper,
-  stats_t& stats,
+  bnb_stats_t<i_t, f_t>& stats,
   logger_t& log)
 {
   const f_t abs_fathom_tol = settings_.absolute_mip_gap_tol / 10;
@@ -642,7 +642,8 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
   lp_settings.scale_columns = false;
 
   if (thread_type != bnb_thread_type_t::EXPLORATION) {
-    f_t max_iter                = 0.05 * exploration_stats_.total_lp_iters;
+    i_t bnb_lp_iters            = exploration_stats_.total_lp_iters;
+    f_t max_iter                = 0.05 * bnb_lp_iters;
     lp_settings.iteration_limit = max_iter - stats.total_lp_iters;
     if (lp_settings.iteration_limit <= 0) { return node_solve_info_t::ITERATION_LIMIT; }
   }
@@ -1195,7 +1196,7 @@ void branch_and_bound_t<i_t, f_t>::diving_thread(bnb_thread_type_t diving_type,
       std::deque<mip_node_t<i_t, f_t>*> stack;
       stack.push_front(&subtree.root);
 
-      stats_t dive_stats;
+      bnb_stats_t<i_t, f_t> dive_stats;
       dive_stats.total_lp_iters      = 0;
       dive_stats.total_lp_solve_time = 0;
       dive_stats.nodes_explored      = 0;
