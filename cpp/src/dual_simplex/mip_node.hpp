@@ -45,6 +45,7 @@ class mip_node_t {
       branch_var_lower(-std::numeric_limits<f_t>::infinity()),
       branch_var_upper(std::numeric_limits<f_t>::infinity()),
       fractional_val(std::numeric_limits<f_t>::infinity()),
+      objective_estimate(std::numeric_limits<f_t>::infinity()),
       vstatus(0)
   {
     children[0] = nullptr;

@@ -564,6 +564,27 @@ void branch_and_bound_t<i_t, f_t>::add_feasible_solution(f_t leaf_objective,
   mutex_upper_.unlock();
 }
 
+// Martin's criteria for the preferred rounding direction (see [1])
+// [1] A. Martin, “Integer Programs with Block Structure,”
+// Technische Universit¨at Berlin, Berlin, 1999. Accessed: Aug. 08, 2025.
+// [Online]. Available: https://opus4.kobv.de/opus4-zib/frontdoor/index/index/docId/391
+template <typename f_t>
+rounding_direction_t martin_criteria(f_t val, f_t root_val)
+{
+  const f_t down_val  = std::floor(root_val);
+  const f_t up_val    = std::ceil(root_val);
+  const f_t down_dist = val - down_val;
+  const f_t up_dist   = up_val - val;
+  constexpr f_t eps   = 1e-6;
+
+  if (down_dist < up_dist + eps) {
+    return rounding_direction_t::DOWN;
+
+  } else {
+    return rounding_direction_t::UP;
+  }
+}
+
 template <typename i_t, typename f_t>
 branch_variable_t<i_t> branch_and_bound_t<i_t, f_t>::variable_selection(
   mip_node_t<i_t, f_t>* node_ptr,
@@ -648,6 +669,28 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
     if (lp_settings.iteration_limit <= 0) { return node_solve_info_t::ITERATION_LIMIT; }
   }
 
+#ifdef LOG_NODE_SIMPLEX
+  lp_settings.set_log(true);
+  std::stringstream ss;
+  ss << "simplex-" << std::this_thread::get_id() << ".log";
+  std::string logname;
+  ss >> logname;
+  lp_settings.log.set_log_file(logname, "a");
+  lp_settings.log.log_to_console = false;
+  lp_settings.log.printf(
+    "%scurrent node: id = %d, depth = %d, branch var = %d, branch dir = %s, fractional val = "
+    "%f, variable lower bound = %f, variable upper bound = %f, branch vstatus = %d\n\n",
+    settings_.log.log_prefix.c_str(),
+    node_ptr->node_id,
+    node_ptr->depth,
+    node_ptr->branch_var,
+    node_ptr->branch_dir == rounding_direction_t::DOWN ? "DOWN" : "UP",
+    node_ptr->fractional_val,
+    node_ptr->branch_var_lower,
+    node_ptr->branch_var_upper,
+    node_ptr->vstatus[node_ptr->branch_var]);
+#endif
+
   // Reset the bound_changed markers
   std::fill(node_presolver.bounds_changed.begin(), node_presolver.bounds_changed.end(), false);
 
@@ -672,29 +715,6 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
     i_t node_iter                    = 0;
     f_t lp_start_time                = tic();
     std::vector<f_t> leaf_edge_norms = edge_norms_;  // = node.steepest_edge_norms;
-
-#ifdef LOG_NODE_SIMPLEX
-    lp_settings.set_log(true);
-    std::stringstream ss;
-    ss << "simplex-" << std::this_thread::get_id() << ".log";
-    std::string logname;
-    ss >> logname;
-    lp_settings.log.set_log_file(logname, "a");
-    lp_settings.log.log_to_console = false;
-    lp_settings.log.printf(
-      "%s\ncurrent node: id = %d, depth = %d, branch var = %d, branch dir = %s, fractional val = "
-      "%f, variable lower "
-      "bound = %f, variable upper bound = %f, branch vstatus = %d\n\n",
-      settings_.log.log_prefix.c_str(),
-      node_ptr->node_id,
-      node_ptr->depth,
-      node_ptr->branch_var,
-      node_ptr->branch_dir == rounding_direction_t::DOWN ? "DOWN" : "UP",
-      node_ptr->fractional_val,
-      node_ptr->branch_var_lower,
-      node_ptr->branch_var_upper,
-      node_ptr->vstatus[node_ptr->branch_var]);
-#endif
 
     lp_status = dual_phase2_with_advanced_basis(2,
                                                 0,
@@ -725,13 +745,13 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
       lp_status = convert_lp_status_to_dual_status(second_status);
     }
 
-#ifdef LOG_NODE_SIMPLEX
-    lp_settings.log.printf("\nLP status: %d\n\n", lp_status);
-#endif
-
     stats.total_lp_solve_time += toc(lp_start_time);
     stats.total_lp_iters += node_iter;
   }
+
+#ifdef LOG_NODE_SIMPLEX
+  lp_settings.log.printf("\nLP status: %d\n\n", lp_status);
+#endif
 
   if (lp_status == dual::status_t::DUAL_UNBOUNDED) {
     // Node was infeasible. Do not branch
@@ -1507,12 +1527,24 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   lower_bound_ceiling_                    = inf;
   should_report_                          = true;
 
-  std::vector<bnb_thread_type_t> diving_strategies = {
-    bnb_thread_type_t::PSEUDOCOST_DIVING,
-    bnb_thread_type_t::LINE_SEARCH_DIVING,
-    bnb_thread_type_t::GUIDED_DIVING,
-    bnb_thread_type_t::COEFFICIENT_DIVING,
-  };
+  std::vector<bnb_thread_type_t> diving_strategies;
+  diving_strategies.reserve(4);
+
+  if (!settings_.disable_pseudocost_diving) {
+    diving_strategies.push_back(bnb_thread_type_t::PSEUDOCOST_DIVING);
+  }
+
+  if (!settings_.disable_line_search_diving) {
+    diving_strategies.push_back(bnb_thread_type_t::LINE_SEARCH_DIVING);
+  }
+
+  if (!settings_.disable_guided_diving) {
+    diving_strategies.push_back(bnb_thread_type_t::GUIDED_DIVING);
+  }
+
+  if (!settings_.disable_coefficient_diving) {
+    diving_strategies.push_back(bnb_thread_type_t::COEFFICIENT_DIVING);
+  }
 
 #pragma omp parallel num_threads(settings_.num_threads)
   {

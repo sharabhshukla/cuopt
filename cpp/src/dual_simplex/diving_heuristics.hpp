@@ -14,14 +14,6 @@
 
 namespace cuopt::linear_programming::dual_simplex {
 
-struct diving_general_settings_t {
-  int num_diving_threads;
-  bool disable_line_search_diving = false;
-  bool disable_pseudocost_diving  = false;
-  bool disable_guided_diving      = false;
-  bool disable_coefficient_diving = false;
-};
-
 template <typename i_t>
 struct branch_variable_t {
   i_t variable;
