@@ -195,22 +195,6 @@ void strong_branching(const lp_problem_t<i_t, f_t>& original_lp,
   pc.update_pseudo_costs_from_strong_branching(fractional, root_soln);
 }
 
-template <typename f_t>
-rounding_direction_t martin_criteria(f_t val, f_t root_val)
-{
-  const f_t down_val  = std::floor(root_val);
-  const f_t up_val    = std::ceil(root_val);
-  const f_t down_dist = val - down_val;
-  const f_t up_dist   = up_val - val;
-  constexpr f_t eps   = 1e-6;
-
-  if (down_dist < up_dist + eps) {
-    return rounding_direction_t::DOWN;
-  } else {
-    return rounding_direction_t::UP;
-  }
-}
-
 template <typename i_t, typename f_t>
 void pseudo_costs_t<i_t, f_t>::update_pseudo_costs(mip_node_t<i_t, f_t>* node_ptr,
                                                    f_t leaf_objective)
@@ -374,8 +358,6 @@ template void strong_branching<int, double>(const lp_problem_t<int, double>& ori
                                             const std::vector<variable_status_t>& root_vstatus,
                                             const std::vector<double>& edge_norms,
                                             pseudo_costs_t<int, double>& pc);
-
-template rounding_direction_t martin_criteria(double val, double root_val);
 
 #endif
 

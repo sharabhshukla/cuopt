@@ -716,29 +716,6 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
     f_t lp_start_time                = tic();
     std::vector<f_t> leaf_edge_norms = edge_norms_;  // = node.steepest_edge_norms;
 
-#ifdef LOG_NODE_SIMPLEX
-    lp_settings.set_log(true);
-    std::stringstream ss;
-    ss << "simplex-" << std::this_thread::get_id() << ".log";
-    std::string logname;
-    ss >> logname;
-    lp_settings.log.set_log_file(logname, "a");
-    lp_settings.log.log_to_console = false;
-    lp_settings.log.printf(
-      "%s\ncurrent node: id = %d, depth = %d, branch var = %d, branch dir = %s, fractional val = "
-      "%f, variable lower "
-      "bound = %f, variable upper bound = %f, branch vstatus = %d\n\n",
-      settings_.log.log_prefix.c_str(),
-      node_ptr->node_id,
-      node_ptr->depth,
-      node_ptr->branch_var,
-      node_ptr->branch_dir == rounding_direction_t::DOWN ? "DOWN" : "UP",
-      node_ptr->fractional_val,
-      node_ptr->branch_var_lower,
-      node_ptr->branch_var_upper,
-      node_ptr->vstatus[node_ptr->branch_var]);
-#endif
-
     lp_status = dual_phase2_with_advanced_basis(2,
                                                 0,
                                                 recompute_bounds_and_basis,

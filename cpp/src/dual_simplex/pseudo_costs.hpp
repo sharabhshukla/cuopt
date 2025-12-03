@@ -73,11 +73,4 @@ void strong_branching(const lp_problem_t<i_t, f_t>& original_lp,
                       const std::vector<f_t>& edge_norms,
                       pseudo_costs_t<i_t, f_t>& pc);
 
-// Martin's criteria for the preferred rounding direction (see [1])
-// [1] A. Martin, “Integer Programs with Block Structure,”
-// Technische Universit¨at Berlin, Berlin, 1999. Accessed: Aug. 08, 2025.
-// [Online]. Available: https://opus4.kobv.de/opus4-zib/frontdoor/index/index/docId/391
-template <typename f_t>
-rounding_direction_t martin_criteria(f_t val, f_t root_val);
-
 }  // namespace cuopt::linear_programming::dual_simplex
