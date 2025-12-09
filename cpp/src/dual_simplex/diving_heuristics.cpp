@@ -51,6 +51,9 @@ branch_variable_t<i_t> line_search_diving(const std::vector<i_t>& fractional,
     round_dir  = rounding_direction_t::DOWN;
   }
 
+  assert(round_dir != rounding_direction_t::NONE);
+  assert(branch_var >= 0);
+
   log.debug("Line search diving: selected var %d with val = %e, round dir = %d and score = %e\n",
             branch_var,
             solution[branch_var],
@@ -122,6 +125,10 @@ branch_variable_t<i_t> pseudocost_diving(pseudo_costs_t<i_t, f_t>& pc,
       round_dir  = dir;
     }
   }
+
+  assert(round_dir != rounding_direction_t::NONE);
+  assert(branch_var >= 0);
+
   log.debug("Pseudocost diving: selected var %d with val = %e, round dir = %d and score = %e\n",
             branch_var,
             solution[branch_var],
@@ -176,6 +183,9 @@ branch_variable_t<i_t> guided_diving(pseudo_costs_t<i_t, f_t>& pc,
       round_dir  = dir;
     }
   }
+
+  assert(round_dir != rounding_direction_t::NONE);
+  assert(branch_var >= 0);
 
   log.debug("Guided diving: selected var %d with val = %e, round dir = %d and score = %e\n",
             branch_var,
@@ -248,6 +258,9 @@ branch_variable_t<i_t> coefficient_diving(const lp_problem_t<i_t, f_t>& lp_probl
       }
     }
   }
+
+  assert(round_dir != rounding_direction_t::NONE);
+  assert(branch_var >= 0);
 
   log.debug(
     "Coefficient diving: selected var %d with val = %e, round dir = %d and min locks = %e\n",

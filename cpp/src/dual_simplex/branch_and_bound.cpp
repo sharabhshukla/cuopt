@@ -799,8 +799,6 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
       auto [branch_var, round_dir] = variable_selection(
         node_ptr, leaf_fractional, leaf_solution.x, thread_type, lp_settings.log);
 
-      assert(round_dir != rounding_direction_t::NONE);
-      assert(branch_var >= 0);
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
 
       search_tree.branch(
@@ -1524,7 +1522,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   exploration_stats_.nodes_since_last_log = 0;
   exploration_stats_.last_log             = tic();
   active_subtrees_                        = 0;
-  min_diving_queue_size_                  = 4 * settings_.num_diving_threads;
   solver_status_                          = mip_exploration_status_t::RUNNING;
   lower_bound_ceiling_                    = inf;
   should_report_                          = true;
