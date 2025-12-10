@@ -111,7 +111,9 @@ const std::vector<pdlp_climber_strategy_t>& climber_strategies)
     dual_size_h_(dual_size),
     problem_ptr(&op_problem),
     primal_norm_weight_{stream_view_},
-    weights_{(!is_trust_region_restart<i_t, f_t>()) ? 0 : static_cast<size_t>(primal_size_h_ + dual_size_h_),
+    weights_{(!is_trust_region_restart<i_t, f_t>())
+               ? 0
+               : static_cast<size_t>(primal_size_h_ + dual_size_h_),
              stream_view_},
     dual_norm_weight_{stream_view_},
     restart_triggered_{0, stream_view_},
@@ -980,6 +982,7 @@ void pdlp_restart_strategy_t<i_t, f_t>::compute_restart(
                                     }
   } else if (pdlp_hyper_params::restart_strategy ==
              static_cast<int>(restart_strategy_t::CUPDLPX_RESTART)) {
+    // Has restarted is filled inside
     run_cupdlpx_restart(current_convergence_information,
                                pdhg_solver,
                                total_number_of_iterations,

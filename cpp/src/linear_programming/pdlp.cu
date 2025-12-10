@@ -348,8 +348,9 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
       std::vector<pdlp_termination_status_t>(climber_strategies_.size(), pdlp_termination_status_t::IterationLimit));
   }
 
-  // Check for concurrent limit (had to add the check on the method else would leave while not in Concurrent mode)
-  if (settings_.method == method_t::Concurrent && settings_.concurrent_halt != nullptr && *settings_.concurrent_halt == 1) {
+  // Check for concurrent limit
+  if (settings_.method == method_t::Concurrent && settings_.concurrent_halt != nullptr &&
+      *settings_.concurrent_halt == 1) {
 #ifdef PDLP_VERBOSE_MODE
     RAFT_CUDA_TRY(cudaDeviceSynchronize());
     std::cout << "Concurrent Limit reached, returning current solution" << std::endl;

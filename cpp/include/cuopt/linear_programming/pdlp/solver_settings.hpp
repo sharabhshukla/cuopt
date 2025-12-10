@@ -226,9 +226,11 @@ class pdlp_solver_settings_t {
   bool first_primal_feasible{false};
   bool presolve{false};
   bool dual_postsolve{true};
+  int num_gpus{1};
   method_t method{method_t::Concurrent};
+  bool inside_mip{false};
   // For concurrent termination
-  volatile int* concurrent_halt; // TODO seeing termination on this while not using concurrent, where is this initilized?
+  volatile int* concurrent_halt{nullptr};
   static constexpr f_t minimal_absolute_tolerance = 1.0e-12;
 
  private:
