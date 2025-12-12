@@ -254,6 +254,10 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
     buffer_transpose{0, handle_ptr->get_stream()},
     buffer_transpose_batch{0, handle_ptr->get_stream()},
     buffer_non_transpose_batch{0, handle_ptr->get_stream()},
+    batch_reflected_primal_solutions_data_transposed_{(use_row_row) ? _reflected_primal_solution.size() : 0, handle_ptr->get_stream()},
+    batch_dual_gradients_data_transposed_{(use_row_row) ? current_saddle_point_state.get_dual_gradient().size() : 0, handle_ptr->get_stream()},
+    batch_dual_solutions_data_transposed_{(use_row_row) ? current_saddle_point_state.get_dual_solution().size() : 0, handle_ptr->get_stream()},
+    batch_current_AtYs_data_transposed_{(use_row_row) ? current_saddle_point_state.get_current_AtY().size() : 0, handle_ptr->get_stream()},
     A_{op_problem_scaled.coefficients},
     A_offsets_{op_problem_scaled.offsets},
     A_indices_{op_problem_scaled.variables},
@@ -306,16 +310,16 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
       &batch_dual_solutions,
       op_problem_scaled.n_constraints,
       climber_strategies.size(),
-      op_problem_scaled.n_constraints,
-      current_saddle_point_state.get_dual_solution().data(),
-      CUSPARSE_ORDER_COL));
+      (use_row_row) ? climber_strategies.size() : op_problem_scaled.n_constraints,
+      (use_row_row) ? batch_dual_solutions_data_transposed_.data() : current_saddle_point_state.get_dual_solution().data(),
+      (use_row_row) ? CUSPARSE_ORDER_ROW : CUSPARSE_ORDER_COL));
     RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(
       &batch_current_AtYs,
       op_problem_scaled.n_variables,
       climber_strategies.size(),
-      op_problem_scaled.n_variables,
-      current_saddle_point_state.get_current_AtY().data(),
-      CUSPARSE_ORDER_COL));
+      (use_row_row) ? climber_strategies.size() : op_problem_scaled.n_variables,
+      (use_row_row) ? batch_current_AtYs_data_transposed_.data() : current_saddle_point_state.get_current_AtY().data(),
+      (use_row_row) ? CUSPARSE_ORDER_ROW : CUSPARSE_ORDER_COL));
     RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(
       &batch_potential_next_dual_solution,
       op_problem_scaled.n_constraints,
@@ -335,16 +339,16 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
       &batch_reflected_primal_solutions,
       op_problem_scaled.n_variables,
       climber_strategies.size(),
-      op_problem_scaled.n_variables,
-      _reflected_primal_solution.data(),
-      CUSPARSE_ORDER_COL));
+      (use_row_row) ? climber_strategies.size() : op_problem_scaled.n_variables,
+      (use_row_row) ? batch_reflected_primal_solutions_data_transposed_.data() : _reflected_primal_solution.data(),
+      (use_row_row) ? CUSPARSE_ORDER_ROW : CUSPARSE_ORDER_COL));
       RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(
         &batch_dual_gradients,
         op_problem_scaled.n_constraints,
         climber_strategies.size(),
-        op_problem_scaled.n_constraints,
-        current_saddle_point_state.get_dual_gradient().data(),
-        CUSPARSE_ORDER_COL));
+        (use_row_row) ? climber_strategies.size() : op_problem_scaled.n_constraints,
+        (use_row_row) ? batch_dual_gradients_data_transposed_.data() : current_saddle_point_state.get_dual_gradient().data(),
+        (use_row_row) ? CUSPARSE_ORDER_ROW : CUSPARSE_ORDER_COL));
 
     if (deterministic_batch_pdlp)
     {
@@ -590,6 +594,10 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(raft::handle_t const* handle_ptr,
     buffer_transpose{0, handle_ptr->get_stream()},
     buffer_transpose_batch{0, handle_ptr->get_stream()},
     buffer_non_transpose_batch{0, handle_ptr->get_stream()},
+    batch_reflected_primal_solutions_data_transposed_{0, handle_ptr->get_stream()},
+    batch_dual_gradients_data_transposed_{0, handle_ptr->get_stream()},
+    batch_dual_solutions_data_transposed_{0, handle_ptr->get_stream()},
+    batch_current_AtYs_data_transposed_{0, handle_ptr->get_stream()},
     A_{op_problem.coefficients},
     A_offsets_{op_problem.offsets},
     A_indices_{op_problem.variables},
@@ -821,6 +829,10 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
     buffer_transpose{0, handle_ptr->get_stream()},
     buffer_transpose_batch{0, handle_ptr->get_stream()},
     buffer_non_transpose_batch{0, handle_ptr->get_stream()},
+    batch_reflected_primal_solutions_data_transposed_{0, handle_ptr->get_stream()},
+    batch_dual_gradients_data_transposed_{0, handle_ptr->get_stream()},
+    batch_dual_solutions_data_transposed_{0, handle_ptr->get_stream()},
+    batch_current_AtYs_data_transposed_{0, handle_ptr->get_stream()},
     A_T_{existing_cusparse_view.A_T_},                  // Need to be init but not used
     A_T_offsets_{existing_cusparse_view.A_T_offsets_},  // Need to be init but not used
     A_T_indices_{existing_cusparse_view.A_T_indices_},  // Need to be init but not used
@@ -929,6 +941,10 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
     buffer_transpose{0, handle_ptr->get_stream()},
     buffer_transpose_batch{0, handle_ptr->get_stream()},
     buffer_non_transpose_batch{0, handle_ptr->get_stream()},
+    batch_reflected_primal_solutions_data_transposed_{0, handle_ptr->get_stream()},
+    batch_dual_gradients_data_transposed_{0, handle_ptr->get_stream()},
+    batch_dual_solutions_data_transposed_{0, handle_ptr->get_stream()},
+    batch_current_AtYs_data_transposed_{0, handle_ptr->get_stream()},
     A_T_(dummy_float),
     A_T_offsets_(dummy_int),
     A_T_indices_(dummy_int),

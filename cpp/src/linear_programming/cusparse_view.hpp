@@ -164,6 +164,11 @@ class cusparse_view_t {
   rmm::device_uvector<uint8_t> buffer_transpose_batch;
   rmm::device_uvector<uint8_t> buffer_non_transpose_batch;
 
+  rmm::device_uvector<f_t> batch_reflected_primal_solutions_data_transposed_;
+  rmm::device_uvector<f_t> batch_dual_gradients_data_transposed_;
+  rmm::device_uvector<f_t> batch_dual_solutions_data_transposed_;
+  rmm::device_uvector<f_t> batch_current_AtYs_data_transposed_;
+
   // Only when using reflection
   cusparse_dn_vec_descr_wrapper_t<f_t> reflected_primal_solution;
 
