@@ -633,7 +633,7 @@ f_t compute_initial_primal_infeasibilities(const lp_problem_t<i_t, f_t>& lp,
   infeasibility_indices.reserve(n);
   infeasibility_indices.clear();
   f_t primal_inf_squared = 0.0;
-  primal_inf = 0.0;
+  primal_inf             = 0.0;
   for (i_t k = 0; k < m; ++k) {
     const i_t j            = basic_list[k];
     const f_t lower_infeas = lp.lower[j] - x[j];
@@ -2245,7 +2245,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     assert(superbasic_list.size() == 0);
     assert(nonbasic_list.size() == n - m);
 
-    if (ft.refactor_basis(lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus) > 0) {
+    if (ft.refactor_basis(lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus) >
+        0) {
       return dual::status_t::NUMERICAL;
     }
 
@@ -2362,8 +2363,14 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   phase2::compute_bounded_info(lp.lower, lp.upper, bounded_variables);
 
   f_t primal_infeasibility;
-  f_t primal_infeasibility_squared = phase2::compute_initial_primal_infeasibilities(
-    lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices, primal_infeasibility);
+  f_t primal_infeasibility_squared =
+    phase2::compute_initial_primal_infeasibilities(lp,
+                                                   settings,
+                                                   basic_list,
+                                                   x,
+                                                   squared_infeasibilities,
+                                                   infeasibility_indices,
+                                                   primal_infeasibility);
 
 #ifdef CHECK_BASIC_INFEASIBILITIES
   phase2::check_basic_infeasibilities(basic_list, basic_mark, infeasibility_indices, 0);
@@ -2561,9 +2568,15 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
             std::vector<f_t> unperturbed_x(n);
             phase2::compute_primal_solution_from_basis(
               lp, ft, basic_list, nonbasic_list, vstatus, unperturbed_x);
-            x                    = unperturbed_x;
-            primal_infeasibility_squared = phase2::compute_initial_primal_infeasibilities(
-              lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices, primal_infeasibility);
+            x = unperturbed_x;
+            primal_infeasibility_squared =
+              phase2::compute_initial_primal_infeasibilities(lp,
+                                                             settings,
+                                                             basic_list,
+                                                             x,
+                                                             squared_infeasibilities,
+                                                             infeasibility_indices,
+                                                             primal_infeasibility);
             settings.log.printf("Updated primal infeasibility: %e\n", primal_infeasibility);
 
             objective = lp.objective;
@@ -2598,9 +2611,15 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
             std::vector<f_t> unperturbed_x(n);
             phase2::compute_primal_solution_from_basis(
               lp, ft, basic_list, nonbasic_list, vstatus, unperturbed_x);
-            x                    = unperturbed_x;
-            primal_infeasibility_squared = phase2::compute_initial_primal_infeasibilities(
-              lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices, primal_infeasibility);
+            x = unperturbed_x;
+            primal_infeasibility_squared =
+              phase2::compute_initial_primal_infeasibilities(lp,
+                                                             settings,
+                                                             basic_list,
+                                                             x,
+                                                             squared_infeasibilities,
+                                                             infeasibility_indices,
+                                                             primal_infeasibility);
 
             const f_t orig_dual_infeas = phase2::dual_infeasibility(
               lp, settings, vstatus, z, settings.tight_tol, settings.dual_tol);
@@ -2888,14 +2907,15 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 #endif
     if (should_refactor) {
       bool should_recompute_x = false;
-      if (ft.refactor_basis(lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus) > 0) {
+      if (ft.refactor_basis(
+            lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus) > 0) {
         should_recompute_x = true;
         settings.log.printf("Failed to factorize basis. Iteration %d\n", iter);
         if (toc(start_time) > settings.time_limit) { return dual::status_t::TIME_LIMIT; }
         i_t count = 0;
         i_t deficient_size;
-        while ((deficient_size =
-                  ft.refactor_basis(lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus)) > 0) {
+        while ((deficient_size = ft.refactor_basis(
+                  lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus)) > 0) {
           settings.log.printf("Failed to repair basis. Iteration %d. %d deficient columns.\n",
                               iter,
                               static_cast<int>(deficient_size));
@@ -2917,8 +2937,14 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
           lp, ft, basic_list, nonbasic_list, vstatus, unperturbed_x);
         x = unperturbed_x;
       }
-      primal_infeasibility_squared = phase2::compute_initial_primal_infeasibilities(
-        lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices, primal_infeasibility);
+      primal_infeasibility_squared =
+        phase2::compute_initial_primal_infeasibilities(lp,
+                                                       settings,
+                                                       basic_list,
+                                                       x,
+                                                       squared_infeasibilities,
+                                                       infeasibility_indices,
+                                                       primal_infeasibility);
     }
 #ifdef CHECK_BASIC_INFEASIBILITIES
     phase2::check_basic_infeasibilities(basic_list, basic_mark, infeasibility_indices, 7);

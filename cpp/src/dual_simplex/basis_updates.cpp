@@ -2068,7 +2068,8 @@ int basis_update_mpf_t<i_t, f_t>::refactor_basis(
                       deficient,
                       slacks_needed) == -1) {
     settings.log.debug("Initial factorization failed\n");
-    basis_repair(A, settings, lower, upper, deficient, slacks_needed, basic_list, nonbasic_list, vstatus);
+    basis_repair(
+      A, settings, lower, upper, deficient, slacks_needed, basic_list, nonbasic_list, vstatus);
 
 #ifdef CHECK_BASIS_REPAIR
     const i_t m = A.m;
