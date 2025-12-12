@@ -373,6 +373,8 @@ class basis_update_mpf_t {
   // Compute L*U = A(p, basic_list)
   int refactor_basis(const csc_matrix_t<i_t, f_t>& A,
                      const simplex_solver_settings_t<i_t, f_t>& settings,
+                     const std::vector<f_t>& lower,
+                     const std::vector<f_t>& upper,
                      std::vector<i_t>& basic_list,
                      std::vector<i_t>& nonbasic_list,
                      std::vector<variable_status_t>& vstatus);

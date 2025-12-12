@@ -42,6 +42,8 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
 template <typename i_t, typename f_t>
 i_t basis_repair(const csc_matrix_t<i_t, f_t>& A,
                  const simplex_solver_settings_t<i_t, f_t>& settings,
+                 const std::vector<f_t>& lower,
+                 const std::vector<f_t>& upper,
                  const std::vector<i_t>& deficient,
                  const std::vector<i_t>& slacks_needed,
                  std::vector<i_t>& basis_list,
