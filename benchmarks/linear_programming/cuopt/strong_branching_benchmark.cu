@@ -40,7 +40,7 @@ bool is_frational(double in)
   return std::fabs(in - std::round(in)) > 1e-5;
 }
 
-std::pair<cuopt::mps_parser::mps_data_model_t<int, double>, std::vector<cuopt::mps_parser::mps_data_model_t<int, double>>> create_batch_problem(const cuopt::mps_parser::mps_data_model_t<int, double>& op_problem, const cuopt::linear_programming::optimization_problem_solution_t<int, double>& solution)
+std::pair<cuopt::mps_parser::mps_data_model_t<int, double>, std::vector<cuopt::mps_parser::mps_data_model_t<int, double>>> create_batch_problem(const cuopt::mps_parser::mps_data_model_t<int, double>& op_problem, const cuopt::linear_programming::optimization_problem_solution_t<int, double>& solution, bool no_init_lower)
 { 
   std::vector<double> primal_sol = host_copy(solution.get_primal_solution());
   
@@ -64,26 +64,29 @@ std::pair<cuopt::mps_parser::mps_data_model_t<int, double>, std::vector<cuopt::m
 
   // Create the problem batch to solve them individually
 
-  std::vector<cuopt::mps_parser::mps_data_model_t<int, double>> problems(batch_size * 2, op_problem);
+  const int total_size = no_init_lower ? batch_size : batch_size * 2;
+
+  std::vector<cuopt::mps_parser::mps_data_model_t<int, double>> problems(total_size, op_problem);
 
   // Create the upper bounds
   for (int i = 0; i < batch_size; i++)
     problems[i].get_variable_upper_bounds()[pairs[i].first] = std::floor(pairs[i].second);
   // Create the lower bounds
-  for (int i = 0; i < batch_size; i++)
-    problems[i + batch_size].get_variable_lower_bounds()[pairs[i].first] = std::ceil(pairs[i].second);
+  if (!no_init_lower)
+    for (int i = 0; i < batch_size; i++)
+      problems[i + batch_size].get_variable_lower_bounds()[pairs[i].first] = std::ceil(pairs[i].second);
   // Create batch problem on the original problem
   cuopt::mps_parser::mps_data_model_t<int, double> batch_problem(op_problem);
   const auto& variable_lower_bounds = op_problem.get_variable_lower_bounds();
   const auto& variable_upper_bounds = op_problem.get_variable_upper_bounds();
 
-  std::vector<double> new_variable_lower_bounds(variable_lower_bounds.size() * batch_size * 2);
-  std::vector<double> new_variable_upper_bounds(variable_upper_bounds.size() * batch_size * 2);
+  std::vector<double> new_variable_lower_bounds(variable_lower_bounds.size() * total_size);
+  std::vector<double> new_variable_upper_bounds(variable_upper_bounds.size() * total_size);
 
-  for (int i = 0; i < batch_size * 2; i++)
+  for (int i = 0; i < total_size; i++)
     for (size_t j = 0; j < variable_lower_bounds.size(); ++j)
       new_variable_lower_bounds[i * variable_lower_bounds.size() + j] = problems[i].get_variable_lower_bounds()[j];
-  for (int i = 0; i < batch_size * 2; i++)
+  for (int i = 0; i < total_size; i++)
     for (size_t j = 0; j < variable_upper_bounds.size(); ++j)
       new_variable_upper_bounds[i * variable_upper_bounds.size() + j] = problems[i].get_variable_upper_bounds()[j];
 
@@ -117,7 +120,9 @@ void bench(
   std::vector<cuopt::mps_parser::mps_data_model_t<int, double>>& problems,
   bool compare_with_baseline,
   bool deterministic, // For now useless, need 13.1 for cuSparse deterministic
-  int warm_start) //0 : no, 1 primal dual, 2 primal dual step size primal weight, 3 primal dual step size (not primal weight) 
+  bool init_primal_dual,
+  bool init_step_size,
+  bool init_primal_weight)
 {
   // Important that those 2 are created before the sols
 
@@ -127,8 +132,11 @@ void bench(
   rmm::device_uvector<double> initial_dual(0, handle.get_stream());
   double initial_step_size = std::numeric_limits<double>::signaling_NaN();
   double initial_primal_weight = std::numeric_limits<double>::signaling_NaN();
-  
-  if (warm_start == 1 || warm_start == 2 || warm_start == 3)
+
+  bool needs_warm_start_solution =
+      init_primal_dual || init_step_size || init_primal_weight;
+
+  if (needs_warm_start_solution)
   {
     // Solving the original to get its primal / dual vectors
     // Should not be necessary but weird behavior with conccurent halt is making things crash
@@ -139,13 +147,15 @@ void bench(
     cuopt::linear_programming::optimization_problem_solution_t<int, double> original_solution = cuopt::linear_programming::solve_lp(&handle, original_problem, settings_local);
 
     std::cout << "Original problem solved by PDLP in " << original_solution.get_additional_termination_information().solve_time << " using " << original_solution.get_additional_termination_information().number_of_steps_taken << std::endl;
-    initial_primal = rmm::device_uvector<double>(original_solution.get_primal_solution(), original_solution.get_primal_solution().stream());
-    initial_dual = rmm::device_uvector<double>(original_solution.get_dual_solution(), original_solution.get_dual_solution().stream());
-    if (warm_start == 2 || warm_start == 3)
-    {
+    if (init_primal_dual) {
+      initial_primal = rmm::device_uvector<double>(original_solution.get_primal_solution(), original_solution.get_primal_solution().stream());
+      initial_dual = rmm::device_uvector<double>(original_solution.get_dual_solution(), original_solution.get_dual_solution().stream());
+    }
+    if (init_step_size) {
       initial_step_size = original_solution.get_pdlp_warm_start_data().initial_step_size_;
-      if (warm_start == 2)
-       initial_primal_weight = original_solution.get_pdlp_warm_start_data().initial_primal_weight_;
+    }
+    if (init_primal_weight) {
+      initial_primal_weight = original_solution.get_pdlp_warm_start_data().initial_primal_weight_;
     }
   }
 
@@ -161,17 +171,18 @@ void bench(
       settings_local.detect_infeasibility = true;
       settings_local.iteration_limit = 100000;
 
-      
-      if (warm_start == 1 || warm_start == 2 || warm_start == 3)
+      if (init_primal_dual)
       {
         settings_local.set_initial_primal_solution(initial_primal.data(), initial_primal.size(), initial_primal.stream());
         settings_local.set_initial_dual_solution(initial_dual.data(), initial_dual.size(), initial_dual.stream());
       }
-      if (warm_start == 2 || warm_start == 3)
+      if (init_step_size)
       {
         settings_local.set_initial_step_size(initial_step_size);
-        if (warm_start == 2)
-          settings_local.set_initial_primal_weight(initial_primal_weight);
+      }
+      if (init_primal_weight)
+      {
+        settings_local.set_initial_primal_weight(initial_primal_weight);
       }
 
       sols.emplace_back(cuopt::linear_programming::solve_lp(&handle, problems[i], settings_local, true, true/*, "batch_instances/custom_" + std::to_string(i) + ".mps"*/));
@@ -186,21 +197,22 @@ void bench(
   settings_local.detect_infeasibility = true;
   settings_local.iteration_limit = 100000;
 
-  if (warm_start == 1 || warm_start == 2 || warm_start == 3)
+  if (init_primal_dual)
   {
     settings_local.set_initial_primal_solution(initial_primal.data(), initial_primal.size(), initial_primal.stream());
     settings_local.set_initial_dual_solution(initial_dual.data(), initial_dual.size(), initial_dual.stream());
   }
-  if (warm_start == 2 || warm_start == 3)
+  if (init_step_size)
   {
     settings_local.set_initial_step_size(initial_step_size);
-    if (warm_start == 2)
-      settings_local.set_initial_primal_weight(initial_primal_weight);
+  }
+  if (init_primal_weight)
+  {
+    settings_local.set_initial_primal_weight(initial_primal_weight);
   }
 
   cuopt::linear_programming::optimization_problem_solution_t<int, double> batch_solution =
   cuopt::linear_programming::solve_lp(&handle, batch_problem, settings_local);
-
 
   std::cout << "Batch problem solved in " << batch_solution.get_additional_termination_information().solve_time << " using " << batch_solution.get_additional_termination_information().number_of_steps_taken << std::endl;
 
@@ -231,10 +243,9 @@ int main(int argc, char* argv[])
   rmm::mr::set_current_device_resource(memory_resource.get());
 
 
-  std::vector<std::string> problem_list = {"app1-1"};//{"scpj4scip"};//;
+  std::vector<std::string> problem_list = {"app1-1"};//{"afiro_original"};//{"scpj4scip"};//;
 
-  bool compare_with_baseline = true;
-
+  bool compare_with_baseline = false;
   for (const auto& problem_name : problem_list)
   {
     // Parse MPS file
@@ -251,12 +262,26 @@ int main(int argc, char* argv[])
     std::cout << "Original problem solved in " << solution.get_additional_termination_information().solve_time << " and " << solution.get_additional_termination_information().number_of_steps_taken << " steps" << std::endl;
 
     // Create a list of problems for each variante and update op_problem to batchify it
-    auto [batch_problem, problems] = create_batch_problem(op_problem, solution);
+    auto [batch_problem, problems] = create_batch_problem(op_problem, solution, true);
 
-    //bench(handle_, op_problem,batch_problem, problems, compare_with_baseline, false /*deterministic*/, 0 /*no warm_start*/);
-    //bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, 1 /*primal dual*/);
-    bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, 2 /*primal dual step size primal weight*/);
-    bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, 3 /*primal dual primal weight (not step size)*/);
+    // The five commented bench calls below correspond to warm start combinations:
+
+    // No warm start: all false
+    //bench(handle_, op_problem,batch_problem, problems, compare_with_baseline, false /*deterministic*/, false, false, false, false);
+
+    // Primal dual only: init_primal_dual = true
+    //bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, true, false, false, false);
+
+    // Primal dual + step size + primal weight
+    //bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, true, true, true, false);
+
+    // Primal dual + step size only (not primal weight)
+    //bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, true, true, false, false);
+
+    // Primal dual + primal weight + step size + iteration count (the fullest warm start)
+    //bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, true /*primal dual*/, false /*step size*/, false /*primal weight*/);
+    bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, true /*primal dual*/, true /*step size*/, false /*primal weight*/);
+    //bench(handle_, op_problem, batch_problem, problems, compare_with_baseline, false /*deterministic*/, true /*primal dual*/, true /*step size*/, true /*primal weight*/);
   }
 
   return 0;

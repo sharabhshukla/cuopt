@@ -582,14 +582,19 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
   cuopt_assert(is_cupdlpx, "Batch termination handling only supported with cuPDLPx restart");
   
   #ifdef BATCH_VERBOSE_MODE
-  static std::unordered_set<i_t> climber_done;
+  static std::unordered_map<i_t, i_t> climber_done;
   for (size_t i = 0; i < current_termination_strategy_.get_terminations_status().size(); ++i)
   {
     const auto& term = current_termination_strategy_.get_termination_status(i);
     if (current_termination_strategy_.is_done(term) && climber_done.find(i) == climber_done.end())
     {
-      climber_done.emplace(i);
+      climber_done.emplace(i, total_pdlp_iterations_);
       std::cout << "[BATCH MODE]: Climber " << i << " is done with "
+        << optimization_problem_solution_t<i_t, f_t>::get_termination_status_string(term) << " at step " << total_pdlp_iterations_ << std::endl;
+    }
+    if (climber_done.find(i) != climber_done.end() && !current_termination_strategy_.is_done(term)) // Check if one is now not feasible anymore
+    {
+      std::cout << "[BATCH MODE]: Climber " << i << " is now not feasible anymore with "
         << optimization_problem_solution_t<i_t, f_t>::get_termination_status_string(term) << " at step " << total_pdlp_iterations_ << std::endl;
     }
   }
@@ -597,8 +602,15 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
 
 
   // All are optimal or infeasible
-  if (current_termination_strategy_.all_done())
+  // TODO batch mode: remove the right one once done analyzing
+  if (current_termination_strategy_.all_done()/* || climber_done.size() == current_termination_strategy_.get_terminations_status().size()*/)
   {
+  #ifdef BATCH_VERBOSE_MODE
+    i_t max_it_finish = -1;
+    for (const auto &e : climber_done)
+      max_it_finish = std::max(max_it_finish, e.second);
+    std::cout << "Should have ended after " << max_it_finish << " but ended after " << total_pdlp_iterations_ << std::endl;
+    #endif
     return current_termination_strategy_.fill_return_problem_solution(
       internal_solver_iterations_,
       pdhg_solver_,
