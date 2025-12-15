@@ -46,6 +46,8 @@ class logger_t {
   void close_log_file()
   {
     if (log_file != nullptr) { std::fclose(log_file); }
+    log_file    = nullptr;
+    log_to_file = false;
   }
 
   void printf(const char* fmt, ...)

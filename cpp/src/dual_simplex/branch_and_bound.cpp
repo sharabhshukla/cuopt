@@ -816,7 +816,9 @@ void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(mip_node_t<i_t, f_t>* nod
       std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
       i_t nodes_explored   = exploration_stats_.nodes_explored;
       i_t nodes_unexplored = exploration_stats_.nodes_unexplored;
-      f_t iter_node = nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0;
+      f_t iter_node = nodes_explored > 0 ? static_cast<f_t>(exploration_stats_.total_lp_iters) /
+                                             static_cast<f_t>(nodes_explored)
+                                         : 0;
 
       settings_.log.printf("  %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
                            nodes_explored,
@@ -947,7 +949,9 @@ void branch_and_bound_t<i_t, f_t>::explore_subtree(i_t task_id,
         std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
         i_t nodes_explored   = exploration_stats_.nodes_explored;
         i_t nodes_unexplored = exploration_stats_.nodes_unexplored;
-        f_t iter_node = nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0;
+        f_t iter_node = nodes_explored > 0 ? static_cast<f_t>(exploration_stats_.total_lp_iters) /
+                                               static_cast<f_t>(nodes_explored)
+                                           : 0;
 
         settings_.log.printf("  %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
                              nodes_explored,
