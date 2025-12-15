@@ -195,9 +195,9 @@ std::string user_mip_gap(f_t obj_value, f_t lower_bound)
 inline const char* feasible_solution_symbol(thread_type_t type)
 {
   switch (type) {
-    case thread_type_t::EXPLORATION: return "B";
-    case thread_type_t::DIVING: return "D";
-    default: return "U";
+    case thread_type_t::EXPLORATION: return "B ";
+    case thread_type_t::DIVING: return "D ";
+    default: return "U ";
   }
 }
 
@@ -310,7 +310,7 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
       std::string gap = user_mip_gap<f_t>(user_obj, user_lower);
 
       settings_.log.printf(
-        "H                           %+13.6e    %+10.6e                        %s %9.2f\n",
+        "H                            %+13.6e    %+10.6e                        %s %9.2f\n",
         user_obj,
         user_lower,
         gap.c_str(),
@@ -423,7 +423,7 @@ void branch_and_bound_t<i_t, f_t>::repair_heuristic_solutions()
           std::string user_gap = user_mip_gap<f_t>(obj, lower);
 
           settings_.log.printf(
-            "H                           %+13.6e    %+10.6e                        %s %9.2f\n",
+            "H                            %+13.6e    %+10.6e                        %s %9.2f\n",
             obj,
             lower,
             user_gap.c_str(),
@@ -534,17 +534,17 @@ void branch_and_bound_t<i_t, f_t>::add_feasible_solution(f_t leaf_objective,
     f_t lower_bound = get_lower_bound();
     f_t obj         = compute_user_objective(original_lp_, upper_bound_);
     f_t lower       = compute_user_objective(original_lp_, lower_bound);
-    settings_.log.printf(
-      "%s%10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
-      feasible_solution_symbol(thread_type),
-      nodes_explored,
-      nodes_unexplored,
-      obj,
-      lower,
-      leaf_depth,
-      nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0,
-      user_mip_gap<f_t>(obj, lower).c_str(),
-      toc(exploration_stats_.start_time));
+    f_t iter_node   = nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0;
+    settings_.log.printf("%s%10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+                         feasible_solution_symbol(thread_type),
+                         nodes_explored,
+                         nodes_unexplored,
+                         obj,
+                         lower,
+                         leaf_depth,
+                         iter_node,
+                         user_mip_gap<f_t>(obj, lower).c_str(),
+                         toc(exploration_stats_.start_time));
 
     send_solution = true;
   }
@@ -611,18 +611,20 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
   ss << "simplex-" << std::this_thread::get_id() << ".log";
   std::string logname;
   ss >> logname;
-  lp_settings.set_log_filename(logname);
-  lp_settings.log.enable_log_to_file("a+");
+  lp_settings.log.set_log_file(logname, "a");
   lp_settings.log.log_to_console = false;
   lp_settings.log.printf(
-    "%s node id = %d, branch var = %d, fractional val = %f, variable lower bound = %f, variable "
-    "upper bound = %f\n",
+    "%scurrent node: id = %d, depth = %d, branch var = %d, branch dir = %s, fractional val = "
+    "%f, variable lower bound = %f, variable upper bound = %f, branch vstatus = %d\n\n",
     settings_.log.log_prefix.c_str(),
     node_ptr->node_id,
+    node_ptr->depth,
     node_ptr->branch_var,
+    node_ptr->branch_dir == rounding_direction_t::DOWN ? "DOWN" : "UP",
     node_ptr->fractional_val,
     node_ptr->branch_var_lower,
-    node_ptr->branch_var_upper);
+    node_ptr->branch_var_upper,
+    node_ptr->vstatus[node_ptr->branch_var]);
 #endif
 
   // Reset the bound_changed markers
@@ -684,6 +686,10 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
       exploration_stats_.total_lp_iters += node_iter;
     }
   }
+
+#ifdef LOG_NODE_SIMPLEX
+  lp_settings.log.printf("\nLP status: %d\n\n", lp_status);
+#endif
 
   if (lp_status == dual::status_t::DUAL_UNBOUNDED) {
     // Node was infeasible. Do not branch
@@ -810,17 +816,17 @@ void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(mip_node_t<i_t, f_t>* nod
       std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
       i_t nodes_explored   = exploration_stats_.nodes_explored;
       i_t nodes_unexplored = exploration_stats_.nodes_unexplored;
+      f_t iter_node = nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0;
 
-      settings_.log.printf(
-        " %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
-        nodes_explored,
-        nodes_unexplored,
-        obj,
-        user_lower,
-        node->depth,
-        nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0,
-        gap_user.c_str(),
-        now);
+      settings_.log.printf("  %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+                           nodes_explored,
+                           nodes_unexplored,
+                           obj,
+                           user_lower,
+                           node->depth,
+                           iter_node,
+                           gap_user.c_str(),
+                           now);
 
       exploration_stats_.nodes_since_last_log = 0;
       exploration_stats_.last_log             = tic();
@@ -941,17 +947,17 @@ void branch_and_bound_t<i_t, f_t>::explore_subtree(i_t task_id,
         std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
         i_t nodes_explored   = exploration_stats_.nodes_explored;
         i_t nodes_unexplored = exploration_stats_.nodes_unexplored;
+        f_t iter_node = nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0;
 
-        settings_.log.printf(
-          " %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
-          nodes_explored,
-          nodes_unexplored,
-          obj,
-          user_lower,
-          node_ptr->depth,
-          nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0,
-          gap_user.c_str(),
-          now);
+        settings_.log.printf("  %10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+                             nodes_explored,
+                             nodes_unexplored,
+                             obj,
+                             user_lower,
+                             node_ptr->depth,
+                             iter_node,
+                             gap_user.c_str(),
+                             now);
         exploration_stats_.last_log             = tic();
         exploration_stats_.nodes_since_last_log = 0;
       }
