@@ -12,6 +12,9 @@
 
 namespace cuopt::linear_programming::dual_simplex {
 
+// This is a generic heap implementation based
+// on the STL functions. The main benefit here is
+// that we access the underlying container.
 template <typename T, typename Comp>
 class heap_t {
  public:
@@ -57,6 +60,7 @@ class heap_t {
   Comp comp;
 };
 
+// A queue storing the nodes waiting to be explored/dived from.
 template <typename i_t, typename f_t>
 class node_queue_t {
  private:
@@ -71,6 +75,8 @@ class node_queue_t {
     }
   };
 
+  // Comparision function for ordering the nodes based on their lower bound with
+  // lowest one being explored first.
   struct lower_bound_comp {
     bool operator()(const std::shared_ptr<heap_entry_t>& a, const std::shared_ptr<heap_entry_t>& b)
     {
@@ -79,6 +85,8 @@ class node_queue_t {
     }
   };
 
+  // Comparision function for ordering the nodes based on some score (currently the pseudocost
+  // estimate) with the lowest being explored first.
   struct score_comp {
     bool operator()(const std::shared_ptr<heap_entry_t>& a, const std::shared_ptr<heap_entry_t>& b)
     {
@@ -100,6 +108,11 @@ class node_queue_t {
     diving_heap.push(entry);
   }
 
+  // In the current implementation, we are use the active number of subtree to decide
+  // when to stop the execution. We need to increment the counter at the same
+  // time as we pop a node from the queue to avoid some threads exiting
+  // the main loop thinking that the solver has already finished.
+  // This will be not needed in the master-worker model.
   std::optional<mip_node_t<i_t, f_t>*> pop_best_first(omp_atomic_t<i_t>& active_subtree)
   {
     std::lock_guard<omp_mutex_t> lock(mutex);
@@ -113,6 +126,11 @@ class node_queue_t {
     return std::nullopt;
   }
 
+  // In the current implementation, multiple threads can pop the nodes
+  // from the queue, so we need to pass the lower and upper bound here
+  // to avoid other thread fathoming the node (i.e., deleting) before we can read
+  // the variable bounds from the tree.
+  // This will be not needed in the master-worker model.
   std::optional<mip_node_t<i_t, f_t>> pop_diving(std::vector<f_t>& lower,
                                                  std::vector<f_t>& upper,
                                                  std::vector<bool>& bounds_changed)

@@ -274,11 +274,11 @@ std::pair<i_t, f_t> pseudo_costs_t<i_t, f_t>::variable_selection_and_obj_estimat
 
   initialized(num_initialized_down, num_initialized_up, pseudo_cost_down_avg, pseudo_cost_up_avg);
 
-  log.printf("PC: num initialized down %d up %d avg down %e up %e\n",
-             num_initialized_down,
-             num_initialized_up,
-             pseudo_cost_down_avg,
-             pseudo_cost_up_avg);
+  log.debug("PC: num initialized down %d up %d avg down %e up %e\n",
+            num_initialized_down,
+            num_initialized_up,
+            pseudo_cost_down_avg,
+            pseudo_cost_up_avg);
 
   for (i_t k = 0; k < num_fractional; k++) {
     const i_t j = fractional[k];
@@ -314,8 +314,11 @@ std::pair<i_t, f_t> pseudo_costs_t<i_t, f_t>::variable_selection_and_obj_estimat
     }
   }
 
-  log.printf(
-    "pc branching on %d. Value %e. Score %e\n", branch_var, solution[branch_var], score[select]);
+  log.debug("Pseudocost branching on %d. Value %e. Score %e. Obj Estimate %e\n",
+            branch_var,
+            solution[branch_var],
+            score[select],
+            estimate);
 
   return {branch_var, estimate};
 }
