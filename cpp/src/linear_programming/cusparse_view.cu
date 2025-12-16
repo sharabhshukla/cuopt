@@ -100,6 +100,48 @@ cusparse_dn_vec_descr_wrapper_t<f_t>::operator cusparseDnVecDescr_t() const
   return descr_;
 }
 
+// cusparse_dn_mat_descr_wrapper_t implementation
+template <typename f_t>
+cusparse_dn_mat_descr_wrapper_t<f_t>::cusparse_dn_mat_descr_wrapper_t() : need_destruction_(false)
+{
+}
+
+template <typename f_t>
+cusparse_dn_mat_descr_wrapper_t<f_t>::~cusparse_dn_mat_descr_wrapper_t()
+{
+  if (need_destruction_) { RAFT_CUSPARSE_TRY_NO_THROW(cusparseDestroyDnMat(descr_)); }
+}
+
+template <typename f_t>
+cusparse_dn_mat_descr_wrapper_t<f_t>::cusparse_dn_mat_descr_wrapper_t(
+  const cusparse_dn_mat_descr_wrapper_t& other)
+  : descr_(other.descr_), need_destruction_(false)
+{
+}
+
+template <typename f_t>
+cusparse_dn_mat_descr_wrapper_t<f_t>& cusparse_dn_mat_descr_wrapper_t<f_t>::operator=(
+  cusparse_dn_mat_descr_wrapper_t<f_t>&& other)
+{
+  if (need_destruction_) { RAFT_CUSPARSE_TRY(cusparseDestroyDnMat(descr_)); }
+  descr_                  = other.descr_;
+  other.need_destruction_ = false;
+  return *this;
+}
+
+template <typename f_t>
+void cusparse_dn_mat_descr_wrapper_t<f_t>::create(int64_t row, int64_t col, int64_t ld, f_t* values)
+{
+  RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(&descr_, row, col, ld, values, (use_row_row) ? CUSPARSE_ORDER_ROW : CUSPARSE_ORDER_COL));
+  need_destruction_ = true;
+}
+
+template <typename f_t>
+cusparse_dn_mat_descr_wrapper_t<f_t>::operator cusparseDnMatDescr_t() const
+{
+  return descr_;
+}
+
 #define CUDA_VER_12_4_UP (CUDART_VERSION >= 12040)
 
 #if CUDA_VER_12_4_UP
@@ -194,7 +236,7 @@ void my_cusparsespmv_preprocess(cusparseHandle_t handle,
 #if CUDA_VER_12_4_UP
 template <
   typename T,
-  typename std::enable_if_t<std::is_same_v<T, float> || std::is_same_v<T, double>>* = nullptr>
+  typename std::enable_if_t<std::is_same_v<T, float> || std::is_same_v<T, double>>*>
 cusparseStatus_t my_cusparsespmm_preprocess(cusparseHandle_t handle,
                                          cusparseOperation_t opA,
                                          cusparseOperation_t opB,
@@ -457,7 +499,7 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
   }
 
   const rmm::device_scalar<f_t> alpha{1, handle_ptr->get_stream()};
-  const rmm::device_scalar<f_t> beta{1, handle_ptr->get_stream()};
+  const rmm::device_scalar<f_t> beta{0, handle_ptr->get_stream()};
   size_t buffer_size_non_transpose = 0;
   RAFT_CUSPARSE_TRY(
     raft::sparse::detail::cusparsespmv_buffersize(handle_ptr_->get_cusparse_handle(),
@@ -958,12 +1000,23 @@ cusparse_view_t<i_t, f_t>::cusparse_view_t(
 #if MIP_INSTANTIATE_FLOAT
 template class cusparse_sp_mat_descr_wrapper_t<int, float>;
 template class cusparse_dn_vec_descr_wrapper_t<float>;
+template class cusparse_dn_mat_descr_wrapper_t<float>;
 template class cusparse_view_t<int, float>;
 #endif
 #if MIP_INSTANTIATE_DOUBLE
 template class cusparse_sp_mat_descr_wrapper_t<int, double>;
 template class cusparse_dn_vec_descr_wrapper_t<double>;
+template class cusparse_dn_mat_descr_wrapper_t<double>;
 template class cusparse_view_t<int, double>;
+#endif
+
+#if CUDA_VER_12_4_UP
+#if MIP_INSTANTIATE_FLOAT
+template cusparseStatus_t my_cusparsespmm_preprocess<float>(cusparseHandle_t, cusparseOperation_t, cusparseOperation_t, const float*, const cusparseSpMatDescr_t, const cusparseDnMatDescr_t, const float*, const cusparseDnMatDescr_t, cusparseSpMMAlg_t, void*, cudaStream_t);
+#endif
+#if MIP_INSTANTIATE_DOUBLE
+template cusparseStatus_t my_cusparsespmm_preprocess<double>(cusparseHandle_t, cusparseOperation_t, cusparseOperation_t, const double*, const cusparseSpMatDescr_t, const cusparseDnMatDescr_t, const double*, const cusparseDnMatDescr_t, cusparseSpMMAlg_t, void*, cudaStream_t);
+#endif
 #endif
 
 }  // namespace cuopt::linear_programming::detail

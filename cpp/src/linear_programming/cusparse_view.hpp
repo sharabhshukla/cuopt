@@ -59,6 +59,25 @@ class cusparse_dn_vec_descr_wrapper_t {
   bool need_destruction_;
 };
 
+template <typename f_t>
+class cusparse_dn_mat_descr_wrapper_t {
+ public:
+  cusparse_dn_mat_descr_wrapper_t();
+  ~cusparse_dn_mat_descr_wrapper_t();
+
+  cusparse_dn_mat_descr_wrapper_t(const cusparse_dn_mat_descr_wrapper_t& other);
+  cusparse_dn_mat_descr_wrapper_t& operator=(cusparse_dn_mat_descr_wrapper_t&& other);
+  cusparse_dn_mat_descr_wrapper_t& operator=(const cusparse_dn_mat_descr_wrapper_t& other) = delete;
+
+  void create(int64_t row, int64_t col, int64_t ld, f_t* values);
+
+  operator cusparseDnMatDescr_t() const;
+
+ private:
+  cusparseDnMatDescr_t descr_;
+  bool need_destruction_;
+};
+
 template <typename i_t, typename f_t>
 class cusparse_view_t {
  public:
@@ -188,4 +207,22 @@ class cusparse_view_t {
 
   const std::vector<pdlp_climber_strategy_t>& climber_strategies_;
 };
+
+#if CUDART_VERSION >= 12040
+template <
+  typename T,
+  typename std::enable_if_t<std::is_same_v<T, float> || std::is_same_v<T, double>>* = nullptr>
+cusparseStatus_t my_cusparsespmm_preprocess(cusparseHandle_t handle,
+                                         cusparseOperation_t opA,
+                                         cusparseOperation_t opB,
+                                         const T* alpha,
+                                         const cusparseSpMatDescr_t matA,
+                                         const cusparseDnMatDescr_t matB,
+                                         const T* beta,
+                                         const cusparseDnMatDescr_t matC,
+                                         cusparseSpMMAlg_t alg,
+                                         void* externalBuffer,
+                                         cudaStream_t stream);
+#endif
+
 }  // namespace cuopt::linear_programming::detail
