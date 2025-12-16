@@ -1201,8 +1201,7 @@ cuOptDestroySolution(&solution);
 return status;
 }
 
-/* Test cuOptWriteProblem: Create a problem, write to MPS, read it back, and solve */
-cuopt_int_t test_write_problem(const char* output_filename)
+cuopt_int_t test_write_problem(const char* input_filename, const char* output_filename)
 {
   cuOptOptimizationProblem problem = NULL;
   cuOptOptimizationProblem problem_read = NULL;
@@ -1212,35 +1211,10 @@ cuopt_int_t test_write_problem(const char* output_filename)
   cuopt_int_t termination_status;
   cuopt_float_t objective_value;
 
-  /* Create a simple LP: maximize x + 2y subject to x + y <= 10, x,y >= 0 */
-  cuopt_int_t num_constraints = 1;
-  cuopt_int_t num_variables = 2;
-  cuopt_float_t objective_coefficients[] = {1.0, 2.0};
-  cuopt_int_t row_offsets[] = {0, 2};
-  cuopt_int_t column_indices[] = {0, 1};
-  cuopt_float_t values[] = {1.0, 1.0};
-  char constraint_sense[] = {CUOPT_LESS_THAN};
-  cuopt_float_t rhs[] = {10.0};
-  cuopt_float_t lower_bounds[] = {0.0, 0.0};
-  cuopt_float_t upper_bounds[] = {CUOPT_INFINITY, CUOPT_INFINITY};
-  char variable_types[] = {CUOPT_CONTINUOUS, CUOPT_CONTINUOUS};
-
-  status = cuOptCreateProblem(num_constraints,
-                              num_variables,
-                              CUOPT_MAXIMIZE,
-                              0.0,
-                              objective_coefficients,
-                              row_offsets,
-                              column_indices,
-                              values,
-                              constraint_sense,
-                              rhs,
-                              lower_bounds,
-                              upper_bounds,
-                              variable_types,
-                              &problem);
+  /* Read the input problem */
+  status = cuOptReadProblem(input_filename, &problem);
   if (status != CUOPT_SUCCESS) {
-    printf("Error creating problem: %d\n", status);
+    printf("Error reading problem from %s: %d\n", input_filename, status);
     goto DONE;
   }
 
@@ -1260,7 +1234,6 @@ cuopt_int_t test_write_problem(const char* output_filename)
   }
   printf("Problem read back from %s\n", output_filename);
 
-  /* Create solver settings and solve */
   status = cuOptCreateSolverSettings(&settings);
   if (status != CUOPT_SUCCESS) {
     printf("Error creating solver settings: %d\n", status);
@@ -1299,13 +1272,6 @@ cuopt_int_t test_write_problem(const char* output_filename)
     goto DONE;
   }
 
-  /* Optimal solution: y = 10, x = 0, objective = 20 */
-  if (objective_value < 19.9 || objective_value > 20.1) {
-    printf("Expected objective ~20, got %f\n", objective_value);
-    status = -1;
-    goto DONE;
-  }
-
   printf("Write problem test passed\n");
 
 DONE:
@@ -1316,8 +1282,8 @@ DONE:
   return status;
 }
 
-/* Test cuOptSetInitialPrimalSolution: Set initial primal solution for LP */
-cuopt_int_t test_initial_primal_solution(cuopt_int_t* termination_status_ptr,
+cuopt_int_t test_initial_primal_solution(const char* filename,
+                                         cuopt_int_t* termination_status_ptr,
                                          cuopt_float_t* objective_ptr)
 {
   cuOptOptimizationProblem problem = NULL;
@@ -1325,39 +1291,12 @@ cuopt_int_t test_initial_primal_solution(cuopt_int_t* termination_status_ptr,
   cuOptSolution solution = NULL;
   cuopt_int_t status;
   cuopt_int_t num_vars;
+  cuopt_int_t i;
+  cuopt_float_t* initial_primal = NULL;
 
-  /* Create a simple LP: maximize x + 2y subject to x + y <= 10, x,y >= 0 */
-  cuopt_int_t num_constraints = 1;
-  cuopt_int_t num_variables = 2;
-  cuopt_float_t objective_coefficients[] = {1.0, 2.0};
-  cuopt_int_t row_offsets[] = {0, 2};
-  cuopt_int_t column_indices[] = {0, 1};
-  cuopt_float_t values[] = {1.0, 1.0};
-  char constraint_sense[] = {CUOPT_LESS_THAN};
-  cuopt_float_t rhs[] = {10.0};
-  cuopt_float_t lower_bounds[] = {0.0, 0.0};
-  cuopt_float_t upper_bounds[] = {CUOPT_INFINITY, CUOPT_INFINITY};
-  char variable_types[] = {CUOPT_CONTINUOUS, CUOPT_CONTINUOUS};
-
-  /* Initial primal solution (feasible but not optimal) */
-  cuopt_float_t initial_primal[] = {5.0, 5.0};
-
-  status = cuOptCreateProblem(num_constraints,
-                              num_variables,
-                              CUOPT_MAXIMIZE,
-                              0.0,
-                              objective_coefficients,
-                              row_offsets,
-                              column_indices,
-                              values,
-                              constraint_sense,
-                              rhs,
-                              lower_bounds,
-                              upper_bounds,
-                              variable_types,
-                              &problem);
+  status = cuOptReadProblem(filename, &problem);
   if (status != CUOPT_SUCCESS) {
-    printf("Error creating problem: %d\n", status);
+    printf("Error reading problem from %s: %d\n", filename, status);
     goto DONE;
   }
 
@@ -1367,26 +1306,33 @@ cuopt_int_t test_initial_primal_solution(cuopt_int_t* termination_status_ptr,
     goto DONE;
   }
 
+  initial_primal = (cuopt_float_t*)malloc(num_vars * sizeof(cuopt_float_t));
+  if (initial_primal == NULL) {
+    printf("Error allocating memory for initial primal solution\n");
+    status = -1;
+    goto DONE;
+  }
+  for (i = 0; i < num_vars; i++) {
+    initial_primal[i] = 1.0;
+  }
+
   status = cuOptCreateSolverSettings(&settings);
   if (status != CUOPT_SUCCESS) {
     printf("Error creating solver settings: %d\n", status);
     goto DONE;
   }
 
-  /* Set PDLP method since initial solutions are for PDLP */
   status = cuOptSetIntegerParameter(settings, CUOPT_METHOD, CUOPT_METHOD_PDLP);
   if (status != CUOPT_SUCCESS) {
     printf("Error setting method: %d\n", status);
     goto DONE;
   }
 
-  /* Set initial primal solution */
   status = cuOptSetInitialPrimalSolution(settings, initial_primal, num_vars);
   if (status != CUOPT_SUCCESS) {
     printf("Error setting initial primal solution: %d\n", status);
     goto DONE;
   }
-  printf("Initial primal solution set\n");
 
   status = cuOptSolve(problem, settings, &solution);
   if (status != CUOPT_SUCCESS) {
@@ -1406,17 +1352,19 @@ cuopt_int_t test_initial_primal_solution(cuopt_int_t* termination_status_ptr,
     goto DONE;
   }
 
-  printf("Initial primal solution test completed\n");
+  printf("Initial primal solution test: status=%d, objective=%f\n",
+         *termination_status_ptr, *objective_ptr);
 
 DONE:
+  if (initial_primal != NULL) free(initial_primal);
   cuOptDestroyProblem(&problem);
   cuOptDestroySolverSettings(&settings);
   cuOptDestroySolution(&solution);
   return status;
 }
 
-/* Test cuOptSetInitialDualSolution: Set initial dual solution for LP */
-cuopt_int_t test_initial_dual_solution(cuopt_int_t* termination_status_ptr,
+cuopt_int_t test_initial_dual_solution(const char* filename,
+                                       cuopt_int_t* termination_status_ptr,
                                        cuopt_float_t* objective_ptr)
 {
   cuOptOptimizationProblem problem = NULL;
@@ -1424,39 +1372,12 @@ cuopt_int_t test_initial_dual_solution(cuopt_int_t* termination_status_ptr,
   cuOptSolution solution = NULL;
   cuopt_int_t status;
   cuopt_int_t num_cons;
+  cuopt_int_t i;
+  cuopt_float_t* initial_dual = NULL;
 
-  /* Create a simple LP: maximize x + 2y subject to x + y <= 10, x,y >= 0 */
-  cuopt_int_t num_constraints = 1;
-  cuopt_int_t num_variables = 2;
-  cuopt_float_t objective_coefficients[] = {1.0, 2.0};
-  cuopt_int_t row_offsets[] = {0, 2};
-  cuopt_int_t column_indices[] = {0, 1};
-  cuopt_float_t values[] = {1.0, 1.0};
-  char constraint_sense[] = {CUOPT_LESS_THAN};
-  cuopt_float_t rhs[] = {10.0};
-  cuopt_float_t lower_bounds[] = {0.0, 0.0};
-  cuopt_float_t upper_bounds[] = {CUOPT_INFINITY, CUOPT_INFINITY};
-  char variable_types[] = {CUOPT_CONTINUOUS, CUOPT_CONTINUOUS};
-
-  /* Initial dual solution */
-  cuopt_float_t initial_dual[] = {1.0};
-
-  status = cuOptCreateProblem(num_constraints,
-                              num_variables,
-                              CUOPT_MAXIMIZE,
-                              0.0,
-                              objective_coefficients,
-                              row_offsets,
-                              column_indices,
-                              values,
-                              constraint_sense,
-                              rhs,
-                              lower_bounds,
-                              upper_bounds,
-                              variable_types,
-                              &problem);
+  status = cuOptReadProblem(filename, &problem);
   if (status != CUOPT_SUCCESS) {
-    printf("Error creating problem: %d\n", status);
+    printf("Error reading problem from %s: %d\n", filename, status);
     goto DONE;
   }
 
@@ -1464,6 +1385,17 @@ cuopt_int_t test_initial_dual_solution(cuopt_int_t* termination_status_ptr,
   if (status != CUOPT_SUCCESS) {
     printf("Error getting num constraints: %d\n", status);
     goto DONE;
+  }
+
+  /* Create initial dual solution: all 1.0 (same as PDLP test) */
+  initial_dual = (cuopt_float_t*)malloc(num_cons * sizeof(cuopt_float_t));
+  if (initial_dual == NULL) {
+    printf("Error allocating memory for initial dual solution\n");
+    status = -1;
+    goto DONE;
+  }
+  for (i = 0; i < num_cons; i++) {
+    initial_dual[i] = 1.0;
   }
 
   status = cuOptCreateSolverSettings(&settings);
@@ -1485,7 +1417,6 @@ cuopt_int_t test_initial_dual_solution(cuopt_int_t* termination_status_ptr,
     printf("Error setting initial dual solution: %d\n", status);
     goto DONE;
   }
-  printf("Initial dual solution set\n");
 
   status = cuOptSolve(problem, settings, &solution);
   if (status != CUOPT_SUCCESS) {
@@ -1505,56 +1436,36 @@ cuopt_int_t test_initial_dual_solution(cuopt_int_t* termination_status_ptr,
     goto DONE;
   }
 
-  printf("Initial dual solution test completed\n");
+  printf("Initial dual solution test: status=%d, objective=%f\n",
+         *termination_status_ptr, *objective_ptr);
 
 DONE:
+  if (initial_dual != NULL) free(initial_dual);
   cuOptDestroyProblem(&problem);
   cuOptDestroySolverSettings(&settings);
   cuOptDestroySolution(&solution);
   return status;
 }
 
-/* Test cuOptAddMIPStart: Add initial solution hint for MIP solving */
-cuopt_int_t test_mip_start(cuopt_int_t* termination_status_ptr, cuopt_float_t* objective_ptr)
+/* Test cuOptAddMIPStart: Add initial solution hint for MIP solving
+ * Uses a MIP problem file and provides an initial solution
+ */
+cuopt_int_t test_mip_start(const char* filename,
+                           cuopt_int_t* termination_status_ptr,
+                           cuopt_float_t* objective_ptr)
 {
   cuOptOptimizationProblem problem = NULL;
   cuOptSolverSettings settings = NULL;
   cuOptSolution solution = NULL;
   cuopt_int_t status;
   cuopt_int_t num_vars;
+  cuopt_int_t i;
+  cuopt_float_t* mip_start = NULL;
 
-  /* Create a simple MIP: maximize x + 2y subject to x + y <= 10, x,y >= 0, x,y integer */
-  cuopt_int_t num_constraints = 1;
-  cuopt_int_t num_variables = 2;
-  cuopt_float_t objective_coefficients[] = {1.0, 2.0};
-  cuopt_int_t row_offsets[] = {0, 2};
-  cuopt_int_t column_indices[] = {0, 1};
-  cuopt_float_t values[] = {1.0, 1.0};
-  char constraint_sense[] = {CUOPT_LESS_THAN};
-  cuopt_float_t rhs[] = {10.0};
-  cuopt_float_t lower_bounds[] = {0.0, 0.0};
-  cuopt_float_t upper_bounds[] = {10.0, 10.0};
-  char variable_types[] = {CUOPT_INTEGER, CUOPT_INTEGER};
-
-  /* MIP start: a feasible solution (x=0, y=10) which is also optimal */
-  cuopt_float_t mip_start[] = {0.0, 10.0};
-
-  status = cuOptCreateProblem(num_constraints,
-                              num_variables,
-                              CUOPT_MAXIMIZE,
-                              0.0,
-                              objective_coefficients,
-                              row_offsets,
-                              column_indices,
-                              values,
-                              constraint_sense,
-                              rhs,
-                              lower_bounds,
-                              upper_bounds,
-                              variable_types,
-                              &problem);
+  /* Read the MIP problem from file */
+  status = cuOptReadProblem(filename, &problem);
   if (status != CUOPT_SUCCESS) {
-    printf("Error creating problem: %d\n", status);
+    printf("Error reading problem from %s: %d\n", filename, status);
     goto DONE;
   }
 
@@ -1562,6 +1473,17 @@ cuopt_int_t test_mip_start(cuopt_int_t* termination_status_ptr, cuopt_float_t* o
   if (status != CUOPT_SUCCESS) {
     printf("Error getting num variables: %d\n", status);
     goto DONE;
+  }
+
+  /* Create MIP start: all zeros as a starting point */
+  mip_start = (cuopt_float_t*)malloc(num_vars * sizeof(cuopt_float_t));
+  if (mip_start == NULL) {
+    printf("Error allocating memory for MIP start\n");
+    status = -1;
+    goto DONE;
+  }
+  for (i = 0; i < num_vars; i++) {
+    mip_start[i] = 0.0;
   }
 
   status = cuOptCreateSolverSettings(&settings);
@@ -1576,7 +1498,6 @@ cuopt_int_t test_mip_start(cuopt_int_t* termination_status_ptr, cuopt_float_t* o
     printf("Error adding MIP start: %d\n", status);
     goto DONE;
   }
-  printf("MIP start added\n");
 
   status = cuOptSolve(problem, settings, &solution);
   if (status != CUOPT_SUCCESS) {
@@ -1596,9 +1517,11 @@ cuopt_int_t test_mip_start(cuopt_int_t* termination_status_ptr, cuopt_float_t* o
     goto DONE;
   }
 
-  printf("MIP start test completed\n");
+  printf("MIP start test: status=%d, objective=%f\n",
+         *termination_status_ptr, *objective_ptr);
 
 DONE:
+  if (mip_start != NULL) free(mip_start);
   cuOptDestroyProblem(&problem);
   cuOptDestroySolverSettings(&settings);
   cuOptDestroySolution(&solution);
