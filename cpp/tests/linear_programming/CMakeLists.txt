@@ -52,6 +52,10 @@ if (NOT SKIP_C_PYTHON_ADAPTERS)
         ${CUOPT_PRIVATE_CUDA_LIBS}
     )
 
+    if(NOT DEFINED INSTALL_TARGET OR "${INSTALL_TARGET}" STREQUAL "")
+      target_link_options(C_API_TEST PRIVATE -Wl,--enable-new-dtags)
+    endif()
+
     add_test(NAME C_API_TEST COMMAND C_API_TEST)
 
     install(

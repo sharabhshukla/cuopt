@@ -14,6 +14,8 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
 TEST(c_api, int_size) { EXPECT_EQ(test_int_size(), sizeof(int32_t)); }
 
 TEST(c_api, float_size) { EXPECT_EQ(test_float_size(), sizeof(double)); }
@@ -127,4 +129,38 @@ TEST(c_api, test_quadratic_ranged_problem)
   EXPECT_EQ(test_quadratic_ranged_problem(&termination_status, &objective), CUOPT_SUCCESS);
   EXPECT_EQ(termination_status, (int)CUOPT_TERIMINATION_STATUS_OPTIMAL);
   EXPECT_NEAR(objective, -32.0, 1e-3);
+}
+
+TEST(c_api, test_write_problem)
+{
+  std::string temp_file = std::filesystem::temp_directory_path().string() + "/c_api_test_write.mps";
+  EXPECT_EQ(test_write_problem(temp_file.c_str()), CUOPT_SUCCESS);
+  std::filesystem::remove(temp_file);
+}
+
+TEST(c_api, test_initial_primal_solution)
+{
+  cuopt_int_t termination_status;
+  cuopt_float_t objective;
+  EXPECT_EQ(test_initial_primal_solution(&termination_status, &objective), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_NEAR(objective, 20.0, 1e-2);
+}
+
+TEST(c_api, test_initial_dual_solution)
+{
+  cuopt_int_t termination_status;
+  cuopt_float_t objective;
+  EXPECT_EQ(test_initial_dual_solution(&termination_status, &objective), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_NEAR(objective, 20.0, 1e-2);
+}
+
+TEST(c_api, test_mip_start)
+{
+  cuopt_int_t termination_status;
+  cuopt_float_t objective;
+  EXPECT_EQ(test_mip_start(&termination_status, &objective), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_NEAR(objective, 20.0, 1e-2);
 }

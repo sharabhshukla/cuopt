@@ -34,6 +34,12 @@ cuopt_int_t test_quadratic_problem(cuopt_int_t* termination_status_ptr,
                                    cuopt_float_t* objective_ptr);
 cuopt_int_t test_quadratic_ranged_problem(cuopt_int_t* termination_status_ptr,
                                           cuopt_float_t* objective_ptr);
+cuopt_int_t test_write_problem(const char* output_filename);
+cuopt_int_t test_initial_primal_solution(cuopt_int_t* termination_status_ptr,
+                                         cuopt_float_t* objective_ptr);
+cuopt_int_t test_initial_dual_solution(cuopt_int_t* termination_status_ptr,
+                                       cuopt_float_t* objective_ptr);
+cuopt_int_t test_mip_start(cuopt_int_t* termination_status_ptr, cuopt_float_t* objective_ptr);
 
 #ifdef __cplusplus
 }

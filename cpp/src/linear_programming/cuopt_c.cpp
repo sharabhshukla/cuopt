@@ -92,6 +92,25 @@ cuopt_int_t cuOptReadProblem(const char* filename, cuOptOptimizationProblem* pro
   return CUOPT_SUCCESS;
 }
 
+cuopt_int_t cuOptWriteProblem(cuOptOptimizationProblem problem,
+                              const char* filename,
+                              cuopt_int_t format)
+{
+  if (problem == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (filename == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (format != CUOPT_FILE_FORMAT_MPS) { return CUOPT_INVALID_ARGUMENT; }
+
+  problem_and_stream_view_t* problem_and_stream_view =
+    static_cast<problem_and_stream_view_t*>(problem);
+  try {
+    problem_and_stream_view->op_problem->write_to_mps(std::string(filename));
+  } catch (const std::exception& e) {
+    CUOPT_LOG_INFO("Error writing MPS file: %s", e.what());
+    return CUOPT_MPS_FILE_ERROR;
+  }
+  return CUOPT_SUCCESS;
+}
+
 cuopt_int_t cuOptCreateProblem(cuopt_int_t num_constraints,
                                cuopt_int_t num_variables,
                                cuopt_int_t objective_sense,
@@ -700,6 +719,60 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
     static_cast<solver_settings_t<cuopt_int_t, cuopt_float_t>*>(settings);
   try {
     *parameter_value_ptr = solver_settings->get_parameter<cuopt_float_t>(parameter_name);
+  } catch (const std::exception& e) {
+    return CUOPT_INVALID_ARGUMENT;
+  }
+  return CUOPT_SUCCESS;
+}
+
+cuopt_int_t cuOptSetInitialPrimalSolution(cuOptSolverSettings settings,
+                                          const cuopt_float_t* primal_solution,
+                                          cuopt_int_t num_variables)
+{
+  if (settings == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (primal_solution == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (num_variables <= 0) { return CUOPT_INVALID_ARGUMENT; }
+
+  solver_settings_t<cuopt_int_t, cuopt_float_t>* solver_settings =
+    static_cast<solver_settings_t<cuopt_int_t, cuopt_float_t>*>(settings);
+  try {
+    solver_settings->set_initial_pdlp_primal_solution(primal_solution, num_variables);
+  } catch (const std::exception& e) {
+    return CUOPT_INVALID_ARGUMENT;
+  }
+  return CUOPT_SUCCESS;
+}
+
+cuopt_int_t cuOptSetInitialDualSolution(cuOptSolverSettings settings,
+                                        const cuopt_float_t* dual_solution,
+                                        cuopt_int_t num_constraints)
+{
+  if (settings == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (dual_solution == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (num_constraints <= 0) { return CUOPT_INVALID_ARGUMENT; }
+
+  solver_settings_t<cuopt_int_t, cuopt_float_t>* solver_settings =
+    static_cast<solver_settings_t<cuopt_int_t, cuopt_float_t>*>(settings);
+  try {
+    solver_settings->set_initial_pdlp_dual_solution(dual_solution, num_constraints);
+  } catch (const std::exception& e) {
+    return CUOPT_INVALID_ARGUMENT;
+  }
+  return CUOPT_SUCCESS;
+}
+
+cuopt_int_t cuOptAddMIPStart(cuOptSolverSettings settings,
+                             const cuopt_float_t* solution,
+                             cuopt_int_t num_variables)
+{
+  if (settings == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (solution == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (num_variables <= 0) { return CUOPT_INVALID_ARGUMENT; }
+
+  solver_settings_t<cuopt_int_t, cuopt_float_t>* solver_settings =
+    static_cast<solver_settings_t<cuopt_int_t, cuopt_float_t>*>(settings);
+  try {
+    solver_settings->get_mip_settings().add_initial_solution(solution, num_variables);
   } catch (const std::exception& e) {
     return CUOPT_INVALID_ARGUMENT;
   }
