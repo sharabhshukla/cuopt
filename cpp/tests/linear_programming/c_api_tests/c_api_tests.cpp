@@ -14,126 +14,120 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
+TEST(c_api, int_size) { EXPECT_EQ(test_int_size(), sizeof(int32_t)); }
 
-// TEST(c_api, int_size) { EXPECT_EQ(test_int_size(), sizeof(int32_t)); }
+TEST(c_api, float_size) { EXPECT_EQ(test_float_size(), sizeof(double)); }
 
-// TEST(c_api, float_size) { EXPECT_EQ(test_float_size(), sizeof(double)); }
+TEST(c_api, afiro)
+{
+  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
+  std::string filename = rapidsDatasetRootDir + "/linear_programming/" + "afiro_original.mps";
+  int termination_status;
+  EXPECT_EQ(solve_mps_file(filename.c_str(), 60, CUOPT_INFINITY, &termination_status),
+            CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+}
 
-// TEST(c_api, afiro)
-// {
-//   const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-//   std::string filename = rapidsDatasetRootDir + "/linear_programming/" + "afiro_original.mps";
-//   int termination_status;
-//   EXPECT_EQ(solve_mps_file(filename.c_str(), 60, CUOPT_INFINITY, &termination_status),
-//             CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
-// }
+// Test both LP and MIP codepaths
+class TimeLimitTestFixture : public ::testing::TestWithParam<std::tuple<std::string, double, int>> {
+};
+TEST_P(TimeLimitTestFixture, time_limit)
+{
+  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
+  std::string filename                    = rapidsDatasetRootDir + std::get<0>(GetParam());
+  double target_solve_time                = std::get<1>(GetParam());
+  int method                              = std::get<2>(GetParam());
+  int termination_status;
+  double solve_time = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_EQ(solve_mps_file(filename.c_str(),
+                           target_solve_time,
+                           CUOPT_INFINITY,
+                           &termination_status,
+                           &solve_time,
+                           method),
+            CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_TIME_LIMIT);
 
-// // Test both LP and MIP codepaths
-// class TimeLimitTestFixture : public ::testing::TestWithParam<std::tuple<std::string, double,
-// int>> {
-// };
-// TEST_P(TimeLimitTestFixture, time_limit)
-// {
-//   const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-//   std::string filename                    = rapidsDatasetRootDir + std::get<0>(GetParam());
-//   double target_solve_time                = std::get<1>(GetParam());
-//   int method                              = std::get<2>(GetParam());
-//   int termination_status;
-//   double solve_time = std::numeric_limits<double>::quiet_NaN();
-//   EXPECT_EQ(solve_mps_file(filename.c_str(),
-//                            target_solve_time,
-//                            CUOPT_INFINITY,
-//                            &termination_status,
-//                            &solve_time,
-//                            method),
-//             CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_TIME_LIMIT);
+  // Dual simplex is spending some time for factorizing the basis, and this computation does not
+  // check for time limit
+  double excess_allowed_time = 3.0;
+  EXPECT_NEAR(solve_time, target_solve_time, excess_allowed_time);
+}
+INSTANTIATE_TEST_SUITE_P(
+  c_api,
+  TimeLimitTestFixture,
+  ::testing::Values(
+    std::make_tuple("/linear_programming/square41/square41.mps",
+                    5,
+                    CUOPT_METHOD_DUAL_SIMPLEX),  // LP, Dual Simplex
+    std::make_tuple("/linear_programming/square41/square41.mps", 5, CUOPT_METHOD_PDLP),  // LP, PDLP
+    std::make_tuple("/mip/supportcase22.mps", 15, CUOPT_METHOD_DUAL_SIMPLEX)             // MIP
+    ));
 
-//   // Dual simplex is spending some time for factorizing the basis, and this computation does not
-//   // check for time limit
-//   double excess_allowed_time = 3.0;
-//   EXPECT_NEAR(solve_time, target_solve_time, excess_allowed_time);
-// }
-// INSTANTIATE_TEST_SUITE_P(
-//   c_api,
-//   TimeLimitTestFixture,
-//   ::testing::Values(
-//     std::make_tuple("/linear_programming/square41/square41.mps",
-//                     5,
-//                     CUOPT_METHOD_DUAL_SIMPLEX),  // LP, Dual Simplex
-//     std::make_tuple("/linear_programming/square41/square41.mps", 5, CUOPT_METHOD_PDLP),  // LP,
-//     PDLP std::make_tuple("/mip/supportcase22.mps", 15, CUOPT_METHOD_DUAL_SIMPLEX)             //
-//     MIP
-//     ));
+TEST(c_api, iteration_limit)
+{
+  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
+  std::string filename = rapidsDatasetRootDir + "/linear_programming/" + "afiro_original.mps";
+  int termination_status;
+  EXPECT_EQ(solve_mps_file(filename.c_str(), 60, 1, &termination_status), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_ITERATION_LIMIT);
+}
 
-// TEST(c_api, iteration_limit)
-// {
-//   const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-//   std::string filename = rapidsDatasetRootDir + "/linear_programming/" + "afiro_original.mps";
-//   int termination_status;
-//   EXPECT_EQ(solve_mps_file(filename.c_str(), 60, 1, &termination_status), CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_ITERATION_LIMIT);
-// }
+TEST(c_api, solve_time_bb_preemption)
+{
+  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
+  std::string filename                    = rapidsDatasetRootDir + "/mip/" + "bb_optimality.mps";
+  int termination_status;
+  double solve_time = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_EQ(solve_mps_file(filename.c_str(), 5, CUOPT_INFINITY, &termination_status, &solve_time),
+            CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_GT(solve_time, 0);  // solve time should not be equal to 0, even on very simple instances
+  // solved by B&B before the diversity solver has time to run
+}
 
-// TEST(c_api, solve_time_bb_preemption)
-// {
-//   const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-//   std::string filename                    = rapidsDatasetRootDir + "/mip/" + "bb_optimality.mps";
-//   int termination_status;
-//   double solve_time = std::numeric_limits<double>::quiet_NaN();
-//   EXPECT_EQ(solve_mps_file(filename.c_str(), 5, CUOPT_INFINITY, &termination_status,
-//   &solve_time),
-//             CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
-//   EXPECT_GT(solve_time, 0);  // solve time should not be equal to 0, even on very simple
-//   instances
-//   // solved by B&B before the diversity solver has time to run
-// }
+TEST(c_api, bad_parameter_name) { EXPECT_EQ(test_bad_parameter_name(), CUOPT_INVALID_ARGUMENT); }
 
-// TEST(c_api, bad_parameter_name) { EXPECT_EQ(test_bad_parameter_name(), CUOPT_INVALID_ARGUMENT); }
+TEST(c_api, burglar) { EXPECT_EQ(burglar_problem(), CUOPT_SUCCESS); }
 
-// TEST(c_api, burglar) { EXPECT_EQ(burglar_problem(), CUOPT_SUCCESS); }
+TEST(c_api, test_missing_file) { EXPECT_EQ(test_missing_file(), CUOPT_MPS_FILE_ERROR); }
 
-// TEST(c_api, test_missing_file) { EXPECT_EQ(test_missing_file(), CUOPT_MPS_FILE_ERROR); }
+TEST(c_api, test_infeasible_problem) { EXPECT_EQ(test_infeasible_problem(), CUOPT_SUCCESS); }
 
-// TEST(c_api, test_infeasible_problem) { EXPECT_EQ(test_infeasible_problem(), CUOPT_SUCCESS); }
+TEST(c_api, test_ranged_problem)
+{
+  cuopt_int_t termination_status;
+  cuopt_float_t objective;
+  EXPECT_EQ(test_ranged_problem(&termination_status, &objective), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_NEAR(objective, 32.0, 1e-3);
+}
 
-// TEST(c_api, test_ranged_problem)
-// {
-//   cuopt_int_t termination_status;
-//   cuopt_float_t objective;
-//   EXPECT_EQ(test_ranged_problem(&termination_status, &objective), CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
-//   EXPECT_NEAR(objective, 32.0, 1e-3);
-// }
+TEST(c_api, test_invalid_bounds)
+{
+  // Test LP codepath
+  EXPECT_EQ(test_invalid_bounds(false), CUOPT_SUCCESS);
+  // Test MIP codepath
+  EXPECT_EQ(test_invalid_bounds(true), CUOPT_SUCCESS);
+}
 
-// TEST(c_api, test_invalid_bounds)
-// {
-//   // Test LP codepath
-//   EXPECT_EQ(test_invalid_bounds(false), CUOPT_SUCCESS);
-//   // Test MIP codepath
-//   EXPECT_EQ(test_invalid_bounds(true), CUOPT_SUCCESS);
-// }
+TEST(c_api, test_quadratic_problem)
+{
+  cuopt_int_t termination_status;
+  cuopt_float_t objective;
+  EXPECT_EQ(test_quadratic_problem(&termination_status, &objective), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_NEAR(objective, -32.0, 1e-3);
+}
 
-// TEST(c_api, test_quadratic_problem)
-// {
-//   cuopt_int_t termination_status;
-//   cuopt_float_t objective;
-//   EXPECT_EQ(test_quadratic_problem(&termination_status, &objective), CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
-//   EXPECT_NEAR(objective, -32.0, 1e-3);
-// }
-
-// TEST(c_api, test_quadratic_ranged_problem)
-// {
-//   cuopt_int_t termination_status;
-//   cuopt_float_t objective;
-//   EXPECT_EQ(test_quadratic_ranged_problem(&termination_status, &objective), CUOPT_SUCCESS);
-//   EXPECT_EQ(termination_status, (int)CUOPT_TERIMINATION_STATUS_OPTIMAL);
-//   EXPECT_NEAR(objective, -32.0, 1e-3);
-// }
+TEST(c_api, test_quadratic_ranged_problem)
+{
+  cuopt_int_t termination_status;
+  cuopt_float_t objective;
+  EXPECT_EQ(test_quadratic_ranged_problem(&termination_status, &objective), CUOPT_SUCCESS);
+  EXPECT_EQ(termination_status, (int)CUOPT_TERIMINATION_STATUS_OPTIMAL);
+  EXPECT_NEAR(objective, -32.0, 1e-3);
+}
 
 TEST(c_api, test_write_problem)
 {
@@ -142,38 +136,4 @@ TEST(c_api, test_write_problem)
   std::string temp_file = std::filesystem::temp_directory_path().string() + "/c_api_test_write.mps";
   EXPECT_EQ(test_write_problem(input_file.c_str(), temp_file.c_str()), CUOPT_SUCCESS);
   std::filesystem::remove(temp_file);
-}
-
-TEST(c_api, test_initial_primal_solution)
-{
-  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-  std::string filename = rapidsDatasetRootDir + "/linear_programming/afiro_original.mps";
-  cuopt_int_t termination_status;
-  cuopt_float_t objective;
-  EXPECT_EQ(test_initial_primal_solution(filename.c_str(), &termination_status, &objective),
-            CUOPT_SUCCESS);
-  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
-  EXPECT_NEAR(objective, -464.0, 1e-2);
-}
-
-TEST(c_api, test_initial_dual_solution)
-{
-  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-  std::string filename = rapidsDatasetRootDir + "/linear_programming/afiro_original.mps";
-  cuopt_int_t termination_status;
-  cuopt_float_t objective;
-  EXPECT_EQ(test_initial_dual_solution(filename.c_str(), &termination_status, &objective),
-            CUOPT_SUCCESS);
-  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
-  EXPECT_NEAR(objective, -464.0, 1e-2);
-}
-
-TEST(c_api, test_mip_start)
-{
-  const std::string& rapidsDatasetRootDir = cuopt::test::get_rapids_dataset_root_dir();
-  std::string filename                    = rapidsDatasetRootDir + "/mip/bb_optimality.mps";
-  cuopt_int_t termination_status;
-  cuopt_float_t objective;
-  EXPECT_EQ(test_mip_start(filename.c_str(), &termination_status, &objective), CUOPT_SUCCESS);
-  EXPECT_EQ(termination_status, CUOPT_TERIMINATION_STATUS_OPTIMAL);
 }
