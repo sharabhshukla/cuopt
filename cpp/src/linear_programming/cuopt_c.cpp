@@ -11,6 +11,7 @@
 #include <cuopt/linear_programming/solve.hpp>
 #include <cuopt/linear_programming/solver_settings.hpp>
 #include <cuopt/utilities/timestamp_utils.hpp>
+#include <linear_programming/cuopt_c_internal.hpp>
 #include <utilities/logger.hpp>
 
 #include <mps_parser/parser.hpp>
@@ -23,31 +24,6 @@
 
 using namespace cuopt::mps_parser;
 using namespace cuopt::linear_programming;
-
-struct problem_and_stream_view_t {
-  problem_and_stream_view_t()
-    : op_problem(nullptr), stream_view(rmm::cuda_stream_per_thread), handle(stream_view)
-  {
-  }
-  raft::handle_t* get_handle_ptr() { return &handle; }
-  cuopt::linear_programming::optimization_problem_t<cuopt_int_t, cuopt_float_t>* op_problem;
-  rmm::cuda_stream_view stream_view;
-  raft::handle_t handle;
-};
-
-struct solution_and_stream_view_t {
-  solution_and_stream_view_t(bool solution_for_mip, rmm::cuda_stream_view stream_view)
-    : is_mip(solution_for_mip),
-      mip_solution_ptr(nullptr),
-      lp_solution_ptr(nullptr),
-      stream_view(stream_view)
-  {
-  }
-  bool is_mip;
-  mip_solution_t<cuopt_int_t, cuopt_float_t>* mip_solution_ptr;
-  optimization_problem_solution_t<cuopt_int_t, cuopt_float_t>* lp_solution_ptr;
-  rmm::cuda_stream_view stream_view;
-};
 
 int8_t cuOptGetFloatSize() { return sizeof(cuopt_float_t); }
 
@@ -98,6 +74,7 @@ cuopt_int_t cuOptWriteProblem(cuOptOptimizationProblem problem,
 {
   if (problem == nullptr) { return CUOPT_INVALID_ARGUMENT; }
   if (filename == nullptr) { return CUOPT_INVALID_ARGUMENT; }
+  if (strlen(filename) == 0) { return CUOPT_INVALID_ARGUMENT; }
   if (format != CUOPT_FILE_FORMAT_MPS) { return CUOPT_INVALID_ARGUMENT; }
 
   problem_and_stream_view_t* problem_and_stream_view =

@@ -138,6 +138,7 @@ void mps_writer_t<i_t, f_t>::write(const std::string& mps_file_path)
 
   // Keep a single integer section marker by going over constraints twice and writing out
   // integral/nonintegral nonzeros ordered map
+  std::vector<bool> var_in_constraint(n_variables, false);
   std::map<i_t, std::vector<std::pair<i_t, f_t>>> integral_col_nnzs;
   std::map<i_t, std::vector<std::pair<i_t, f_t>>> continuous_col_nnzs;
   for (size_t row_id = 0; row_id < (size_t)n_constraints; row_id++) {
@@ -150,12 +151,37 @@ void mps_writer_t<i_t, f_t>::write(const std::string& mps_file_path)
       } else {
         continuous_col_nnzs[var].emplace_back(row_id, constraint_matrix_values[k]);
       }
+      var_in_constraint[var] = true;
+    }
+  }
+
+  // Record and explicitely declared variables not contained in any constraint and w/ a zero
+  // objective coefficient Necessary as some tools expect variables to be declared in "COLUMNS"
+  // before any "BOUNDS" statements
+  std::vector<i_t> orphan_continuous_vars;
+  std::vector<i_t> orphan_integer_vars;
+  for (i_t var = 0; var < n_variables; ++var) {
+    if (!var_in_constraint[var] && objective_coefficients[var] == 0) {
+      if (variable_types[var] == 'I') {
+        orphan_integer_vars.push_back(var);
+      } else {
+        orphan_continuous_vars.push_back(var);
+      }
     }
   }
 
   for (size_t is_integral = 0; is_integral < 2; is_integral++) {
-    auto& col_map = is_integral ? integral_col_nnzs : continuous_col_nnzs;
+    auto& col_map     = is_integral ? integral_col_nnzs : continuous_col_nnzs;
+    auto& orphan_vars = is_integral ? orphan_integer_vars : orphan_continuous_vars;
     if (is_integral) mps_file << "    MARK0001  'MARKER'                 'INTORG'\n";
+    for (auto& var_id : orphan_vars) {
+      std::string col_name = var_id < problem_.get_variable_names().size()
+                               ? problem_.get_variable_names()[var_id]
+                               : "C" + std::to_string(var_id);
+      mps_file << "    " << col_name << " "
+               << (problem_.get_objective_name().empty() ? "OBJ" : problem_.get_objective_name())
+               << " 0\n";
+    }
     for (auto& [var_id, nnzs] : col_map) {
       std::string col_name = var_id < problem_.get_variable_names().size()
                                ? problem_.get_variable_names()[var_id]

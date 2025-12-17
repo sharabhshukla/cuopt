@@ -734,6 +734,8 @@ cuopt_int_t cuOptSetInitialDualSolution(cuOptSolverSettings settings,
  *            of size num_variables containing the solution values.
  * @param[in] num_variables - The number of variables (size of the solution array).
  *
+ * @attention Currently unsupported with presolve on.
+ *
  * @return A status code indicating success or failure.
  */
 cuopt_int_t cuOptAddMIPStart(cuOptSolverSettings settings,
