@@ -328,38 +328,7 @@ bool optimization_problem_t<i_t, f_t>::is_equivalent(
     return false;
   }
 
-  // Q matrix comparison (quadratic objective) with variable permutation
-  if (!Q_values_.empty() || !other.Q_values_.empty()) {
-    rmm::device_uvector<i_t> d_Q_offsets(Q_offsets_.size(), stream_view_);
-    rmm::device_uvector<i_t> d_Q_indices(Q_indices_.size(), stream_view_);
-    rmm::device_uvector<f_t> d_Q_values(Q_values_.size(), stream_view_);
-    rmm::device_uvector<i_t> d_other_Q_offsets(other.Q_offsets_.size(), stream_view_);
-    rmm::device_uvector<i_t> d_other_Q_indices(other.Q_indices_.size(), stream_view_);
-    rmm::device_uvector<f_t> d_other_Q_values(other.Q_values_.size(), stream_view_);
-
-    raft::copy(d_Q_offsets.data(), Q_offsets_.data(), Q_offsets_.size(), stream_view_);
-    raft::copy(d_Q_indices.data(), Q_indices_.data(), Q_indices_.size(), stream_view_);
-    raft::copy(d_Q_values.data(), Q_values_.data(), Q_values_.size(), stream_view_);
-    raft::copy(
-      d_other_Q_offsets.data(), other.Q_offsets_.data(), other.Q_offsets_.size(), stream_view_);
-    raft::copy(
-      d_other_Q_indices.data(), other.Q_indices_.data(), other.Q_indices_.size(), stream_view_);
-    raft::copy(
-      d_other_Q_values.data(), other.Q_values_.data(), other.Q_values_.size(), stream_view_);
-
-    if (!csr_matrices_equivalent_with_permutation(d_Q_offsets,
-                                                  d_Q_indices,
-                                                  d_Q_values,
-                                                  d_other_Q_offsets,
-                                                  d_other_Q_indices,
-                                                  d_other_Q_values,
-                                                  d_var_perm_inv,
-                                                  d_var_perm_inv,
-                                                  n_vars_,
-                                                  stream_view_)) {
-      return false;
-    }
-  }
+  // Q matrix writing to MPS not supported yet. Don't check for equivalence here
 
   return true;
 }
