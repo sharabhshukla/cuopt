@@ -10,6 +10,18 @@
 namespace cuopt::linear_programming::dual_simplex {
 
 template <typename i_t, typename f_t>
+bnb_task_settings_t<i_t, f_t> get_default_diving_settings(bnb_task_type_t type)
+{
+  return bnb_task_settings_t<i_t, f_t>{.type                   = type,
+                                       .is_enabled             = true,
+                                       .num_tasks              = -1,
+                                       .min_node_depth         = 0,
+                                       .node_limit             = 500,
+                                       .iteration_limit_factor = 0.05,
+                                       .backtrack              = 5};
+}
+
+template <typename i_t, typename f_t>
 branch_variable_t<i_t> line_search_diving(const std::vector<i_t>& fractional,
                                           const std::vector<f_t>& solution,
                                           const std::vector<f_t>& root_solution,
@@ -273,6 +285,9 @@ branch_variable_t<i_t> coefficient_diving(const lp_problem_t<i_t, f_t>& lp_probl
 }
 
 #ifdef DUAL_SIMPLEX_INSTANTIATE_DOUBLE
+
+template bnb_task_settings_t<int, double> get_default_diving_settings(bnb_task_type_t type);
+
 template branch_variable_t<int> line_search_diving(const std::vector<int>& fractional,
                                                    const std::vector<double>& solution,
                                                    const std::vector<double>& root_solution,

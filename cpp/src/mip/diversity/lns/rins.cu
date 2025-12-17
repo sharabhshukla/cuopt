@@ -256,21 +256,14 @@ void rins_t<i_t, f_t>::run_rins()
   branch_and_bound_settings.absolute_mip_gap_tol = context.settings.tolerances.absolute_mip_gap;
   branch_and_bound_settings.relative_mip_gap_tol =
     std::min(current_mip_gap, (f_t)settings.target_mip_gap);
-  branch_and_bound_settings.integer_tol     = context.settings.tolerances.integrality_tolerance;
-  branch_and_bound_settings.num_threads     = 2;
-  branch_and_bound_settings.num_bfs_threads = 1;
+  branch_and_bound_settings.integer_tol = context.settings.tolerances.integrality_tolerance;
 
   // In the future, let RINS use all the diving heuristics. For now,
   // restricting to guided diving.
-  branch_and_bound_settings.diving_settings.num_diving_tasks           = 1;
-  branch_and_bound_settings.diving_settings.disable_line_search_diving = true;
-  branch_and_bound_settings.diving_settings.disable_coefficient_diving = true;
-
-  if (context.settings.disable_guided_diving) {
-    branch_and_bound_settings.diving_settings.disable_guided_diving = true;
-  } else {
-    branch_and_bound_settings.diving_settings.disable_pseudocost_diving = true;
-  }
+  branch_and_bound_settings.bnb_task_settings[dual_simplex::PSEUDOCOST_DIVING].is_enabled  = false;
+  branch_and_bound_settings.bnb_task_settings[dual_simplex::LINE_SEARCH_DIVING].is_enabled = false;
+  branch_and_bound_settings.bnb_task_settings[dual_simplex::COEFFICIENT_DIVING].is_enabled = false;
+  branch_and_bound_settings.set_bnb_tasks(2);
 
   branch_and_bound_settings.log.log           = false;
   branch_and_bound_settings.log.log_prefix    = "[RINS] ";
