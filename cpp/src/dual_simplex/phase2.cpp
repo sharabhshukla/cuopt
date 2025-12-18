@@ -3177,6 +3177,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                           100.0 * dense_delta_z / (sparse_delta_z + dense_delta_z));
       ft.print_stats();
     }
+    if (settings.inside_mip && settings.concurrent_halt != nullptr) {
+      settings.log.debug("Setting concurrent halt in Dual Simplex Phase 2\n");
+      *settings.concurrent_halt = 1;
+    }
   }
 
   // printf("Iterations: %d, time taken: %f\n", iter, toc(start_time));

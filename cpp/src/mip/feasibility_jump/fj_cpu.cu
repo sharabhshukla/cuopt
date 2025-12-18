@@ -1132,10 +1132,12 @@ static void perturb(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
   // MEMORY OPS: Loop over sampled variables (2 iterations typically)
   for (auto var_idx : sampled_vars) {
     // ARRAY READ: h_var_bounds[var_idx] - 1 read per iteration
-    f_t lb  = ceil(std::max(get_lower(fj_cpu.h_var_bounds[var_idx].get()), -1e7));
-    f_t ub  = floor(std::min(get_upper(fj_cpu.h_var_bounds[var_idx].get()), 1e7));
+    f_t lb  = std::max(get_lower(fj_cpu.h_var_bounds[var_idx].get()), -1e7);
+    f_t ub  = std::min(get_upper(fj_cpu.h_var_bounds[var_idx].get()), 1e7);
     f_t val = lb + (ub - lb) * rng.next_double();
     if (is_integer_var<i_t, f_t>(fj_cpu, var_idx)) {
+      lb  = std::ceil(lb);
+      ub  = std::floor(ub);
       val = std::round(val);
       val = std::min(std::max(val, lb), ub);
     }
@@ -1295,6 +1297,13 @@ static void init_fj_cpu(fj_cpu_climber_t<i_t, f_t>& fj_cpu,
 template <typename i_t, typename f_t>
 static void sanity_checks(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
 {
+  // Check that each variable is within its bounds
+  for (i_t var_idx = 0; var_idx < fj_cpu.view.pb.n_variables; ++var_idx) {
+    f_t val = fj_cpu.h_assignment[var_idx];
+    cuopt_assert(fj_cpu.view.pb.check_variable_within_bounds(var_idx, val),
+                 "Variable is out of bounds");
+  }
+
   // Check that each violated constraint is actually violated and not present in
   // satisfied_constraints
   for (const auto& cstr_idx : fj_cpu.violated_constraints) {
@@ -1337,12 +1346,13 @@ std::unique_ptr<fj_cpu_climber_t<i_t, f_t>> fj_t<i_t, f_t>::create_cpu_climber(
   const std::vector<f_t>& left_weights,
   const std::vector<f_t>& right_weights,
   f_t objective_weight,
+  std::atomic<bool>& preemption_flag,
   fj_settings_t settings,
   bool randomize_params)
 {
   raft::common::nvtx::range scope("fj_cpu_init");
 
-  auto fj_cpu = std::make_unique<fj_cpu_climber_t<i_t, f_t>>();
+  auto fj_cpu = std::make_unique<fj_cpu_climber_t<i_t, f_t>>(preemption_flag);
 
   // Initialize fj_cpu with all the data
   init_fj_cpu(*fj_cpu, solution, left_weights, right_weights, objective_weight);
@@ -1373,7 +1383,7 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
   fj_cpu.prev_best_objective   = fj_cpu.h_best_objective;
   fj_cpu.iterations_since_best = 0;
 
-  while (!fj_cpu.halted) {
+  while (!fj_cpu.halted && !fj_cpu.preemption_flag.load()) {
     // Check if 5 seconds have passed
     auto now = std::chrono::high_resolution_clock::now();
     if (in_time_limit < std::numeric_limits<f_t>::infinity() &&
