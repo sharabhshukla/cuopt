@@ -5,10 +5,9 @@
  */
 /* clang-format on */
 
-#include <omp.h>
-#include <algorithm>
 #include <dual_simplex/branch_and_bound.hpp>
 #include <dual_simplex/basis_solves.hpp>
+#include <dual_simplex/cuts.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/logger.hpp>
 #include <dual_simplex/mip_node.hpp>
@@ -20,6 +19,9 @@
 #include <dual_simplex/tic_toc.hpp>
 #include <dual_simplex/user_problem.hpp>
 
+#include <omp.h>
+
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -255,6 +257,7 @@ i_t branch_and_bound_t<i_t, f_t>::get_heap_size()
 template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solution)
 {
+  mutex_original_lp_.lock();
   if (solution.size() != original_problem_.num_cols) {
     settings_.log.printf(
       "Solution size mismatch %ld %d\n", solution.size(), original_problem_.num_cols);
@@ -263,16 +266,22 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
   crush_primal_solution<i_t, f_t>(
     original_problem_, original_lp_, solution, new_slacks_, crushed_solution);
   f_t obj             = compute_objective(original_lp_, crushed_solution);
+  mutex_original_lp_.unlock();
   bool is_feasible    = false;
   bool attempt_repair = false;
   mutex_upper_.lock();
-  if (obj < upper_bound_) {
+  f_t current_upper_bound = upper_bound_;
+  mutex_upper_.unlock();
+  if (obj < current_upper_bound) {
     f_t primal_err;
     f_t bound_err;
     i_t num_fractional;
+    mutex_original_lp_.lock();
     is_feasible = check_guess(
       original_lp_, settings_, var_types_, crushed_solution, primal_err, bound_err, num_fractional);
-    if (is_feasible) {
+    mutex_original_lp_.unlock();
+    mutex_upper_.lock();
+    if (is_feasible && obj < upper_bound_) {
       upper_bound_ = obj;
       incumbent_.set_incumbent_solution(obj, crushed_solution);
     } else {
@@ -287,8 +296,8 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
           num_fractional);
       }
     }
+    mutex_upper_.unlock();
   }
-  mutex_upper_.unlock();
 
   if (is_feasible) {
     if (status_ == mip_exploration_status_t::RUNNING) {
@@ -297,7 +306,7 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
       std::string gap = user_mip_gap<f_t>(user_obj, user_lower);
 
       settings_.log.printf(
-        "H                           %+13.6e    %+10.6e                        %s %9.2f\n",
+        "H                                %+13.6e    %+10.6e                        %s %9.2f\n",
         user_obj,
         user_lower,
         gap.c_str(),
@@ -410,7 +419,7 @@ void branch_and_bound_t<i_t, f_t>::repair_heuristic_solutions()
           std::string user_gap = user_mip_gap<f_t>(obj, lower);
 
           settings_.log.printf(
-            "H                        %+13.6e  %+10.6e                      %s %9.2f\n",
+            "H                           %+13.6e    %+10.6e                              %s %9.2f\n",
             obj,
             lower,
             user_gap.c_str(),
@@ -1136,6 +1145,9 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       "|  Time  |\n");
   }
 
+  cut_pool_t<i_t, f_t> cut_pool(original_lp_.num_cols, settings_);
+  cut_generation_t<i_t, f_t> cut_generation(cut_pool);
+
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
 #ifdef PRINT_SOLUTION
@@ -1173,537 +1185,116 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         settings_.log.printf("Fractional variable %d lower %e value %e upper %e\n", j, original_lp_.lower[j], root_relax_soln_.x[j], original_lp_.upper[j]);
       }
 #endif
-      // Let's look for Gomory cuts
-      // Compute b_bar
-      std::vector<f_t> b_bar(original_lp_.num_rows);
-      basis_update.b_solve(original_lp_.rhs, b_bar);
 
-      std::vector<f_t> nonbasic_mark(original_lp_.num_cols, 0);
-      for (i_t j : nonbasic_list) {
-        if (j < 0 || j >= original_lp_.num_cols) {
-          settings_.log.printf("nonbasic_list out of bounds %d num_cols %d\n", j, original_lp_.num_cols);
-          exit(1);
-        }
-        nonbasic_mark[j] = 1;
-      }
+      // Generate cuts and add them to the cut pool
+      cut_generation.generate_cuts(original_lp_, settings_, Arow, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
 
-      std::vector<f_t> x_workspace(original_lp_.num_cols, 0.0);
-      std::vector<i_t> x_mark(original_lp_.num_cols, 0);
-
-      std::vector<i_t> abar_indices;
-      abar_indices.reserve(original_lp_.num_cols);
-
-      std::vector<i_t> has_lower(original_lp_.num_cols, 0);
-      std::vector<i_t> has_upper(original_lp_.num_cols, 0);
-
-      bool needs_complement = false;
-      for (i_t j = 0; j < original_lp_.num_cols; j++) {
-        if (original_lp_.lower[j] < 0) {
-          settings_.log.printf(
-            "Variable %d has negative lower bound %e\n", j, original_lp_.lower[j]);
-          exit(1);
-        }
-        const f_t uj      = original_lp_.upper[j];
-        const f_t lj      = original_lp_.lower[j];
-        if (uj != inf || lj != 0.0) {
-          needs_complement = true;
-        }
-        const f_t xstar_j = root_relax_soln_.x[j];
-        if (uj < inf) {
-          if (uj - xstar_j <= xstar_j - lj) {
-            has_upper[j] = 1;
-          } else {
-            has_lower[j] = 1;
-          }
-          continue;
-        }
-
-        if (lj > -inf) {
-          has_lower[j] = 1;
-        }
-      }
-#ifdef PRINT_COMPLEMENT_INFO
-      settings_.log.printf("needs_complement %d\n", needs_complement);
-#endif
-
-      csr_matrix_t<i_t, f_t> C(0, original_lp_.num_cols, 0);
-      C.row_start[0] = 0;
+      // Score the cuts
+      cut_pool.score_cuts(root_relax_soln_.x);
+      // Get the best cuts from the cut pool
+      csr_matrix_t<i_t, f_t> cuts_to_add(0, original_lp_.num_cols, 0);
       std::vector<f_t> cut_rhs;
+      i_t num_cuts = cut_pool.get_best_cuts(cuts_to_add, cut_rhs);
 
-      for (i_t i = 0; i < original_lp_.num_rows; i++) {
-        const i_t j = basic_list[i];
-        //settings_.log.printf(
-        //  "Variable %d type %d val %e\n", j, var_types_[j], root_relax_soln_.x[j]);
-        if (var_types_[j] != variable_type_t::INTEGER) { continue; }
-        const f_t x_j = root_relax_soln_.x[j];
-        if (std::abs(x_j - std::round(x_j)) < settings_.integer_tol) { continue; }
-#ifdef PRINT_CUT_INFO
-        settings_.log.printf("Generating cut for variable %d relaxed value %e row %d\n", j, x_j, i);
-#endif
-#ifdef PRINT_BASIS
-        for (i_t h = 0; h < basic_list.size(); h++) {
-          settings_.log.printf("basic_list[%d] = %d\n", h, basic_list[h]);
-        }
-#endif
+      cuts_to_add.check_matrix();
 
-        // Solve B^T u_bar = e_i
-        sparse_vector_t<i_t, f_t> e_i(original_lp_.num_rows, 1);
-        e_i.i[0] = i;
-        e_i.x[0] = 1.0;
-        sparse_vector_t<i_t, f_t> u_bar(original_lp_.num_rows, 0);
-        basis_update.b_transpose_solve(e_i, u_bar);
-
-        std::vector<f_t> u_bar_dense(original_lp_.num_rows);
-        u_bar.to_dense(u_bar_dense);
-
-        std::vector<f_t> BTu_bar(original_lp_.num_rows);
-        b_transpose_multiply(original_lp_, basic_list, u_bar_dense, BTu_bar);
-        for (i_t k = 0; k < original_lp_.num_rows; k++) {
-          if (k == i) {
-            if (std::abs(BTu_bar[k] - 1.0) > 1e-6) {
-              settings_.log.printf("BTu_bar[%d] = %e i %d\n", k, BTu_bar[k], i);
-              exit(1);
-            }
-          } else {
-            if (std::abs(BTu_bar[k]) > 1e-6) {
-              settings_.log.printf("BTu_bar[%d] = %e i %d\n", k, BTu_bar[k], i);
-              exit(1);
-            }
-          }
-        }
-
-        // Compute a_bar = N^T u_bar
-        // TODO: This is similar to a function in phase2 of dual simplex. See if it can be reused.
-        const i_t nz_ubar = u_bar.i.size();
-        for (i_t k = 0; k < nz_ubar; k++) {
-          const i_t ii        = u_bar.i[k];
-          const f_t u_bar_i   = u_bar.x[k];
-          const i_t row_start = Arow.col_start[ii];
-          const i_t row_end   = Arow.col_start[ii + 1];
-          for (i_t p = row_start; p < row_end; p++) {
-            const i_t jj = Arow.i[p];
-            if (nonbasic_mark[jj] == 1) {
-              x_workspace[jj] += u_bar_i * Arow.x[p];
-              if (!x_mark[jj]) {
-                x_mark[jj] = 1;
-                abar_indices.push_back(jj);
-              }
-            }
-          }
-        }
-
-        sparse_vector_t<i_t, f_t> a_bar(original_lp_.num_cols, abar_indices.size() + 1);
-        for (i_t k = 0; k < abar_indices.size(); k++) {
-          const i_t jj = abar_indices[k];
-          a_bar.i[k]   = jj;
-          a_bar.x[k]   = x_workspace[jj];
-        }
-
-        // Clear the workspace
-        for (i_t jj : abar_indices) {
-          x_workspace[jj] = 0.0;
-          x_mark[jj]      = 0;
-        }
-        abar_indices.clear();
-
-        // We should now have the base inequality
-        // x_j + a_bar^T x_N >= b_bar_i
-        // We add x_j into a_bar so that everything is in a single sparse_vector_t
-        a_bar.i[a_bar.i.size() - 1] = j;
-        a_bar.x[a_bar.x.size() - 1] = 1.0;
-
-        std::vector<f_t> a_bar_dense(original_lp_.num_cols);
-        a_bar.to_dense(a_bar_dense);
-
-        f_t a_bar_dense_dot = dot<i_t, f_t>(a_bar_dense, root_relax_soln_.x);
-        if (std::abs(a_bar_dense_dot - b_bar[i]) > 1e-6) {
-          settings_.log.printf("a_bar_dense_dot = %e b_bar[%d] = %e\n", a_bar_dense_dot, i, b_bar[i]);
-          settings_.log.printf("x_j %e b_bar_i %e\n", x_j, b_bar[i]);
-          exit(1);
-        }
-
-        // Skip cuts that are shallow
-        const f_t shallow_tol = 1e-2;
-        if (std::abs(x_j - std::round(x_j)) < shallow_tol) {
-          //settings_.log.printf("Skipping shallow cut %d. b_bar[%d] = %e x_j %e\n", i, i, b_bar[i], x_j);
-          continue;
-        }
-
-        const f_t f_val = b_bar[i] - std::floor(b_bar[i]);
-        if (f_val < 0.01 || f_val > 0.99) {
-          settings_.log.printf("Skipping cut %d. b_bar[%d] = %e f_val %e\n", i, i, b_bar[i], f_val);
-          continue;
-        }
-
-#ifdef PRINT_BASE_INEQUALITY
-        // Print out the base inequality
-        for (i_t k = 0; k < a_bar.i.size(); k++) {
-          const i_t jj = a_bar.i[k];
-          const f_t aj = a_bar.x[k];
-          settings_.log.printf("a_bar[%d] = %e\n", k, aj);
-        }
-        settings_.log.printf("b_bar[%d] = %e\n", i, b_bar[i]);
-#endif
-
-        auto f = [](f_t q_1, f_t q_2) -> f_t {
-          f_t q_1_hat = q_1 - std::floor(q_1);
-          f_t q_2_hat = q_2 - std::floor(q_2);
-          return std::min(q_1_hat, q_2_hat) + q_2_hat * std::floor(q_1);
-        };
-
-        auto h = [](f_t q) -> f_t { return std::max(q, 0.0); };
-
-
-        std::vector<i_t> cut_indices;
-        cut_indices.reserve(a_bar.i.size());
-        f_t R;
-        if (!needs_complement) {
-          R = (b_bar[i] - std::floor(b_bar[i])) * std::ceil(b_bar[i]);
-
-          for (i_t k = 0; k < a_bar.i.size(); k++) {
-            const i_t jj = a_bar.i[k];
-            f_t aj       = a_bar.x[k];
-            if (var_types_[jj] == variable_type_t::INTEGER) {
-              x_workspace[jj] += f(aj, b_bar[i]);
-              if (!x_mark[jj] && x_workspace[jj] != 0.0) {
-                x_mark[jj] = 1;
-                cut_indices.push_back(jj);
-              }
-            } else {
-              x_workspace[jj] += h(aj);
-              if (!x_mark[jj] && x_workspace[jj] != 0.0) {
-                x_mark[jj] = 1;
-                cut_indices.push_back(jj);
-              }
-            }
-          }
-        } else {
-          // Compute r
-          f_t r = b_bar[i];
-          for (i_t k = 0; k < a_bar.i.size(); k++) {
-            const i_t jj = a_bar.i[k];
-            if (has_upper[jj]) {
-              const f_t uj = original_lp_.upper[jj];
-              r -= uj * a_bar.x[k];
-              continue;
-            }
-            if (has_lower[jj]) {
-              const f_t lj = original_lp_.lower[jj];
-              r -= lj * a_bar.x[k];
-            }
-          }
-
-          // Compute R
-          R = std::ceil(r) * (r - std::floor(r));
-          for (i_t k = 0; k < a_bar.i.size(); k++) {
-            const i_t jj = a_bar.i[k];
-            const f_t aj = a_bar.x[k];
-            if (has_upper[jj]) {
-              const f_t uj = original_lp_.upper[jj];
-              if (var_types_[jj] == variable_type_t::INTEGER) {
-                R -= f(-aj, r) * uj;
-              } else {
-                R -= h(-aj) * uj;
-              }
-            } else if (has_lower[jj]) {
-              const f_t lj = original_lp_.lower[jj];
-              if (var_types_[jj] == variable_type_t::INTEGER) {
-                R += f(aj, r) * lj;
-              } else {
-                R += h(aj) * lj;
-              }
-            }
-          }
-
-          // Compute the cut coefficients
-          for (i_t k = 0; k < a_bar.i.size(); k++) {
-            const i_t jj = a_bar.i[k];
-            const f_t aj = a_bar.x[k];
-            if (has_upper[jj]) {
-              if (var_types_[jj] == variable_type_t::INTEGER) {
-                // Upper intersect I
-                x_workspace[jj] -= f(-aj, r);
-                if (!x_mark[jj] && x_workspace[jj] != 0.0) {
-                  x_mark[jj] = 1;
-                  cut_indices.push_back(jj);
-                }
-              } else {
-                // Upper intersect C
-                f_t h_j = h(-aj);
-                if (h_j != 0.0) {
-                  x_workspace[jj] -= h_j;
-                  if (!x_mark[jj]) {
-                    x_mark[jj] = 1;
-                    cut_indices.push_back(jj);
-                  }
-                }
-              }
-            } else if (var_types_[jj] == variable_type_t::INTEGER) {
-              // I \ Upper
-              x_workspace[jj] += f(aj, r);
-              if (!x_mark[jj] && x_workspace[jj] != 0.0) {
-                x_mark[jj] = 1;
-                cut_indices.push_back(jj);
-              }
-            } else {
-              // C \ Upper
-              f_t h_j = h(aj);
-              if (h_j != 0.0) {
-                x_workspace[jj] += h_j;
-                if (!x_mark[jj]) {
-                  x_mark[jj] = 1;
-                  cut_indices.push_back(jj);
-                }
-              }
-            }
-          }
-        }
-
-        sparse_vector_t<i_t, f_t> cut(original_lp_.num_cols, 0);
-        cut.i.reserve(cut_indices.size());
-        cut.x.reserve(cut_indices.size());
-        for (i_t k = 0; k < cut_indices.size(); k++) {
-          const i_t jj = cut_indices[k];
-
-          // Check for small coefficients
-          const f_t aj = x_workspace[jj];
-          if (std::abs(aj) < 1e-6) {
-            if (aj >= 0.0 && original_lp_.upper[jj] < inf) {
-              // Move this to the right-hand side
-              //settings_.log.printf("Moving %e to the right-hand side for variable %d\n", aj * original_lp_.upper[jj], jj);
-              R -= aj * original_lp_.upper[jj];
-              continue;
-            } else if (aj <= 0.0 && original_lp_.lower[jj] > -inf) {
-              //settings_.log.printf("Moving %e to the right-hand side for variable %d\n", aj * original_lp_.lower[jj], jj);
-              R += aj * original_lp_.lower[jj];
-              continue;
-            }
-            else {
-              //settings_.log.printf("Small coefficient %e for variable %d lower %e upper %e\n", aj, jj, original_lp_.lower[jj], original_lp_.upper[jj]);
-            }
-          }
-          cut.i.push_back(jj);
-          cut.x.push_back(x_workspace[jj]);
-        }
-
-        // Clear the workspace
-        for (i_t jj : cut_indices) {
-          x_workspace[jj] = 0.0;
-          x_mark[jj]      = 0;
-        }
-
-        if (cut.x.size() == 0)
-        {
-          continue;
-        }
-        if (cut.x.size() >= 0.7 * original_lp_.num_cols)
-       {
-          settings_.log.printf("Cut %d has %d nonzeros. Skipping because it is too dense %.2f\n", i, cut.x.size(), static_cast<f_t>(cut.x.size()) / original_lp_.num_cols);
-          continue;
-        }
-
-        // Sort the coefficients by their index
-        cut.sort();
-        // The new cut is: g'*x >= R
-        // But we want to have it in the form h'*x <= b
-        cut.negate();
-        C.append_row(cut);
-        cut_rhs.push_back(-R);
-      }
-
-      csc_matrix_t<i_t, f_t> C_col(C.m, C.n, 0);
-      C.to_compressed_col(C_col);
-#ifdef PRINT_CUTS
-      C_col.print_matrix();
-#endif
-
-      C.check_matrix();
-#ifdef PRINT_CUT_RHS
-      for (i_t k = 0; k < cut_rhs.size(); k++) {
-        settings_.log.printf("cut_rhs[%d] = %e\n", k, cut_rhs[k]);
-      }
-#endif
-
-#ifdef PRINT_CUT_INFO
-      settings_.log.printf("C nz %d\n", C.row_start[C.m]);
-      settings_.log.printf("C m %d cut rhs size %d\n", C.m, cut_rhs.size());
-      settings_.log.printf("original_lp_.num_cols %d\n", original_lp_.num_cols);
-#endif
-
-#ifdef PRINT_OPTIMAL
-      for (i_t j = 0; j < original_lp_.num_cols; j++) {
-        lp_settings.log.printf("x[%d] = %e\n", j, root_relax_soln_.x[j]);
-      }
-#endif
-
-      // Check to see that this is a cut i.e C*x > d
-      std::vector<f_t> Cx(C.m);
-      matrix_vector_multiply(C_col, 1.0, root_relax_soln_.x, 0.0, Cx);
-      f_t min_cut_violation = inf;
-      for (i_t k = 0; k < Cx.size(); k++) {
-        //lp_settings.log.printf("Cx[%d] = %e cut_rhs[%d] = %e\n", k, Cx[k], k, cut_rhs[k]);
-        if (Cx[k] <= cut_rhs[k]) {
-          settings_.log.printf("C*x <= d for cut %d\n", k);
-          exit(1);
-        }
-        min_cut_violation = std::min(min_cut_violation, Cx[k] - cut_rhs[k]);
-      }
 #ifdef PRINT_MIN_CUT_VIOLATION
+      f_t min_cut_violation = minimum_violation(cuts_to_add, cut_rhs, root_relax_soln_.x);
       settings_.log.printf("Min cut violation %e\n", min_cut_violation);
 #endif
 
       // Resolve the LP with the new cuts
-      settings_.log.printf("Solving LP with %d cuts (%d nonzeros). Total constraints %d\n", C.m, C.row_start[C.m], C.m + original_lp_.num_rows);
+      settings_.log.printf("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
+                           num_cuts,
+                           cuts_to_add.row_start[cuts_to_add.m],
+                           cut_pool.pool_size(),
+                           cuts_to_add.m + original_lp_.num_rows);
       lp_settings.log.log = false;
 
-      lp_status_t cut_status = solve_linear_program_with_cuts(stats_.start_time,
-                                                              lp_settings,
-                                                              C,
-                                                              cut_rhs,
-                                                              original_lp_,
-                                                              root_relax_soln_,
-                                                              basis_update,
-                                                              basic_list,
-                                                              nonbasic_list,
-                                                              root_vstatus_,
-                                                              edge_norms_);
-      settings_.log.printf("Cut LP iterations %d. A nz %d\n", root_relax_soln_.iterations, original_lp_.A.col_start[original_lp_.A.n]);
-      stats_.total_lp_iters += root_relax_soln_.iterations;
-      root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
-
-      if (cut_status != lp_status_t::OPTIMAL) {
-        lp_settings.log.printf("Cut status %d\n", cut_status);
+      mutex_original_lp_.lock();
+      i_t add_cuts_status = add_cuts(settings_,
+                                     cuts_to_add,
+                                     cut_rhs,
+                                     original_lp_,
+                                     root_relax_soln_,
+                                     basis_update,
+                                     basic_list,
+                                     nonbasic_list,
+                                     root_vstatus_,
+                                     edge_norms_);
+      mutex_original_lp_.unlock();
+      if (add_cuts_status != 0) {
+        settings_.log.printf("Failed to add cuts\n");
         exit(1);
       }
 
-      original_lp_.A.transpose(Arow);
+      // Try to do bound strengthening
       var_types_.resize(original_lp_.num_cols, variable_type_t::CONTINUOUS);
-      std::vector<i_t> cuts_to_remove;
-      cuts_to_remove.reserve(original_lp_.num_rows - original_rows);
-      std::vector<i_t> slacks_to_remove;
-      slacks_to_remove.reserve(original_lp_.num_rows - original_rows);
-      const f_t dual_tol = 1e-10;
-      for (i_t k = original_rows; k < original_lp_.num_rows; k++) {
-        if (std::abs(root_relax_soln_.y[k]) < dual_tol) {
-          const i_t row_start = Arow.col_start[k];
-          const i_t row_end   = Arow.col_start[k + 1];
-          i_t last_slack = -1;
-          const f_t slack_tol = 1e-3;
-          for (i_t p = row_start; p < row_end; p++) {
-            const i_t jj = Arow.i[p];
-            const i_t col_len = original_lp_.A.col_start[jj + 1] - original_lp_.A.col_start[jj];
-            if (var_types_[jj] == variable_type_t::CONTINUOUS &&
-                Arow.x[p] == 1.0 &&
-                original_lp_.lower[jj] == 0.0 &&
-                original_lp_.upper[jj] == inf &&
-                root_vstatus_[jj] == variable_status_t::BASIC &&
-                col_len == 1 &&
-                root_relax_soln_.x[jj] > slack_tol) {
-              last_slack = jj;
-            }
-          }
-          if (last_slack != -1) {
-            cuts_to_remove.push_back(k);
-            slacks_to_remove.push_back(last_slack);
-          }
-        }
+
+      std::vector<bool> bounds_changed(original_lp_.num_cols, true);
+      std::vector<char> row_sense;
+
+      settings_.log.printf("Before A check\n");
+      original_lp_.A.check_matrix();
+      settings_.log.printf("Before A transpose\n");
+      original_lp_.A.transpose(Arow);
+      settings_.log.printf("After A transpose\n");
+      bool feasible =
+        bound_strengthening(row_sense, settings_, original_lp_, Arow, var_types_, bounds_changed);
+
+      if (!feasible) {
+        settings_.log.printf("Bound strengthening failed\n");
+        exit(1);
       }
 
-      if (cuts_to_remove.size() > 0) {
-        settings_.log.printf("Removing %d cuts\n", cuts_to_remove.size());
-        std::vector<i_t> marked_rows(original_lp_.num_rows, 0);
-        for (i_t i : cuts_to_remove) {
-          marked_rows[i] = 1;
-        }
-        std::vector<i_t> marked_cols(original_lp_.num_cols, 0);
-        for (i_t j : slacks_to_remove) {
-          marked_cols[j] = 1;
-        }
+      // Adjust the solution
+      root_relax_soln_.x.resize(original_lp_.num_cols, 0.0);
+      root_relax_soln_.y.resize(original_lp_.num_rows, 0.0);
+      root_relax_soln_.z.resize(original_lp_.num_cols, 0.0);
 
-        std::vector<f_t> new_rhs(original_lp_.num_rows - cuts_to_remove.size());
-        std::vector<f_t> new_solution_y(original_lp_.num_rows - cuts_to_remove.size());
-        i_t h = 0;
-        for (i_t i = 0; i < original_lp_.num_rows; i++) {
-          if (!marked_rows[i]) {
-            new_rhs[h] = original_lp_.rhs[i];
-            new_solution_y[h] = root_relax_soln_.y[i];
-            h++;
-          }
-        }
+      // For now just clear the edge norms
+      edge_norms_.clear();
+      i_t iter              = 0;
+      bool initialize_basis = false;
+      dual::status_t cut_status = dual_phase2_with_advanced_basis(2,
+                                                                  0,
+                                                                  initialize_basis,
+                                                                  stats_.start_time,
+                                                                  original_lp_,
+                                                                  lp_settings,
+                                                                  root_vstatus_,
+                                                                  basis_update,
+                                                                  basic_list,
+                                                                  nonbasic_list,
+                                                                  root_relax_soln_,
+                                                                  iter,
+                                                                  edge_norms_);
 
+      settings_.log.printf("Cut LP iterations %d. A nz %d\n",
+                           iter,
+                           original_lp_.A.col_start[original_lp_.A.n]);
+      stats_.total_lp_iters += root_relax_soln_.iterations;
+      root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
 
-        Arow.remove_columns(marked_rows);
-        Arow.transpose(original_lp_.A);
-
-        std::vector<f_t> new_objective(original_lp_.num_cols - slacks_to_remove.size());
-        std::vector<f_t> new_lower(original_lp_.num_cols - slacks_to_remove.size());
-        std::vector<f_t> new_upper(original_lp_.num_cols - slacks_to_remove.size());
-        std::vector<variable_type_t> new_var_types(original_lp_.num_cols - slacks_to_remove.size());
-        std::vector<variable_status_t> new_vstatus(original_lp_.num_cols - slacks_to_remove.size());
-        std::vector<i_t> new_basic_list;
-        new_basic_list.reserve(original_lp_.num_rows - slacks_to_remove.size());
-        std::vector<i_t> new_nonbasic_list;
-        new_nonbasic_list.reserve(nonbasic_list.size());
-        std::vector<f_t> new_solution_x(original_lp_.num_cols - slacks_to_remove.size());
-        std::vector<f_t> new_solution_z(original_lp_.num_cols - slacks_to_remove.size());
-        h = 0;
-        for (i_t k = 0; k < original_lp_.num_cols; k++) {
-          if (!marked_cols[k]) {
-            new_objective[h] = original_lp_.objective[k];
-            new_lower[h] = original_lp_.lower[k];
-            new_upper[h] = original_lp_.upper[k];
-            new_var_types[h] = var_types_[k];
-            new_vstatus[h] = root_vstatus_[k];
-            new_solution_x[h] = root_relax_soln_.x[k];
-            new_solution_z[h] = root_relax_soln_.z[k];
-            if (new_vstatus[h] != variable_status_t::BASIC) {
-              new_nonbasic_list.push_back(h);
-            } else {
-              new_basic_list.push_back(h);
-            }
-            h++;
-          }
-        }
-        original_lp_.A.remove_columns(marked_cols);
-        original_lp_.A.transpose(Arow);
-        original_lp_.objective = new_objective;
-        original_lp_.lower = new_lower;
-        original_lp_.upper = new_upper;
-        original_lp_.rhs = new_rhs;
-        var_types_ = new_var_types;
-        original_lp_.num_cols = original_lp_.A.n;
-        original_lp_.num_rows = original_lp_.A.m;
-        basic_list = new_basic_list;
-        nonbasic_list = new_nonbasic_list;
-        root_vstatus_ = new_vstatus;
-        root_relax_soln_.x = new_solution_x;
-        root_relax_soln_.y = new_solution_y;
-        root_relax_soln_.z = new_solution_z;
-
-#ifdef PRINT_SIZES
-        settings_.log.printf("A %d x %d\n", original_lp_.A.m, original_lp_.A.n);
-        settings_.log.printf("basic_list size %d\n", basic_list.size());
-        settings_.log.printf("nonbasic_list size %d\n", nonbasic_list.size());
-        settings_.log.printf("root_vstatus_ size %d\n", root_vstatus_.size());
-        settings_.log.printf("original_lp_.num_rows %d\n", original_lp_.num_rows);
-        settings_.log.printf("original_lp_.num_cols %d\n", original_lp_.num_cols);
-        settings_.log.printf("root_relax_soln_.x size %d\n", root_relax_soln_.x.size());
-        settings_.log.printf("root_relax_soln_.y size %d\n", root_relax_soln_.y.size());
-        settings_.log.printf("root_relax_soln_.z size %d\n", root_relax_soln_.z.size());
-        settings_.log.printf("rhs size %ld\n", original_lp_.rhs.size());
-        settings_.log.printf("lower size %ld\n", original_lp_.lower.size());
-        settings_.log.printf("upper size %ld\n", original_lp_.upper.size());
-        settings_.log.printf("objective size %ld\n", original_lp_.objective.size());
-        settings_.log.printf("var_types_ size %ld\n", var_types_.size());
-#endif
-        settings_.log.printf("After removal %d rows %d columns %d nonzeros\n",
-                            original_lp_.num_rows,
-                            original_lp_.num_cols,
-                            original_lp_.A.col_start[original_lp_.A.n]);
-
-        basis_update.resize(original_lp_.num_rows);
-        basis_update.refactor_basis(original_lp_.A, settings_, basic_list, nonbasic_list, root_vstatus_);
+      if (cut_status != dual::status_t::OPTIMAL) {
+        settings_.log.printf("Cut status %d\n", cut_status);
+        exit(1);
       }
+
+      local_lower_bounds_.assign(settings_.num_bfs_threads, root_objective_);
+
+      remove_cuts(original_lp_,
+                  settings_,
+                  Arow,
+                  original_rows,
+                  var_types_,
+                  root_vstatus_,
+                  root_relax_soln_.x,
+                  root_relax_soln_.y,
+                  root_relax_soln_.z,
+                  basic_list,
+                  nonbasic_list,
+                  basis_update);
 
       fractional.clear();
       num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);

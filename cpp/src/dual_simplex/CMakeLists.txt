@@ -10,6 +10,7 @@ set(DUAL_SIMPLEX_SRC_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/basis_updates.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/bound_flipping_ratio_test.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/branch_and_bound.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/cuts.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/crossover.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/folding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/initial_basis.cpp
@@ -33,7 +34,7 @@ set(DUAL_SIMPLEX_SRC_FILES
   )
 
 # Uncomment to enable debug info
-#set_source_files_properties(${DUAL_SIMPLEX_SRC_FILES} DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTIES COMPILE_OPTIONS "-g1")
+set_source_files_properties(${DUAL_SIMPLEX_SRC_FILES} DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTIES COMPILE_OPTIONS "-g1")
 
 set(CUOPT_SRC_FILES ${CUOPT_SRC_FILES}
   ${DUAL_SIMPLEX_SRC_FILES} PARENT_SCOPE)

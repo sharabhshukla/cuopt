@@ -403,7 +403,6 @@ template <typename i_t, typename f_t>
 i_t csr_matrix_t<i_t, f_t>::append_row(const sparse_vector_t<i_t, f_t>& c)
 {
   const i_t old_m = this->m;
-  const i_t n = this->n;
   const i_t old_nz = this->row_start[old_m];
   const i_t c_nz = c.i.size();
   const i_t new_nz = old_nz + c_nz;
@@ -625,6 +624,7 @@ void csr_matrix_t<i_t, f_t>::check_matrix() const
     const i_t row_end   = this->row_start[i + 1];
     for (i_t p = row_start; p < row_end; ++p) {
       const i_t j = this->j[p];
+      if (j < 0 || j >= this->n) { printf("CSR Error: column index %d not in range [0, %d)\n", j, this->n); }
       if (col_marker[j] == i) { printf("CSR Error: repeated column index %d in row %d\n", j, i); }
       col_marker[j] = i;
     }

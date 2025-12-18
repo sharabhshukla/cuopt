@@ -149,6 +149,9 @@ class branch_and_bound_t {
   // Local lower bounds for each thread
   std::vector<omp_atomic_t<f_t>> local_lower_bounds_;
 
+  // Mutex for the original LP
+  omp_mutex_t mutex_original_lp_;
+
   // Mutex for upper bound
   omp_mutex_t mutex_upper_;
 

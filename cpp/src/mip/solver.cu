@@ -226,8 +226,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
                                                 std::ref(branch_and_bound_solution));
   }
 
-  auto bb_status = branch_and_bound_status_future.get();
-  exit(1);
+  //auto bb_status = branch_and_bound_status_future.get();
+  //CUOPT_LOG_INFO("BB status: %d", bb_status);
 
   // Start the primal heuristics
   auto sol = dm.run_solver();
