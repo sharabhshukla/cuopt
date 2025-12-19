@@ -40,6 +40,8 @@ class sparse_vector_t {
   void inverse_permute_vector(const std::vector<i_t>& p);
   // inverse permute a sparse vector into another sparse vector
   void inverse_permute_vector(const std::vector<i_t>& p, sparse_vector_t<i_t, f_t>& y) const;
+  // compute the dot product of a sparse vector with a dense vector
+  f_t dot(const std::vector<f_t>& x) const;
   // compute the dot product of a sparse vector with a column of a CSC matrix
   f_t sparse_dot(const csc_matrix_t<i_t, f_t>& Y, i_t y_col) const;
   // ensure the coefficients in the sparse vectory are sorted in terms of increasing index

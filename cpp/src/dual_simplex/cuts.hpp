@@ -54,7 +54,7 @@ class cut_pool_t {
   // Add a cut in the form: cut'*x >= rhs.
   // We expect that the cut is violated by the current relaxation
   // cut'*xstart < rhs
-  void add_cut(i_t n, const sparse_vector_t<i_t, f_t>& cut, f_t rhs);
+  void add_cut(const sparse_vector_t<i_t, f_t>& cut, f_t rhs);
 
   void score_cuts(std::vector<f_t>& x_relax);
 
@@ -96,6 +96,7 @@ class cut_generation_t {
   void generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                      const simplex_solver_settings_t<i_t, f_t>& settings,
                      csc_matrix_t<i_t, f_t>& Arow,
+                     const std::vector<i_t>& new_slacks,
                      const std::vector<variable_type_t>& var_types,
                      basis_update_mpf_t<i_t, f_t>& basis_update,
                      const std::vector<f_t>& xstar,
@@ -106,6 +107,7 @@ class cut_generation_t {
   void generate_gomory_cuts(const lp_problem_t<i_t, f_t>& lp,
                             const simplex_solver_settings_t<i_t, f_t>& settings,
                             csc_matrix_t<i_t, f_t>& Arow,
+                            const std::vector<i_t>& new_slacks,
                             const std::vector<variable_type_t>& var_types,
                             basis_update_mpf_t<i_t, f_t>& basis_update,
                             const std::vector<f_t>& xstar,
@@ -115,6 +117,7 @@ class cut_generation_t {
   void generate_mir_cuts(const lp_problem_t<i_t, f_t>& lp,
                          const simplex_solver_settings_t<i_t, f_t>& settings,
                          csc_matrix_t<i_t, f_t>& Arow,
+                         const std::vector<i_t>& new_slacks,
                          const std::vector<variable_type_t>& var_types,
                          const std::vector<f_t>& xstar);
   cut_pool_t<i_t, f_t>& cut_pool_;
@@ -171,7 +174,9 @@ class mixed_integer_rounding_cut_t {
   {
   }
 
-  void initialize(const lp_problem_t<i_t, f_t>& lp, const std::vector<f_t>& xstar);
+  void initialize(const lp_problem_t<i_t, f_t>& lp,
+                  const std::vector<i_t>& new_slacks,
+                  const std::vector<f_t>& xstar);
 
   i_t generate_cut(const sparse_vector_t<i_t, f_t>& a,
                    f_t beta,
@@ -181,6 +186,11 @@ class mixed_integer_rounding_cut_t {
                    sparse_vector_t<i_t, f_t>& cut,
                    f_t& cut_rhs);
 
+  void substitute_slacks(const lp_problem_t<i_t, f_t>& lp,
+                         csc_matrix_t<i_t, f_t>& Arow,
+                         sparse_vector_t<i_t, f_t>& cut,
+                         f_t& cut_rhs);
+
  private:
   i_t num_vars_;
   const simplex_solver_settings_t<i_t, f_t>& settings_;
@@ -188,6 +198,8 @@ class mixed_integer_rounding_cut_t {
   std::vector<i_t> x_mark_;
   std::vector<i_t> has_lower_;
   std::vector<i_t> has_upper_;
+  std::vector<i_t> is_slack_;
+  std::vector<i_t> slack_rows_;
   bool needs_complement_;
 };
 
@@ -196,6 +208,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
              const csr_matrix_t<i_t, f_t>& cuts,
              const std::vector<f_t>& cut_rhs,
              lp_problem_t<i_t, f_t>& lp,
+             std::vector<i_t>& new_slacks,
              lp_solution_t<i_t, f_t>& solution,
              basis_update_mpf_t<i_t, f_t>& basis_update,
              std::vector<i_t>& basic_list,
@@ -207,6 +220,7 @@ template <typename i_t, typename f_t>
 void remove_cuts(lp_problem_t<i_t, f_t>& lp,
                  const simplex_solver_settings_t<i_t, f_t>& settings,
                  csc_matrix_t<i_t, f_t>& Arow,
+                 std::vector<i_t>& new_slacks,
                  i_t original_rows,
                  std::vector<variable_type_t>& var_types,
                  std::vector<variable_status_t>& vstatus,

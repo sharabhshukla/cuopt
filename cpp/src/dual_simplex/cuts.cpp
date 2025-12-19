@@ -12,13 +12,9 @@ namespace cuopt::linear_programming::dual_simplex {
 
 
 template <typename i_t, typename f_t>
-void cut_pool_t<i_t, f_t>::add_cut(i_t n, const sparse_vector_t<i_t, f_t>& cut, f_t rhs)
+void cut_pool_t<i_t, f_t>::add_cut(const sparse_vector_t<i_t, f_t>& cut, f_t rhs)
 {
   // TODO: Need to deduplicate cuts and only add if the cut is not already in the pool
-
-  if (n > cut_storage_.n) {
-    cut_storage_.n = n;
-  }
 
   for (i_t p = 0; p < cut.i.size(); p++) {
     const i_t j = cut.i[p];
@@ -153,7 +149,7 @@ template <typename i_t, typename f_t>
 i_t cut_pool_t<i_t, f_t>::get_best_cuts(csr_matrix_t<i_t, f_t>& best_cuts, std::vector<f_t>& best_rhs)
 {
   best_cuts.m = 0;
-  best_cuts.n = cut_storage_.n;
+  best_cuts.n = original_vars_;
   best_cuts.row_start.clear();
   best_cuts.j.clear();
   best_cuts.x.clear();
@@ -190,6 +186,7 @@ template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                const simplex_solver_settings_t<i_t, f_t>& settings,
                                                csc_matrix_t<i_t, f_t>& Arow,
+                                               const std::vector<i_t>& new_slacks,
                                                const std::vector<variable_type_t>& var_types,
                                                basis_update_mpf_t<i_t, f_t>& basis_update,
                                                const std::vector<f_t>& xstar,
@@ -198,7 +195,7 @@ void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
 {
   // Generate Gomory Cuts
   generate_gomory_cuts(
-    lp, settings, Arow, var_types, basis_update, xstar, basic_list, nonbasic_list);
+    lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
 
 
  // Generate MIR cuts
@@ -209,11 +206,12 @@ template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                    const simplex_solver_settings_t<i_t, f_t>& settings,
                                                    csc_matrix_t<i_t, f_t>& Arow,
+                                                   const std::vector<i_t>& new_slacks,
                                                    const std::vector<variable_type_t>& var_types,
                                                    const std::vector<f_t>& xstar)
 {
   mixed_integer_rounding_cut_t<i_t, f_t> mir(lp.num_cols, settings);
-  mir.initialize(lp, xstar);
+  mir.initialize(lp, new_slacks, xstar);
 
   for (i_t i = 0; i < lp.num_rows; i++) {
     sparse_vector_t<i_t, f_t> inequality(Arow, i);
@@ -262,16 +260,18 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
         }
 
         settings.log.printf("Adding MIR cut %d\n", i);
-        cut_pool_.add_cut(lp.num_cols, cut, cut_rhs);
+        cut_pool_.add_cut(cut, cut_rhs);
     }
   }
 }
+
 
 template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
   const lp_problem_t<i_t, f_t>& lp,
   const simplex_solver_settings_t<i_t, f_t>& settings,
   csc_matrix_t<i_t, f_t>& Arow,
+  const std::vector<i_t>& new_slacks,
   const std::vector<variable_type_t>& var_types,
   basis_update_mpf_t<i_t, f_t>& basis_update,
   const std::vector<f_t>& xstar,
@@ -281,7 +281,7 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
   mixed_integer_gomory_base_inequality_t<i_t, f_t> gomory(lp, basis_update, nonbasic_list);
   mixed_integer_rounding_cut_t<i_t, f_t> mir(lp.num_cols, settings);
 
-  mir.initialize(lp, xstar);
+  mir.initialize(lp, new_slacks, xstar);
 
   for (i_t i = 0; i < lp.num_rows; i++) {
     sparse_vector_t<i_t, f_t> inequality(lp.num_cols, 0);
@@ -310,15 +310,10 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
       bool A_valid = false;
       f_t cut_A_distance = 0.0;
       if (mir_status == 0) {
+        mir.substitute_slacks(lp, Arow, cut_A, cut_A_rhs);
         // Check that the cut is violated
-        f_t dot = 0.0;
-        f_t cut_norm = 0.0;
-        for (i_t k = 0; k < cut_A.i.size(); k++) {
-          const i_t jj = cut_A.i[k];
-          const f_t aj = cut_A.x[k];
-          dot += aj * xstar[jj];
-          cut_norm += aj * aj;
-        }
+        f_t dot = cut_A.dot(xstar);
+        f_t cut_norm = cut_A.norm2_squared();
         if (dot >= cut_A_rhs) {
           settings.log.printf("Cut %d is not violated. Skipping\n", i);
           continue;
@@ -340,15 +335,10 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
       bool B_valid = false;
       f_t cut_B_distance = 0.0;
       if (mir_status == 0) {
+        mir.substitute_slacks(lp, Arow, cut_B, cut_B_rhs);
         // Check that the cut is violated
-        f_t dot = 0.0;
-        f_t cut_norm = 0.0;
-        for (i_t k = 0; k < cut_B.i.size(); k++) {
-          const i_t jj = cut_B.i[k];
-          const f_t aj = cut_B.x[k];
-          dot += aj * xstar[jj];
-          cut_norm += aj * aj;
-        }
+        f_t dot = cut_B.dot(xstar);
+        f_t cut_norm = cut_B.norm2_squared();
         if (dot >= cut_B_rhs) {
           settings.log.printf("Cut %d is not violated. Skipping\n", i);
           continue;
@@ -359,9 +349,9 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
       }
 
       if ((cut_A_distance > cut_B_distance) && A_valid) {
-        cut_pool_.add_cut(lp.num_cols, cut_A, cut_A_rhs);
+        cut_pool_.add_cut(cut_A, cut_A_rhs);
       } else if (B_valid) {
-        cut_pool_.add_cut(lp.num_cols, cut_B, cut_B_rhs);
+        cut_pool_.add_cut(cut_B, cut_B_rhs);
       }
     }
   }
@@ -526,7 +516,8 @@ i_t mixed_integer_gomory_base_inequality_t<i_t, f_t>::generate_base_inequality(
 
 template <typename i_t, typename f_t>
 void mixed_integer_rounding_cut_t<i_t, f_t>::initialize(const lp_problem_t<i_t, f_t>& lp,
-                                              const std::vector<f_t>& xstar)
+                                                        const std::vector<i_t>& new_slacks,
+                                                        const std::vector<f_t>& xstar)
 {
 
   if (lp.num_cols != num_vars_) {
@@ -537,6 +528,17 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::initialize(const lp_problem_t<i_t, 
     has_upper_.resize(num_vars_, 0);
   }
 
+  is_slack_.clear();
+  is_slack_.resize(num_vars_, 0);
+  slack_rows_.clear();
+  slack_rows_.resize(num_vars_, 0);
+
+  for (i_t j : new_slacks) {
+    is_slack_[j] = 1;
+    const i_t col_start = lp.A.col_start[j];
+    const i_t i = lp.A.i[col_start];
+    slack_rows_[j] = i;
+  }
 
   needs_complement_ = false;
   for (i_t j = 0; j < lp.num_cols; j++) {
@@ -722,10 +724,91 @@ i_t mixed_integer_rounding_cut_t<i_t, f_t>::generate_cut(
 }
 
 template <typename i_t, typename f_t>
+void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_t<i_t, f_t>& lp,
+                                                               csc_matrix_t<i_t, f_t>& Arow,
+                                                               sparse_vector_t<i_t, f_t>& cut,
+                                                               f_t& cut_rhs)
+{
+  // Remove slacks from the cut
+  // So that the cut is only over the original variables
+  bool found_slack = false;
+  i_t cut_nz = 0;
+  std::vector<i_t> cut_indices;
+  cut_indices.reserve(cut.i.size());
+  for (i_t k = 0; k < cut.i.size(); k++) {
+    const i_t j  = cut.i[k];
+    const f_t cj = cut.x[k];
+    if (is_slack_[j]) {
+      found_slack = true;
+      // Do the substitution
+      // Slack variable s_j participates in row i of the constraint matrix
+      // Row i is of the form:
+      // sum_{k != j} A(i, k) * x_k + A(i, j) * s_j = rhs_i
+      /// So we have that
+      // s_j = rhs_i - sum_{k != j} A(i, k) * x_k
+
+      // Our cut is of the form:
+      // sum_{k != j} C(k) * x_k + C(j) * s_j >= cut_rhs
+      // So the cut becomes
+      // sum_{k != j} C(k) * x_k + C(j) * (rhs_i - sum_{k != j} A(i, k) * x_k) >= cut_rhs
+      // This is equivalent to:
+      // sum_{k != j} C(k) * x_k + sum_{k != j} -C(k) * A(i, k) * x_k >= cut_rhs - C(j) * rhs_i
+      const i_t i         = slack_rows_[j];
+      cut_rhs -= cj * lp.rhs[i];
+      const i_t row_start = Arow.col_start[i];
+      const i_t row_end   = Arow.col_start[i + 1];
+      for (i_t q = row_start; q < row_end; q++) {
+        const i_t k = Arow.i[q];
+        if (k != j) {
+          const f_t aik = Arow.x[q];
+          x_workspace_[k] -= cj * aik;
+          if (!x_mark_[k]) {
+            x_mark_[k] = 1;
+            cut_indices.push_back(k);
+            cut_nz++;
+          }
+        }
+      }
+
+    } else {
+      x_workspace_[j] += cj;
+      if (!x_mark_[j]) {
+        x_mark_[j] = 1;
+        cut_indices.push_back(j);
+        cut_nz++;
+      }
+    }
+  }
+
+  if (found_slack) {
+    //printf("Found slack. Nz increased from %d to %d: %d\n", cut.i.size(), cut_nz, cut_nz - cut.i.size());
+    cut.i.reserve(cut_nz);
+    cut.x.reserve(cut_nz);
+    cut.i.clear();
+    cut.x.clear();
+
+    for (i_t k = 0; k < cut_nz; k++) {
+      const i_t j = cut_indices[k];
+      cut.i.push_back(j);
+      cut.x.push_back(x_workspace_[j]);
+    }
+    // Sort the cut
+    cut.sort();
+
+    // Clear the workspace
+    for (i_t jj : cut_indices) {
+      x_workspace_[jj] = 0.0;
+      x_mark_[jj]      = 0;
+    }
+  }
+}
+
+template <typename i_t, typename f_t>
 i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
              const csr_matrix_t<i_t, f_t>& cuts,
              const std::vector<f_t>& cut_rhs,
              lp_problem_t<i_t, f_t>& lp,
+             std::vector<i_t>& new_slacks,
              lp_solution_t<i_t, f_t>& solution,
              basis_update_mpf_t<i_t, f_t>& basis_update,
              std::vector<i_t>& basic_list,
@@ -764,7 +847,11 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
   csr_matrix_t<i_t, f_t> new_A_row(lp.num_rows, lp.num_cols, 1);
   lp.A.to_compressed_row(new_A_row);
 
-  new_A_row.append_rows(cuts);
+  i_t append_status = new_A_row.append_rows(cuts);
+  if (append_status != 0) {
+    settings.log.printf("append_rows error: %d\n", append_status);
+    exit(1);
+  }
 
   csc_matrix_t<i_t, f_t> new_A_col(lp.num_rows + p, lp.num_cols, 1);
   new_A_row.to_compressed_col(new_A_col);
@@ -786,6 +873,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
     lp.lower[j]     = 0.0;
     lp.upper[j]     = inf;
     lp.objective[j] = 0.0;
+    new_slacks.push_back(j);
   }
   settings.log.debug("Done adding slacks\n");
   new_A_col.col_start[lp.num_cols + p] = nz;
@@ -895,6 +983,7 @@ template <typename i_t, typename f_t>
 void remove_cuts(lp_problem_t<i_t, f_t>& lp,
                  const simplex_solver_settings_t<i_t, f_t>& settings,
                  csc_matrix_t<i_t, f_t>& Arow,
+                 std::vector<i_t>& new_slacks,
                  i_t original_rows,
                  std::vector<variable_type_t>& var_types,
                  std::vector<variable_status_t>& vstatus,
@@ -910,6 +999,12 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
   std::vector<i_t> slacks_to_remove;
   slacks_to_remove.reserve(lp.num_rows - original_rows);
   const f_t dual_tol = 1e-10;
+
+  std::vector<i_t> is_slack(lp.num_cols, 0);
+  for (i_t j : new_slacks) {
+    is_slack[j] = 1;
+  }
+
   for (i_t k = original_rows; k < lp.num_rows; k++) {
     if (std::abs(y[k]) < dual_tol) {
       const i_t row_start = Arow.col_start[k];
@@ -917,11 +1012,9 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
       i_t last_slack      = -1;
       const f_t slack_tol = 1e-3;
       for (i_t p = row_start; p < row_end; p++) {
-        const i_t jj      = Arow.i[p];
-        const i_t col_len = lp.A.col_start[jj + 1] - lp.A.col_start[jj];
-        if (col_len == 1 && var_types[jj] == variable_type_t::CONTINUOUS && Arow.x[p] == 1.0 &&
-            lp.lower[jj] == 0.0) {
-          if (vstatus[jj] == variable_status_t::BASIC && x[jj] > slack_tol) { last_slack = jj; }
+        const i_t j      = Arow.i[p];
+        if (is_slack[j]) {
+          if (vstatus[j] == variable_status_t::BASIC && x[j] > slack_tol) { last_slack = j; }
         }
       }
       if (last_slack != -1) {
@@ -967,6 +1060,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     new_nonbasic_list.reserve(nonbasic_list.size());
     std::vector<f_t> new_solution_x(lp.num_cols - slacks_to_remove.size());
     std::vector<f_t> new_solution_z(lp.num_cols - slacks_to_remove.size());
+    std::vector<i_t> new_is_slacks(lp.num_cols - slacks_to_remove.size(), 0);
     h = 0;
     for (i_t k = 0; k < lp.num_cols; k++) {
       if (!marked_cols[k]) {
@@ -977,6 +1071,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
         new_vstatus[h]    = vstatus[k];
         new_solution_x[h] = x[k];
         new_solution_z[h] = z[k];
+        new_is_slacks[h] = is_slack[k];
         if (new_vstatus[h] != variable_status_t::BASIC) {
           new_nonbasic_list.push_back(h);
         } else {
@@ -994,6 +1089,14 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     var_types     = new_var_types;
     lp.num_cols   = lp.A.n;
     lp.num_rows   = lp.A.m;
+
+    new_slacks.clear();
+    new_slacks.resize(lp.num_cols);
+    for (i_t j = 0; j < lp.num_cols; j++) {
+        if (new_is_slacks[j]) {
+            new_slacks.push_back(j);
+        }
+    }
     basic_list    = new_basic_list;
     nonbasic_list = new_nonbasic_list;
     vstatus       = new_vstatus;
@@ -1023,6 +1126,7 @@ int add_cuts(const simplex_solver_settings_t<int, double>& settings,
               const csr_matrix_t<int, double>& cuts,
               const std::vector<double>& cut_rhs,
               lp_problem_t<int, double>& lp,
+              std::vector<int>& new_slacks,
               lp_solution_t<int, double>& solution,
               basis_update_mpf_t<int, double>& basis_update,
               std::vector<int>& basic_list,
@@ -1034,6 +1138,7 @@ template
 void remove_cuts<int, double>(lp_problem_t<int, double>& lp,
                  const simplex_solver_settings_t<int, double>& settings,
                  csc_matrix_t<int, double>& Arow,
+                 std::vector<int>& new_slacks,
                  int original_rows,
                  std::vector<variable_type_t>& var_types,
                  std::vector<variable_status_t>& vstatus,

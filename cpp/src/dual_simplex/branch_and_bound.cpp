@@ -306,7 +306,7 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
       std::string gap = user_mip_gap<f_t>(user_obj, user_lower);
 
       settings_.log.printf(
-        "H                                %+13.6e    %+10.6e                        %s %9.2f\n",
+        "H                           %+13.6e    %+10.6e                               %s %9.2f\n",
         user_obj,
         user_lower,
         gap.c_str(),
@@ -1139,6 +1139,9 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   csc_matrix_t<i_t, f_t> Arow(1, 1, 1);
   original_lp_.A.transpose(Arow);
 
+  status_                     = mip_exploration_status_t::RUNNING;
+  lower_bound_ceiling_        = inf;
+
   if (num_fractional != 0) {
     settings_.log.printf(
       " | Explored | Unexplored |    Objective    |     Bound     | IntInf | Depth | Iter/Node |   Gap    "
@@ -1187,7 +1190,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 #endif
 
       // Generate cuts and add them to the cut pool
-      cut_generation.generate_cuts(original_lp_, settings_, Arow, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
+      cut_generation.generate_cuts(original_lp_, settings_, Arow, new_slacks_, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
 
       // Score the cuts
       cut_pool.score_cuts(root_relax_soln_.x);
@@ -1204,7 +1207,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 #endif
 
       // Resolve the LP with the new cuts
-      settings_.log.printf("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
+      settings_.log.debug("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
                            num_cuts,
                            cuts_to_add.row_start[cuts_to_add.m],
                            cut_pool.pool_size(),
@@ -1216,6 +1219,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                      cuts_to_add,
                                      cut_rhs,
                                      original_lp_,
+                                     new_slacks_,
                                      root_relax_soln_,
                                      basis_update,
                                      basic_list,
@@ -1233,12 +1237,11 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       std::vector<bool> bounds_changed(original_lp_.num_cols, true);
       std::vector<char> row_sense;
-
+#ifdef CHECK_MATRICES
       settings_.log.printf("Before A check\n");
       original_lp_.A.check_matrix();
-      settings_.log.printf("Before A transpose\n");
+#endif
       original_lp_.A.transpose(Arow);
-      settings_.log.printf("After A transpose\n");
       bool feasible =
         bound_strengthening(row_sense, settings_, original_lp_, Arow, var_types_, bounds_changed);
 
@@ -1270,7 +1273,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                                                   iter,
                                                                   edge_norms_);
 
-      settings_.log.printf("Cut LP iterations %d. A nz %d\n",
+      settings_.log.debug("Cut LP iterations %d. A nz %d\n",
                            iter,
                            original_lp_.A.col_start[original_lp_.A.n]);
       stats_.total_lp_iters += root_relax_soln_.iterations;
@@ -1286,6 +1289,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       remove_cuts(original_lp_,
                   settings_,
                   Arow,
+                  new_slacks_,
                   original_rows,
                   var_types_,
                   root_vstatus_,
@@ -1300,14 +1304,18 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 
       // TODO: Get upper bound from heuristics
-      std::string gap = num_fractional != 0 ? "  -  " : "0.0%";
-      f_t obj = num_fractional != 0 ? inf : compute_user_objective(original_lp_, root_objective_);
+      f_t upper_bound = get_upper_bound();
+      f_t obj = num_fractional != 0 ? get_upper_bound() : compute_user_objective(original_lp_, root_objective_);
+      f_t user_obj    = compute_user_objective(original_lp_, obj);
+      f_t user_lower  = compute_user_objective(original_lp_, root_objective_);
+      std::string gap = num_fractional != 0 ? user_mip_gap<f_t>(user_obj, user_lower) : "0.0%";
+
 
       settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d %6d   %7.1e     %s %9.2f\n",
         0,
         0,
-        obj,
-        compute_user_objective(original_lp_, root_objective_),
+        user_obj,
+        user_lower,
         num_fractional,
         0,
         stats_.total_lp_iters.load(),
@@ -1361,8 +1369,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   stats_.last_log             = tic();
   active_subtrees_            = 0;
   min_diving_queue_size_      = 4 * settings_.num_diving_threads;
-  status_                     = mip_exploration_status_t::RUNNING;
-  lower_bound_ceiling_        = inf;
+
 
 #pragma omp parallel num_threads(settings_.num_threads)
   {

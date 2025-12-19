@@ -365,6 +365,7 @@ i_t csr_matrix_t<i_t, f_t>::append_rows(const csr_matrix_t<i_t, f_t>& C)
   const i_t old_nz = this->row_start[old_m];
   const i_t C_row  = C.m;
   if (C.n > n) {
+    printf("append_rows error: C.n %d n %d\n", C.n, n);
     return -1;
   }
   const i_t C_nz   = C.row_start[C_row];
@@ -566,6 +567,10 @@ i_t csc_matrix_t<i_t, f_t>::check_matrix() const
 {
   std::vector<i_t> row_marker(this->m, -1);
   for (i_t j = 0; j < this->n; ++j) {
+    if (j >= col_start.size()) {
+      printf("Col start too small size %ld n %d\n", col_start.size(), this->n);
+      return -1;
+    }
     const i_t col_start = this->col_start[j];
     const i_t col_end   = this->col_start[j + 1];
     if (col_start > col_end || col_start > this->col_start[this->n]) {

@@ -122,6 +122,17 @@ void sparse_vector_t<i_t, f_t>::inverse_permute_vector(const std::vector<i_t>& p
 }
 
 template <typename i_t, typename f_t>
+f_t sparse_vector_t<i_t, f_t>::dot(const std::vector<f_t>& x_dense) const
+{
+  const i_t nz = i.size();
+  f_t dot = 0.0;
+  for (i_t k = 0; k < nz; ++k) {
+    dot += x[k] * x_dense[i[k]];
+  }
+  return dot;
+}
+
+template <typename i_t, typename f_t>
 f_t sparse_vector_t<i_t, f_t>::sparse_dot(const csc_matrix_t<i_t, f_t>& Y, i_t y_col) const
 {
   const i_t col_start = Y.col_start[y_col];
