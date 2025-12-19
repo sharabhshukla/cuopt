@@ -305,51 +305,6 @@ void branch_and_bound_t<i_t, f_t>::report(std::string symbol,
 }
 
 template <typename i_t, typename f_t>
-void branch_and_bound_t<i_t, f_t>::report_heuristic(f_t obj)
-{
-  if (solver_status_ == mip_exploration_status_t::RUNNING) {
-    f_t user_obj         = compute_user_objective(original_lp_, obj);
-    f_t user_lower       = compute_user_objective(original_lp_, get_lower_bound());
-    std::string user_gap = user_mip_gap<f_t>(user_obj, user_lower);
-
-    settings_.log.printf(
-      "H                            %+13.6e    %+10.6e                        %s %9.2f\n",
-      user_obj,
-      user_lower,
-      user_gap.c_str(),
-      toc(exploration_stats_.start_time));
-  } else {
-    settings_.log.printf("New solution from primal heuristics. Objective %+.6e. Time %.2f\n",
-                         compute_user_objective(original_lp_, obj),
-                         toc(exploration_stats_.start_time));
-  }
-}
-
-template <typename i_t, typename f_t>
-void branch_and_bound_t<i_t, f_t>::report(std::string symbol,
-                                          f_t obj,
-                                          f_t lower_bound,
-                                          i_t node_depth)
-{
-  i_t nodes_explored   = exploration_stats_.nodes_explored;
-  i_t nodes_unexplored = exploration_stats_.nodes_unexplored;
-  f_t user_obj         = compute_user_objective(original_lp_, obj);
-  f_t user_lower       = compute_user_objective(original_lp_, lower_bound);
-  f_t iter_node        = exploration_stats_.total_lp_iters / nodes_explored;
-  std::string user_gap = user_mip_gap<f_t>(user_obj, user_lower);
-  settings_.log.printf("%s%10d   %10lu    %+13.6e    %+10.6e  %6d    %7.1e     %s %9.2f\n",
-                       symbol.c_str(),
-                       nodes_explored,
-                       nodes_unexplored,
-                       user_obj,
-                       user_lower,
-                       node_depth,
-                       iter_node,
-                       user_gap.c_str(),
-                       toc(exploration_stats_.start_time));
-}
-
-template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solution)
 {
   if (solution.size() != original_problem_.num_cols) {
