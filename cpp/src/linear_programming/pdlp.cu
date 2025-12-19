@@ -409,24 +409,18 @@ static int optimal_batch_size_handler(const problem_t<i_t, f_t>& op_problem, int
 }
 
 template <typename i_t, typename f_t>
-static size_t batch_size_handler(const problem_t<i_t, f_t>& op_problem)
+static size_t batch_size_handler(const problem_t<i_t, f_t>& op_problem,
+                                 const pdlp_solver_settings_t<i_t, f_t>& settings)
 {
-  // TODO batch mode: handle if not on var bounds
-  cuopt_assert(op_problem.variable_bounds.size() != 0 && op_problem.n_variables != 0, "Those should never be 0");
-  int max_batch_size = op_problem.variable_bounds.size() / op_problem.n_variables;
-  //int optimal_batch_size = optimal_batch_size_handler(op_problem, max_batch_size);
-  //cuopt_assert(optimal_batch_size != 0 && optimal_batch_size <= max_batch_size, "Optimal batch size should be between 1 and max batch size");
-  //#ifdef BATCH_VERBOSE_MODE
-  std::cout << "Max batch size: " << max_batch_size << std::endl;
-  //#endif
-  return max_batch_size;
+  if (settings.new_bounds.empty()) { return 1; }
+  return settings.new_bounds.size();
 }
 
 template <typename i_t, typename f_t>
 pdlp_solver_t<i_t, f_t>::pdlp_solver_t(problem_t<i_t, f_t>& op_problem,
                                        pdlp_solver_settings_t<i_t, f_t> const& settings,
                                        bool is_legacy_batch_mode)
-  : climber_strategies_(batch_size_handler(op_problem)), // TODO batch mode: pass this properly somehow
+  : climber_strategies_(batch_size_handler(op_problem, settings)),
     batch_mode_(climber_strategies_.size() > 1),
     handle_ptr_(op_problem.handle_ptr),
     stream_view_(handle_ptr_->get_stream()),
@@ -442,8 +436,20 @@ pdlp_solver_t<i_t, f_t>::pdlp_solver_t(problem_t<i_t, f_t>& op_problem,
     primal_weight_{climber_strategies_.size(), stream_view_},
     best_primal_weight_{climber_strategies_.size(), stream_view_},
     step_size_{climber_strategies_.size(), stream_view_},
-    step_size_strategy_{handle_ptr_, &primal_weight_, &step_size_, is_legacy_batch_mode, op_problem.n_variables, op_problem.n_constraints, climber_strategies_, settings.hyper_params},
-    pdhg_solver_{handle_ptr_, op_problem_scaled_, is_legacy_batch_mode, climber_strategies_, settings.hyper_params},
+    step_size_strategy_{handle_ptr_,
+                        &primal_weight_,
+                        &step_size_,
+                        is_legacy_batch_mode,
+                        op_problem.n_variables,
+                        op_problem.n_constraints,
+                        climber_strategies_,
+                        settings.hyper_params},
+    pdhg_solver_{handle_ptr_,
+                 op_problem_scaled_,
+                 is_legacy_batch_mode,
+                 climber_strategies_,
+                 settings.hyper_params,
+                 settings.new_bounds},
     settings_(settings),
     initial_scaling_strategy_{handle_ptr_,
                               op_problem_scaled_,
@@ -1685,13 +1691,27 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
 
   // Needs to be performed here before the below line to make sure the initial primal_weight / step
   // size are used as previous point when potentially updating them in this next call
-  if (settings_.get_initial_step_size().has_value())
-    thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), step_size_.begin(), step_size_.end(), settings_.get_initial_step_size().value());
-  if (settings_.get_initial_primal_weight().has_value())
+  if (settings_.get_initial_step_size().has_value() || initial_step_size_.has_value())
   {
-    thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), primal_weight_.begin(), primal_weight_.end(), settings_.get_initial_primal_weight().value());
-    if (is_cupdlpx_restart<i_t, f_t>(settings_.hyper_params))
-      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), best_primal_weight_.begin(), best_primal_weight_.end(), settings_.get_initial_primal_weight().value());
+    if (initial_step_size_.has_value())
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), step_size_.begin(), step_size_.end(), initial_step_size_.value());
+    else
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), step_size_.begin(), step_size_.end(), settings_.get_initial_step_size().value());
+  }
+  if (settings_.get_initial_primal_weight().has_value() || initial_primal_weight_.has_value())
+  {
+    if (initial_primal_weight_.has_value())
+    {
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), primal_weight_.begin(), primal_weight_.end(), initial_primal_weight_.value());
+      if (is_cupdlpx_restart<i_t, f_t>(settings_.hyper_params))
+        thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), best_primal_weight_.begin(), best_primal_weight_.end(), initial_primal_weight_.value());
+    }
+    else
+    {
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), primal_weight_.begin(), primal_weight_.end(), settings_.get_initial_primal_weight().value());
+      if (is_cupdlpx_restart<i_t, f_t>(settings_.hyper_params))
+        thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), best_primal_weight_.begin(), best_primal_weight_.end(), settings_.get_initial_primal_weight().value());
+    }
   }
   if (initial_k_.has_value()) {
     pdhg_solver_.total_pdhg_iterations_ = initial_k_.value();
@@ -1727,8 +1747,10 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
       pdhg_solver_.get_primal_solution().size(),
       clamp<f_t, f_t2>(),
       stream_view_);
-    if (!settings_.hyper_params.never_restart_to_average)
-    {
+
+    pdhg_solver_.refine_initial_primal_projection();
+
+    if (!settings_.hyper_params.never_restart_to_average) {
       cuopt_expects(!batch_mode_, cuopt::error_type_t::ValidationError, "Restart to average not supported in batch mode");
       cub::DeviceTransform::Transform(
         cuda::std::make_tuple(unscaled_primal_avg_solution_.data(),

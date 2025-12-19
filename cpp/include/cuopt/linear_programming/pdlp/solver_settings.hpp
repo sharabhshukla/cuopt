@@ -235,6 +235,7 @@ class pdlp_solver_settings_t {
   static constexpr f_t minimal_absolute_tolerance = 1.0e-12;
   bool use_batch_mode{false};
   pdlp_hyper_params::pdlp_hyper_params_t hyper_params;
+  std::vector<std::tuple<i_t, f_t, f_t>> new_bounds;
 
  private:
   /** Initial primal solution */
