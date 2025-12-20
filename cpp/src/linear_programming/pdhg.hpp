@@ -48,6 +48,10 @@ class pdhg_solver_t {
   i_t get_primal_size() const;
   i_t get_dual_size() const;
 
+  rmm::device_uvector<i_t>& get_new_bounds_idx() { return new_bounds_idx_; }
+  rmm::device_uvector<f_t>& get_new_bounds_lower() { return new_bounds_lower_; }
+  rmm::device_uvector<f_t>& get_new_bounds_upper() { return new_bounds_upper_; }
+
   void take_step(rmm::device_uvector<f_t>& primal_step_size,
                  rmm::device_uvector<f_t>& dual_step_size,
                  i_t iterations_since_last_restart,
