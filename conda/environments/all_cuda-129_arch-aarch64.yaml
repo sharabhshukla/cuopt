@@ -27,8 +27,6 @@ dependencies:
 - exhale
 - fastapi
 - gcc_linux-aarch64=14.*
-- gmock
-- gtest
 - ipython
 - jsonref==1.1.0
 - libcudss-dev >=0.7
