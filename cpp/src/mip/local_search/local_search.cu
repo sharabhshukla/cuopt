@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -460,7 +460,7 @@ bool local_search_t<i_t, f_t>::run_staged_fp(solution_t<i_t, f_t>& solution,
     fp.resize_vectors(*solution.problem_ptr, solution.handle_ptr);
     for (i_t i = 0; i < n_fp_iterations && !timer.check_time_limit(); ++i) {
       population_ptr->add_external_solutions_to_population();
-      if (context.preempt_heuristic_solver_.load()) {
+      if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
         CUOPT_LOG_DEBUG("Preempting heuristic solver!");
         return false;
       }
@@ -470,7 +470,7 @@ bool local_search_t<i_t, f_t>::run_staged_fp(solution_t<i_t, f_t>& solution,
       i_t binary_it_counter = 0;
       for (; binary_it_counter < 100; ++binary_it_counter) {
         population_ptr->add_external_solutions_to_population();
-        if (context.preempt_heuristic_solver_.load()) {
+        if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
           CUOPT_LOG_DEBUG("Preempting heuristic solver!");
           return false;
         }
@@ -668,14 +668,14 @@ bool local_search_t<i_t, f_t>::run_fp(solution_t<i_t, f_t>& solution,
     }
     CUOPT_LOG_DEBUG("fp_loop it %d last_improved_iteration %d", i, last_improved_iteration);
     population_ptr->add_external_solutions_to_population();
-    if (context.preempt_heuristic_solver_.load()) {
+    if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
       CUOPT_LOG_DEBUG("Preempting heuristic solver!");
       break;
     }
     is_feasible = fp.run_single_fp_descent(solution);
     population_ptr->add_external_solutions_to_population();
     CUOPT_LOG_DEBUG("Population size at iteration %d: %d", i, population_ptr->current_size());
-    if (context.preempt_heuristic_solver_.load()) {
+    if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
       CUOPT_LOG_DEBUG("Preempting heuristic solver!");
       break;
     }
@@ -699,7 +699,7 @@ bool local_search_t<i_t, f_t>::run_fp(solution_t<i_t, f_t>& solution,
       }
       is_feasible = fp.restart_fp(solution);
       population_ptr->add_external_solutions_to_population();
-      if (context.preempt_heuristic_solver_.load()) {
+      if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
         CUOPT_LOG_DEBUG("Preempting heuristic solver!");
         break;
       }
@@ -754,7 +754,7 @@ bool local_search_t<i_t, f_t>::generate_solution(solution_t<i_t, f_t>& solution,
     return true;
   }
   population_ptr->add_external_solutions_to_population();
-  if (context.preempt_heuristic_solver_.load()) {
+  if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
     CUOPT_LOG_DEBUG("Preempting heuristic solver!");
     return is_feasible;
   }
@@ -775,7 +775,7 @@ bool local_search_t<i_t, f_t>::generate_solution(solution_t<i_t, f_t>& solution,
                solution.handle_ptr->get_stream());
   }
   population_ptr->add_external_solutions_to_population();
-  if (context.preempt_heuristic_solver_.load()) {
+  if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
     CUOPT_LOG_DEBUG("Preempting heuristic solver!");
     return is_feasible;
   }

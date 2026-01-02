@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -19,6 +19,8 @@
 #include <dual_simplex/branch_and_bound.hpp>
 #include <dual_simplex/simplex_solver_settings.hpp>
 #include <dual_simplex/solve.hpp>
+
+#include <linear_programming/solver_termination.hpp>
 
 #include <raft/sparse/detail/cusparse_macros.h>
 #include <raft/sparse/detail/cusparse_wrappers.h>
@@ -49,7 +51,8 @@ mip_solver_t<i_t, f_t>::mip_solver_t(const problem_t<i_t, f_t>& op_problem,
     context(op_problem.handle_ptr,
             const_cast<problem_t<i_t, f_t>*>(&op_problem),
             solver_settings,
-            scaling),
+            scaling,
+            timer.remaining_time()),
     timer_(timer)
 {
   init_handler(op_problem.handle_ptr);
@@ -179,6 +182,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     i_t num_diving_threads                       = std::max(1, num_threads - num_bfs_threads);
     branch_and_bound_settings.num_bfs_threads    = num_bfs_threads;
     branch_and_bound_settings.num_diving_threads = num_diving_threads;
+    branch_and_bound_settings.termination        = &context.termination;
 
     // Set the branch and bound -> primal heuristics callback
     branch_and_bound_settings.solution_callback =

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -16,6 +16,10 @@
 #include <functional>
 #include <limits>
 #include <vector>
+
+namespace cuopt::linear_programming {
+class solver_termination_t;
+}
 
 namespace cuopt::linear_programming::dual_simplex {
 
@@ -147,6 +151,7 @@ struct simplex_solver_settings_t {
   mutable logger_t log;
   std::atomic<int>* concurrent_halt;  // if nullptr ignored, if !nullptr, 0 if solver should
                                       // continue, 1 if solver should halt
+  solver_termination_t* termination{nullptr};  // if not nullptr, check for user interrupt
 };
 
 }  // namespace cuopt::linear_programming::dual_simplex

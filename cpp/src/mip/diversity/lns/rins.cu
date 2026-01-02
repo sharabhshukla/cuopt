@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,7 @@
 
 #include <mip/diversity/lns/rins.cuh>
 
+#include <linear_programming/solver_termination.hpp>
 #include <mip/diversity/diversity_manager.cuh>
 #include <mip/feasibility_jump/fj_cpu.cuh>
 #include <mip/mip_constants.hpp>
@@ -218,7 +219,7 @@ void rins_t<i_t, f_t>::run_rins()
   std::vector<std::vector<f_t>> rins_solution_queue;
 
   mip_solver_context_t<i_t, f_t> fj_context(
-    &rins_handle, &fixed_problem, context.settings, context.scaling);
+    &rins_handle, &fixed_problem, context.settings, context.scaling, time_limit);
   fj_t<i_t, f_t> fj(fj_context);
   solution_t<i_t, f_t> fj_solution(fixed_problem);
   fj_solution.copy_new_assignment(cuopt::host_copy(fixed_assignment));
@@ -248,6 +249,11 @@ void rins_t<i_t, f_t>::run_rins()
   dual_simplex::mip_status_t branch_and_bound_status = dual_simplex::mip_status_t::UNSET;
   fixed_problem.get_host_user_problem(branch_and_bound_problem);
   branch_and_bound_solution.resize(branch_and_bound_problem.num_cols);
+
+  // Termination control (linked to parent, handles Ctrl-C)
+  solver_termination_t rins_termination(time_limit, &context.termination);
+  branch_and_bound_settings.termination = &rins_termination;
+
   // Fill in the settings for branch and bound
   branch_and_bound_settings.time_limit = time_limit;
   // branch_and_bound_settings.node_limit = 5000 + node_count / 100;  // try harder as time goes

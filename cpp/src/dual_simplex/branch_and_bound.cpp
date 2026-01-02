@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -19,6 +19,7 @@
 #include <dual_simplex/random.hpp>
 #include <dual_simplex/tic_toc.hpp>
 #include <dual_simplex/user_problem.hpp>
+#include <linear_programming/solver_termination.hpp>
 
 #include <cmath>
 #include <cstdio>
@@ -505,6 +506,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t
     }
   }
 
+  if (settings_.heuristic_preemption_callback != nullptr) {
+    settings_.heuristic_preemption_callback();
+  }
+
   if (upper_bound != inf) {
     assert(incumbent_.has_incumbent);
     uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
@@ -828,7 +833,8 @@ void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(mip_node_t<i_t, f_t>* nod
     }
   }
 
-  if (now > settings_.time_limit) {
+  if (now > settings_.time_limit ||
+      (settings_.termination != nullptr && settings_.termination->should_terminate())) {
     solver_status_ = mip_exploration_status_t::TIME_LIMIT;
     return;
   }
@@ -957,7 +963,8 @@ void branch_and_bound_t<i_t, f_t>::explore_subtree(i_t task_id,
       }
     }
 
-    if (now > settings_.time_limit) {
+    if (now > settings_.time_limit ||
+        (settings_.termination != nullptr && settings_.termination->should_terminate())) {
       solver_status_ = mip_exploration_status_t::TIME_LIMIT;
       return;
     }
@@ -1151,7 +1158,10 @@ void branch_and_bound_t<i_t, f_t>::diving_thread(const csr_matrix_t<i_t, f_t>& A
           continue;
         }
 
-        if (toc(exploration_stats_.start_time) > settings_.time_limit) { return; }
+        if (toc(exploration_stats_.start_time) > settings_.time_limit ||
+            (settings_.termination != nullptr && settings_.termination->should_terminate())) {
+          return;
+        }
 
         if (nodes_explored >= 1000) { break; }
 
@@ -1420,7 +1430,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                              edge_norms_,
                              pc_);
 
-  if (toc(exploration_stats_.start_time) > settings_.time_limit) {
+  if (toc(exploration_stats_.start_time) > settings_.time_limit ||
+      (settings_.termination != nullptr && settings_.termination->should_terminate())) {
     solver_status_ = mip_exploration_status_t::TIME_LIMIT;
     return set_final_solution(solution, root_objective_);
   }

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -869,7 +869,7 @@ i_t fj_t<i_t, f_t>::host_loop(solution_t<i_t, f_t>& solution, i_t climber_idx)
     // to actualize time limit
     handle_ptr->sync_stream();
     if (timer.check_time_limit() || steps >= settings.iteration_limit ||
-        context.preempt_heuristic_solver_.load()) {
+        context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
       limit_reached = true;
     }
 

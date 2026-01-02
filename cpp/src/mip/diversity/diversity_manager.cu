@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -8,6 +8,7 @@
 #include "cuda_profiler_api.h"
 #include "diversity_manager.cuh"
 
+#include <linear_programming/solver_termination.hpp>
 #include <mip/mip_constants.hpp>
 #include <mip/presolve/probing_cache.cuh>
 #include <mip/presolve/trivial_presolve.cuh>
@@ -243,7 +244,7 @@ void diversity_manager_t<i_t, f_t>::generate_quick_feasible_solution()
 template <typename i_t, typename f_t>
 bool diversity_manager_t<i_t, f_t>::check_b_b_preemption()
 {
-  if (context.preempt_heuristic_solver_.load()) {
+  if (context.preempt_heuristic_solver_.load() || context.termination.should_terminate()) {
     if (population.current_size() == 0) { population.allocate_solutions(); }
     population.add_external_solutions_to_population();
     return true;
@@ -473,7 +474,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   rins.enable();
 
   generate_solution(timer.remaining_time(), false);
-  if (timer.check_time_limit()) {
+  if (context.termination.should_terminate()) {
     population.add_external_solutions_to_population();
     return population.best_feasible();
   }
@@ -501,7 +502,7 @@ void diversity_manager_t<i_t, f_t>::diversity_step(i_t max_iterations_without_im
         CUOPT_LOG_DEBUG("Population degenerated in diversity step");
         return;
       }
-      if (timer.check_time_limit()) return;
+      if (context.termination.should_terminate()) { return; }
       constexpr bool tournament = true;
       auto [sol1, sol2]         = population.get_two_random(tournament);
       cuopt_assert(population.test_invariant(), "");
@@ -554,7 +555,7 @@ void diversity_manager_t<i_t, f_t>::recombine_and_ls_with_all(solution_t<i_t, f_
         if (!add_only_feasible || offspring.get_feasible()) {
           population.add_solution(std::move(offspring));
         }
-        if (timer.check_time_limit()) { return; }
+        if (context.termination.should_terminate()) { return; }
       }
     }
   }
@@ -573,11 +574,11 @@ void diversity_manager_t<i_t, f_t>::recombine_and_ls_with_all(
       population.add_solution(std::move(solution_t<i_t, f_t>(sol)));
     }
     for (auto& sol : solutions) {
-      if (timer.check_time_limit()) { return; }
+      if (context.termination.should_terminate()) { return; }
       solution_t<i_t, f_t> ls_solution(sol);
       ls_config_t<i_t, f_t> ls_config;
       run_local_search(ls_solution, population.weights, timer, ls_config);
-      if (timer.check_time_limit()) { return; }
+      if (context.termination.should_terminate()) { return; }
       // TODO try if running LP with integers fixed makes it feasible
       if (ls_solution.get_feasible()) {
         CUOPT_LOG_DEBUG("LS searched solution feasible, running recombiners!");

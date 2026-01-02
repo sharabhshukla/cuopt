@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -32,6 +32,7 @@
 #include <dual_simplex/solve.hpp>
 #include <dual_simplex/sparse_cholesky.cuh>
 #include <dual_simplex/tic_toc.hpp>
+#include <linear_programming/solver_termination.hpp>
 #include <linear_programming/utilities/problem_checking.cuh>
 
 #include <raft/sparse/detail/cusparse_macros.h>
@@ -863,6 +864,18 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
     }
 
     auto lp_timer = cuopt::timer_t(settings.time_limit);
+
+    // Create termination control (auto-registers for Ctrl-C)
+    solver_termination_t termination(settings.time_limit);
+    // Also set global_concurrent_halt on user interrupt for LP concurrent solver compatibility
+    auto halt_callback_id = user_interrupt_handler_t::instance().register_callback(
+      []() { global_concurrent_halt.store(1); });
+    // Ensure cleanup on exit
+    struct callback_guard_t {
+      size_t id;
+      ~callback_guard_t() { user_interrupt_handler_t::instance().unregister_callback(id); }
+    } halt_callback_guard{halt_callback_id};
+
     detail::problem_t<i_t, f_t> problem(op_problem);
 
     double presolve_time = 0.0;

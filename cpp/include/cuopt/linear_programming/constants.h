@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -73,6 +73,7 @@
 #define CUOPT_TERIMINATION_STATUS_PRIMAL_FEASIBLE  7
 #define CUOPT_TERIMINATION_STATUS_FEASIBLE_FOUND   8
 #define CUOPT_TERIMINATION_STATUS_CONCURRENT_LIMIT 9
+#define CUOPT_TERIMINATION_STATUS_USER_INTERRUPT   10
 
 /* @brief The objective sense constants */
 #define CUOPT_MINIMIZE 1
