@@ -1149,7 +1149,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   cut_pool_t<i_t, f_t> cut_pool(original_lp_.num_cols, settings_);
-  cut_generation_t<i_t, f_t> cut_generation(cut_pool);
+  cut_generation_t<i_t, f_t> cut_generation(cut_pool, original_lp_, settings_, Arow, new_slacks_, var_types_);
 
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
@@ -1191,23 +1191,37 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       // Generate cuts and add them to the cut pool
       cut_generation.generate_cuts(original_lp_, settings_, Arow, new_slacks_, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
+      settings_.log.printf("Generated cuts\n");
 
       // Score the cuts
       cut_pool.score_cuts(root_relax_soln_.x);
+      settings_.log.printf("Scored cuts\n");
       // Get the best cuts from the cut pool
       csr_matrix_t<i_t, f_t> cuts_to_add(0, original_lp_.num_cols, 0);
       std::vector<f_t> cut_rhs;
-      i_t num_cuts = cut_pool.get_best_cuts(cuts_to_add, cut_rhs);
+      std::vector<cut_type_t> cut_types;
+      i_t num_cuts = cut_pool.get_best_cuts(cuts_to_add, cut_rhs, cut_types);
+      settings_.log.printf("Got best cuts\n");
+      print_cut_types(cut_types, settings_);
 
       cuts_to_add.check_matrix();
 
-#ifdef PRINT_MIN_CUT_VIOLATION
+#ifdef PRINT_CUTS
+      csc_matrix_t<i_t, f_t> cuts_to_add_col(cuts_to_add.m, cuts_to_add.n, cuts_to_add.row_start[cuts_to_add.m]);
+      cuts_to_add.to_compressed_col(cuts_to_add_col);
+      cuts_to_add_col.print_matrix();
+      for (i_t i = 0; i < cut_rhs.size(); i++) {
+        printf("cut_rhs[%d] = %g\n", i, cut_rhs[i]);
+      }
+#endif
+
+#if 1
       f_t min_cut_violation = minimum_violation(cuts_to_add, cut_rhs, root_relax_soln_.x);
       settings_.log.printf("Min cut violation %e\n", min_cut_violation);
 #endif
 
       // Resolve the LP with the new cuts
-      settings_.log.debug("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
+      settings_.log.printf("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
                            num_cuts,
                            cuts_to_add.row_start[cuts_to_add.m],
                            cut_pool.pool_size(),
@@ -1242,6 +1256,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       original_lp_.A.check_matrix();
 #endif
       original_lp_.A.transpose(Arow);
+#if 1
       bool feasible =
         bound_strengthening(row_sense, settings_, original_lp_, Arow, var_types_, bounds_changed);
 
@@ -1249,6 +1264,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         settings_.log.printf("Bound strengthening failed\n");
         exit(1);
       }
+#endif
 
       // Adjust the solution
       root_relax_soln_.x.resize(original_lp_.num_cols, 0.0);

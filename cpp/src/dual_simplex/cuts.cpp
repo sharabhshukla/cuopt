@@ -6,13 +6,14 @@
 /* clang-format on */
 
 #include <dual_simplex/cuts.hpp>
+#include <dual_simplex/dense_matrix.hpp>
 
 
 namespace cuopt::linear_programming::dual_simplex {
 
 
 template <typename i_t, typename f_t>
-void cut_pool_t<i_t, f_t>::add_cut(const sparse_vector_t<i_t, f_t>& cut, f_t rhs)
+void cut_pool_t<i_t, f_t>::add_cut(cut_type_t cut_type, const sparse_vector_t<i_t, f_t>& cut, f_t rhs)
 {
   // TODO: Need to deduplicate cuts and only add if the cut is not already in the pool
 
@@ -26,7 +27,9 @@ void cut_pool_t<i_t, f_t>::add_cut(const sparse_vector_t<i_t, f_t>& cut, f_t rhs
   }
 
   cut_storage_.append_row(cut);
+  settings_.log.printf("Added cut %d to pool\n", cut_storage_.m - 1);
   rhs_storage_.push_back(rhs);
+  cut_type_.push_back(cut_type);
   cut_age_.push_back(0);
 }
 
@@ -108,6 +111,8 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
   const f_t min_orthogonality = 0.5;
   const f_t min_cut_distance = 1e-4;
   best_cuts_.reserve(std::min(max_cuts, cut_storage_.m));
+  best_cuts_.clear();
+  scored_cuts_ = 0;
 
   while (scored_cuts_ < max_cuts && !sorted_indices.empty()) {
     const i_t i = sorted_indices[0];
@@ -119,7 +124,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
     if (cut_age_[i] > 0) {
         settings_.log.printf("Adding cut with age %d\n", cut_age_[i]);
     }
-    //settings_.log.printf("Scored cuts %d. Adding cut %d score %e\n", scored_cuts_, i, cut_scores_[i]);
+    settings_.log.printf("Scored cuts %d. Adding cut %d score %e\n", scored_cuts_, i, cut_scores_[i]);
 
     best_cuts_.push_back(i);
     scored_cuts_++;
@@ -146,7 +151,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
 }
 
 template <typename i_t, typename f_t>
-i_t cut_pool_t<i_t, f_t>::get_best_cuts(csr_matrix_t<i_t, f_t>& best_cuts, std::vector<f_t>& best_rhs)
+i_t cut_pool_t<i_t, f_t>::get_best_cuts(csr_matrix_t<i_t, f_t>& best_cuts, std::vector<f_t>& best_rhs, std::vector<cut_type_t>& best_cut_types)
 {
   best_cuts.m = 0;
   best_cuts.n = original_vars_;
@@ -162,6 +167,7 @@ i_t cut_pool_t<i_t, f_t>::get_best_cuts(csr_matrix_t<i_t, f_t>& best_cuts, std::
     best_cuts.append_row(cut);
     //settings_.log.printf("Best cuts nz %d\n", best_cuts.row_start[best_cuts.m]);
     best_rhs.push_back(-rhs_storage_[i]);
+    best_cut_types.push_back(cut_type_[i]);
   }
 
   return static_cast<i_t>(best_cuts_.size());
@@ -183,6 +189,331 @@ void cut_pool_t<i_t, f_t>::drop_cuts()
 }
 
 template <typename i_t, typename f_t>
+knapsack_generation_t<i_t, f_t>::knapsack_generation_t(
+  const lp_problem_t<i_t, f_t>& lp,
+  const simplex_solver_settings_t<i_t, f_t>& settings,
+  csc_matrix_t<i_t, f_t>& Arow,
+  const std::vector<i_t>& new_slacks,
+  const std::vector<variable_type_t>& var_types)
+{
+  knapsack_constraints_.reserve(lp.num_rows);
+
+  is_slack_.resize(lp.num_cols, 0);
+  for (i_t j : new_slacks) {
+    is_slack_[j] = 1;
+  }
+
+  for (i_t i = 0; i < lp.num_rows; i++) {
+    const i_t row_start = Arow.col_start[i];
+    const i_t row_end   = Arow.col_start[i + 1];
+    bool is_knapsack    = true;
+    f_t sum_pos         = 0.0;
+    //printf("i %d ", i);
+    for (i_t p = row_start; p < row_end; p++) {
+      const i_t j = Arow.i[p];
+      if (is_slack_[j]) { continue; }
+      const f_t aj = Arow.x[p];
+      //printf(" j %d (%e < %e) aj %e\n", j, lp.lower[j], lp.upper[j], aj);
+      if (std::abs(aj - std::round(aj)) > settings.integer_tol) {
+        is_knapsack = false;
+        break;
+      }
+      if (var_types[j] != variable_type_t::INTEGER || lp.lower[j] != 0.0 || lp.upper[j] != 1.0) {
+        is_knapsack = false;
+        break;
+      }
+      if (aj < 0.0) {
+        is_knapsack = false;
+        break;
+      }
+      sum_pos += aj;
+    }
+   // printf("sum_pos %e\n", sum_pos);
+
+    if (is_knapsack) {
+      const f_t beta = lp.rhs[i];
+      printf("Knapsack constraint %d beta %e sum_pos %e\n", i, beta, sum_pos);
+      if (std::abs(beta - std::round(beta)) <= settings.integer_tol) {
+        if (beta >= 0.0 && beta <= sum_pos) {
+          knapsack_constraints_.push_back(i);
+        }
+      }
+    }
+  }
+
+  i_t num_knapsack_constraints = knapsack_constraints_.size();
+  settings.log.printf("Number of knapsack constraints %d\n", num_knapsack_constraints);
+}
+
+template <typename i_t, typename f_t>
+i_t knapsack_generation_t<i_t, f_t>::generate_knapsack_cuts(
+  const lp_problem_t<i_t, f_t>& lp,
+  const simplex_solver_settings_t<i_t, f_t>& settings,
+  csc_matrix_t<i_t, f_t>& Arow,
+  const std::vector<i_t>& new_slacks,
+  const std::vector<variable_type_t>& var_types,
+  const std::vector<f_t>& xstar,
+  i_t knapsack_row,
+  sparse_vector_t<i_t, f_t>& cut,
+  f_t& cut_rhs)
+{
+  // Get the row associated with the knapsack constraint
+  sparse_vector_t<i_t, f_t> knapsack_inequality(Arow, knapsack_row);
+  f_t knapsack_rhs = lp.rhs[knapsack_row];
+
+  // Remove the slacks from the inequality
+  f_t seperation_rhs = 0.0;
+  printf(" Knapsack : ");
+  for (i_t k = 0; k < knapsack_inequality.i.size(); k++) {
+    const i_t j = knapsack_inequality.i[k];
+    if (is_slack_[j]) {
+      knapsack_inequality.x[k] = 0.0;
+    } else {
+      printf(" %g x%d +", knapsack_inequality.x[k], j);
+      seperation_rhs += knapsack_inequality.x[k];
+    }
+  }
+  printf(" <= %g\n", knapsack_rhs);
+  seperation_rhs -= (knapsack_rhs + 1);
+
+  printf("\t");
+  for (i_t k = 0; k < knapsack_inequality.i.size(); k++) {
+    const i_t j = knapsack_inequality.i[k];
+    if (!is_slack_[j]) {
+        if (std::abs(xstar[j]) > 1e-3) {
+          printf("x_relax[%d]= %g ", j, xstar[j]);
+        }
+    }
+  }
+  printf("\n");
+
+  printf("seperation_rhs %g\n", seperation_rhs);
+  if (seperation_rhs <= 0.0) { return -1; }
+
+  std::vector<f_t> values;
+  values.resize(knapsack_inequality.i.size() - 1);
+  std::vector<f_t> weights;
+  weights.resize(knapsack_inequality.i.size() - 1);
+  i_t h                  = 0;
+  f_t objective_constant = 0.0;
+  for (i_t k = 0; k < knapsack_inequality.i.size(); k++) {
+    const i_t j = knapsack_inequality.i[k];
+    if (!is_slack_[j]) {
+      const f_t vj = 1.0 - xstar[j];
+      objective_constant += vj;
+      values[h]  = vj;
+      weights[h] = knapsack_inequality.x[k];
+      h++;
+    }
+  }
+  std::vector<f_t> solution;
+  solution.resize(knapsack_inequality.i.size() - 1);
+
+  printf("Calling solve_knapsack_problem\n");
+  f_t objective = solve_knapsack_problem(values, weights, seperation_rhs, solution);
+  if (objective != objective) { return -1; }
+  printf("objective %e objective_constant %e\n", objective, objective_constant);
+
+  f_t seperation_value = -objective + objective_constant;
+  printf("seperation_value %e\n", seperation_value);
+  const f_t tol = 1e-6;
+  if (seperation_value >= 1.0 - tol) { return -1; }
+
+  i_t cover_size = 0;
+  for (i_t k = 0; k < solution.size(); k++) {
+    if (solution[k] == 0.0) { cover_size++; }
+  }
+
+  cut.i.clear();
+  cut.x.clear();
+  cut.i.reserve(cover_size);
+  cut.x.reserve(cover_size);
+
+  h = 0;
+  for (i_t k = 0; k < knapsack_inequality.i.size(); k++) {
+    const i_t j = knapsack_inequality.i[k];
+    if (!is_slack_[j]) {
+      if (solution[h] == 0.0) {
+        cut.i.push_back(j);
+        cut.x.push_back(-1.0);
+      }
+      h++;
+    }
+  }
+  cut_rhs = -cover_size + 1;
+  cut.sort();
+
+  // The cut is in the form: - sum_{j in cover} x_j >= -cover_size + 1
+  // Which is equivalent to: sum_{j in cover} x_j <= cover_size - 1
+
+  // Verify the cut is violated
+  f_t dot = cut.dot(xstar);
+  f_t violation = dot - cut_rhs;
+  printf("Knapsack cut %d violation %e < 0\n", knapsack_row, violation);
+
+  if (violation <= tol) { return -1; }
+  return 0;
+}
+
+template <typename i_t, typename f_t>
+f_t knapsack_generation_t<i_t, f_t>::greedy_knapsack_problem(const std::vector<f_t>& values,
+                                                             const std::vector<f_t>& weights,
+                                                             f_t rhs,
+                                                             std::vector<f_t>& solution)
+{
+  i_t n = weights.size();
+  solution.assign(n, 0.0);
+
+  // Build permutation
+  std::vector<i_t> perm(n);
+  std::iota(perm.begin(), perm.end(), 0);
+
+  std::vector<f_t> ratios;
+  ratios.resize(n);
+  for (i_t i = 0; i < n; i++) {
+    ratios[i] = values[i] / weights[i];
+  }
+
+  // Sort by value / weight ratio
+  std::sort(perm.begin(), perm.end(), [&](i_t i, i_t j) { return ratios[i] > ratios[j]; });
+
+  // Greedy select items with the best value / weight ratio until the remaining capacity is exhausted
+  f_t remaining   = rhs;
+  f_t total_value = 0.0;
+
+  for (i_t j : perm) {
+    if (weights[j] <= remaining) {
+      solution[j] = 1.0;
+      remaining -= weights[j];
+      total_value += values[j];
+    }
+  }
+
+  // Best single-item fallback
+  f_t best_single_value = 0.0;
+  i_t best_single_idx   = -1;
+
+  for (i_t j = 0; j < n; ++j) {
+    if (weights[j] <= rhs && values[j] > best_single_value) {
+      best_single_value = values[j];
+      best_single_idx   = j;
+    }
+  }
+
+  if (best_single_value > total_value) {
+    solution.assign(n, 0.0);
+    solution[best_single_idx] = 1.0;
+    return best_single_value;
+  }
+
+  return total_value;
+}
+
+template <typename i_t, typename f_t>
+f_t knapsack_generation_t<i_t, f_t>::solve_knapsack_problem(const std::vector<f_t>& values,
+                                                            const std::vector<f_t>& weights,
+                                                            f_t rhs,
+                                                            std::vector<f_t>& solution)
+{
+  // Solve the knapsack problem
+  // maximize sum_{j=0}^n values[j] * solution[j]
+  // subject to sum_{j=0}^n weights[j] * solution[j] <= rhs
+  // values: values of the items
+  // weights: weights of the items
+  // return the value of the solution
+
+  // Using approximate dynamic programming
+
+  i_t n = weights.size();
+  f_t objective = std::numeric_limits<f_t>::quiet_NaN();
+
+  // Compute the maximum value
+  f_t vmax = *std::max_element(values.begin(), values.end());
+
+  // Check if all the values are integers
+  bool all_integers = true;
+  const f_t integer_tol = 1e-5;
+  for (i_t j = 0; j < n; j++) {
+    if (std::abs(values[j] - std::round(values[j])) > integer_tol) {
+        all_integers = false;
+        break;
+    }
+  }
+
+  printf("all_integers %d\n", all_integers);
+
+  // Compute the scaling factor and comptue the scaled integer values
+  f_t scale = 1.0;
+  std::vector<i_t> scaled_values(n);
+  if (all_integers) {
+    for (i_t j = 0; j < n; j++) {
+      scaled_values[j] = static_cast<i_t>(std::floor(values[j]));
+    }
+  } else {
+    const f_t epsilon = 0.1;
+    scale             = epsilon * vmax / static_cast<f_t>(n);
+    if (scale <= 0.0) { return std::numeric_limits<f_t>::quiet_NaN(); }
+    printf("scale %g epsilon %g vmax %g n %d\n", scale, epsilon, vmax, n);
+    for (i_t i = 0; i < n; ++i) {
+      scaled_values[i] = static_cast<i_t>(std::floor(values[i] / scale));
+      //printf("scaled_values[%d] %d values[%d] %g\n", i, scaled_values[i], i, values[i]);
+    }
+  }
+
+  i_t sum_value = std::accumulate(scaled_values.begin(), scaled_values.end(), 0);
+  const i_t INT_INF = std::numeric_limits<i_t>::max() / 2;
+  printf("sum value %d\n", sum_value);
+  const i_t max_size = 10000;
+  if (sum_value <= 0.0 || sum_value >= max_size) {
+    printf("sum value %d is negative or too large using greedy solution\n", sum_value);
+    return greedy_knapsack_problem(values, weights, rhs, solution);
+  }
+
+  // dp(j, v) = minimum weight using first j items to get value v
+  dense_matrix_t<i_t, i_t> dp(n + 1, sum_value + 1, INT_INF);
+  dense_matrix_t<i_t, uint8_t> take(n + 1, sum_value + 1, 0);
+  dp(0, 0) = 0;
+  printf("start dp\n");
+
+  // 4. Dynamic programming
+  for (int j = 1; j <= n; ++j) {
+    for (int v = 0; v <= sum_value; ++v) {
+      // Do not take item i-1
+      dp(j, v) = dp(j - 1, v);
+
+      // Take item j-1 if possible
+      if (v >= scaled_values[j - 1]) {
+        i_t candidate = dp(j - 1, v - scaled_values[j - 1]) + static_cast<i_t>(std::floor(weights[j - 1]));
+        if (candidate < dp(j, v)) {
+          dp(j, v)   = candidate;
+          take(j, v) = 1;
+        }
+      }
+    }
+  }
+
+  // 5. Find best achievable value within capacity
+  i_t best_value = 0;
+  for (i_t v = 0; v <= sum_value; ++v) {
+    if (dp(n, v) <= rhs) { best_value = v; }
+  }
+
+  // 6. Backtrack to recover solution
+  i_t v = best_value;
+  for (i_t j = n; j >= 1; --j) {
+    if (take(j, v)) {
+      solution[j - 1] = 1.0;
+      v -= scaled_values[j - 1];
+    } else {
+      solution[j - 1] = 0.0;
+    }
+  }
+
+  objective = best_value * scale;
+  return objective;
+}
+
+template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                const simplex_solver_settings_t<i_t, f_t>& settings,
                                                csc_matrix_t<i_t, f_t>& Arow,
@@ -196,10 +527,39 @@ void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
   // Generate Gomory Cuts
   generate_gomory_cuts(
     lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
+  settings.log.printf("Generated Gomory cuts\n");
 
+  // Generate Knapsack cuts
+  generate_knapsack_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
+  settings.log.printf("Generated Knapsack cuts\n");
 
  // Generate MIR cuts
  // generate_mir_cuts(lp, settings, Arow, var_types, xstar);
+}
+
+template <typename i_t, typename f_t>
+void cut_generation_t<i_t, f_t>::generate_knapsack_cuts(
+  const lp_problem_t<i_t, f_t>& lp,
+  const simplex_solver_settings_t<i_t, f_t>& settings,
+  csc_matrix_t<i_t, f_t>& Arow,
+  const std::vector<i_t>& new_slacks,
+  const std::vector<variable_type_t>& var_types,
+  const std::vector<f_t>& xstar)
+{
+  if (knapsack_generation_.num_knapsack_constraints() > 0) {
+    for (i_t knapsack_row : knapsack_generation_.get_knapsack_constraints()) {
+      sparse_vector_t<i_t, f_t> cut(lp.num_cols, 0);
+      f_t cut_rhs;
+      i_t knapsack_status = knapsack_generation_.generate_knapsack_cuts(
+        lp, settings, Arow, new_slacks, var_types, xstar, knapsack_row, cut, cut_rhs);
+      if (knapsack_status == 0) {
+        settings.log.printf("Adding Knapsack cut %d\n", knapsack_row);
+        cut_pool_.add_cut(cut_type_t::KNAPSACK, cut, cut_rhs);
+      } else {
+        settings.log.printf("Knapsack cut %d is not violated. Skipping\n", knapsack_row);
+      }
+    }
+  }
 }
 
 template <typename i_t, typename f_t>
@@ -260,7 +620,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
         }
 
         settings.log.printf("Adding MIR cut %d\n", i);
-        cut_pool_.add_cut(cut, cut_rhs);
+        cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_ROUNDING, cut, cut_rhs);
     }
   }
 }
@@ -310,16 +670,25 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
       bool A_valid = false;
       f_t cut_A_distance = 0.0;
       if (mir_status == 0) {
-        mir.substitute_slacks(lp, Arow, cut_A, cut_A_rhs);
-        // Check that the cut is violated
-        f_t dot = cut_A.dot(xstar);
-        f_t cut_norm = cut_A.norm2_squared();
-        if (dot >= cut_A_rhs) {
-          settings.log.printf("Cut %d is not violated. Skipping\n", i);
+        if (cut_A.i.size() == 0) {
+          settings.log.printf("No coefficients in cut A\n");
           continue;
         }
-        cut_A_distance = (cut_A_rhs - dot) / std::sqrt(cut_norm);
-        A_valid = true;
+        mir.substitute_slacks(lp, Arow, cut_A, cut_A_rhs);
+        if (cut_A.i.size() == 0) {
+          settings.log.printf("No coefficients in cut A after substituting slacks\n");
+          A_valid = false;
+        } else {
+          // Check that the cut is violated
+          f_t dot      = cut_A.dot(xstar);
+          f_t cut_norm = cut_A.norm2_squared();
+          if (dot >= cut_A_rhs) {
+            settings.log.printf("Cut %d is not violated. Skipping\n", i);
+            continue;
+          }
+          cut_A_distance = (cut_A_rhs - dot) / std::sqrt(cut_norm);
+          A_valid        = true;
+        }
         //cut_pool_.add_cut(lp.num_cols, cut, cut_rhs);
       }
 
@@ -335,23 +704,34 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
       bool B_valid = false;
       f_t cut_B_distance = 0.0;
       if (mir_status == 0) {
-        mir.substitute_slacks(lp, Arow, cut_B, cut_B_rhs);
-        // Check that the cut is violated
-        f_t dot = cut_B.dot(xstar);
-        f_t cut_norm = cut_B.norm2_squared();
-        if (dot >= cut_B_rhs) {
-          settings.log.printf("Cut %d is not violated. Skipping\n", i);
+        if (cut_B.i.size() == 0) {
+          settings.log.printf("No coefficients in cut B\n");
           continue;
         }
-        cut_B_distance = (cut_B_rhs - dot) / std::sqrt(cut_norm);
-        B_valid = true;
+        mir.substitute_slacks(lp, Arow, cut_B, cut_B_rhs);
+        if (cut_B.i.size() == 0) {
+          settings.log.printf("No coefficients in cut B after substituting slacks\n");
+          B_valid = false;
+        } else {
+          // Check that the cut is violated
+          f_t dot      = cut_B.dot(xstar);
+          f_t cut_norm = cut_B.norm2_squared();
+          if (dot >= cut_B_rhs) {
+            settings.log.printf("Cut %d is not violated. Skipping\n", i);
+            continue;
+          }
+          cut_B_distance = (cut_B_rhs - dot) / std::sqrt(cut_norm);
+          B_valid        = true;
+        }
         // cut_pool_.add_cut(lp.num_cols, cut_B, cut_B_rhs);
       }
 
       if ((cut_A_distance > cut_B_distance) && A_valid) {
-        cut_pool_.add_cut(cut_A, cut_A_rhs);
+        printf("Adding Gomory cut A: nz %d distance %e valid %d\n", cut_A.i.size(), cut_A_distance, A_valid);
+        cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_GOMORY, cut_A, cut_A_rhs);
       } else if (B_valid) {
-        cut_pool_.add_cut(cut_B, cut_B_rhs);
+        printf("Adding Gomory cut B: nz %d distance %e valid %d\n", cut_B.i.size(), cut_B_distance, B_valid);
+        cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_GOMORY, cut_B, cut_B_rhs);
       }
     }
   }
@@ -720,6 +1100,12 @@ i_t mixed_integer_rounding_cut_t<i_t, f_t>::generate_cut(
   cut.sort();
 
   cut_rhs = R;
+
+  if (cut.i.size() == 0) {
+    settings_.log.printf("No coefficients in cut\n");
+    return -1;
+  }
+
   return 0;
 }
 
@@ -735,38 +1121,62 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
   i_t cut_nz = 0;
   std::vector<i_t> cut_indices;
   cut_indices.reserve(cut.i.size());
+
+#if 1
+  for (i_t j = 0; j < x_workspace_.size(); j++) {
+    if (x_workspace_[j] != 0.0) {
+      printf("Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      exit(1);
+    }
+    if (x_mark_[j] != 0) {
+      printf("Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      exit(1);
+    }
+  }
+#endif
+
+
+
   for (i_t k = 0; k < cut.i.size(); k++) {
     const i_t j  = cut.i[k];
     const f_t cj = cut.x[k];
     if (is_slack_[j]) {
       found_slack = true;
+
       // Do the substitution
       // Slack variable s_j participates in row i of the constraint matrix
       // Row i is of the form:
-      // sum_{k != j} A(i, k) * x_k + A(i, j) * s_j = rhs_i
+      // sum_{k != j} A(i, k) * x_k + s_j = rhs_i
       /// So we have that
       // s_j = rhs_i - sum_{k != j} A(i, k) * x_k
 
       // Our cut is of the form:
       // sum_{k != j} C(k) * x_k + C(j) * s_j >= cut_rhs
       // So the cut becomes
-      // sum_{k != j} C(k) * x_k + C(j) * (rhs_i - sum_{k != j} A(i, k) * x_k) >= cut_rhs
+      // sum_{k != j} C(k) * x_k + C(j) * (rhs_i - sum_{h != j} A(i, h) * x_h) >= cut_rhs
       // This is equivalent to:
-      // sum_{k != j} C(k) * x_k + sum_{k != j} -C(k) * A(i, k) * x_k >= cut_rhs - C(j) * rhs_i
+      // sum_{k != j} C(k) * x_k + sum_{h != j} -C(j) * A(i, h) * x_h >= cut_rhs - C(j) * rhs_i
       const i_t i         = slack_rows_[j];
+      //printf("Found slack %d in cut. lo %e up %e. Slack row %d\n", j, lp.lower[j], lp.upper[j], i);
       cut_rhs -= cj * lp.rhs[i];
       const i_t row_start = Arow.col_start[i];
       const i_t row_end   = Arow.col_start[i + 1];
       for (i_t q = row_start; q < row_end; q++) {
-        const i_t k = Arow.i[q];
-        if (k != j) {
-          const f_t aik = Arow.x[q];
-          x_workspace_[k] -= cj * aik;
-          if (!x_mark_[k]) {
-            x_mark_[k] = 1;
-            cut_indices.push_back(k);
+        const i_t h = Arow.i[q];
+        if (h != j) {
+          const f_t aih = Arow.x[q];
+          x_workspace_[h] -= cj * aih;
+          if (!x_mark_[h]) {
+            x_mark_[h] = 1;
+            cut_indices.push_back(h);
             cut_nz++;
           }
+        } else {
+            const f_t aij = Arow.x[q];
+            if (aij != 1.0) {
+                printf("Slack row %d has non-unit coefficient for variable %d\n", i, j);
+                exit(1);
+            }
         }
       }
 
@@ -794,13 +1204,27 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
     }
     // Sort the cut
     cut.sort();
+  }
 
-    // Clear the workspace
-    for (i_t jj : cut_indices) {
-      x_workspace_[jj] = 0.0;
-      x_mark_[jj]      = 0;
+  // Clear the workspace
+  for (i_t jj : cut_indices) {
+    x_workspace_[jj] = 0.0;
+    x_mark_[jj]      = 0;
+  }
+
+
+#if 1
+  for (i_t j = 0; j < x_workspace_.size(); j++) {
+    if (x_workspace_[j] != 0.0) {
+      printf("Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      exit(1);
+    }
+    if (x_mark_[j] != 0) {
+      printf("Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      exit(1);
     }
   }
+#endif
 }
 
 template <typename i_t, typename f_t>

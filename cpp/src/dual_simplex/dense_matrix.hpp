@@ -18,6 +18,8 @@ class dense_matrix_t {
  public:
   dense_matrix_t(i_t rows, i_t cols) : m(rows), n(cols), values(rows * cols, 0.0) {}
 
+  dense_matrix_t(i_t rows, i_t cols, f_t value) : m(rows), n(cols), values(rows * cols, value) {}
+
   void resize(i_t rows, i_t cols)
   {
     m = rows;

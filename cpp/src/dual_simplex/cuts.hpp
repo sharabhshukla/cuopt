@@ -18,6 +18,30 @@
 
 namespace cuopt::linear_programming::dual_simplex {
 
+enum cut_type_t : int8_t {
+   MIXED_INTEGER_GOMORY = 0,
+   MIXED_INTEGER_ROUNDING  = 1,
+   KNAPSACK = 2,
+};
+
+template <typename i_t, typename f_t>
+void print_cut_types(const std::vector<cut_type_t>& cut_types, const simplex_solver_settings_t<i_t, f_t>& settings) {
+  i_t num_gomory_cuts = 0;
+  i_t num_mir_cuts = 0;
+  i_t num_knapsack_cuts = 0;
+  for (i_t i = 0; i < cut_types.size(); i++) {
+    if (cut_types[i] == cut_type_t::MIXED_INTEGER_GOMORY) {
+      num_gomory_cuts++;
+    } else if (cut_types[i] == cut_type_t::MIXED_INTEGER_ROUNDING) {
+      num_mir_cuts++;
+    } else if (cut_types[i] == cut_type_t::KNAPSACK) {
+      num_knapsack_cuts++;
+    }
+  }
+  settings.log.printf("Gomory cuts: %d, MIR cuts: %d, Knapsack cuts: %d\n", num_gomory_cuts, num_mir_cuts, num_knapsack_cuts);
+}
+
+
 template <typename i_t, typename f_t>
 f_t minimum_violation(const csr_matrix_t<i_t, f_t>& C,
                       const std::vector<f_t>& cut_rhs,
@@ -32,6 +56,7 @@ f_t minimum_violation(const csr_matrix_t<i_t, f_t>& C,
   for (i_t k = 0; k < Cx.size(); k++) {
     if (Cx[k] <= cut_rhs[k]) {
       printf("C*x <= d for cut %d. C*x %e rhs %e\n", k, Cx[k], cut_rhs[k]);
+      exit(1);
     }
     min_cut_violation = std::min(min_cut_violation, Cx[k] - cut_rhs[k]);
   }
@@ -47,6 +72,7 @@ class cut_pool_t {
       cut_storage_(0, original_vars, 0),
       rhs_storage_(0),
       cut_age_(0),
+      cut_type_(0),
       scored_cuts_(0)
   {
   }
@@ -54,12 +80,12 @@ class cut_pool_t {
   // Add a cut in the form: cut'*x >= rhs.
   // We expect that the cut is violated by the current relaxation
   // cut'*xstart < rhs
-  void add_cut(const sparse_vector_t<i_t, f_t>& cut, f_t rhs);
+  void add_cut(cut_type_t cut_type, const sparse_vector_t<i_t, f_t>& cut, f_t rhs);
 
   void score_cuts(std::vector<f_t>& x_relax);
 
   // We return the cuts in the form best_cuts*x <= best_rhs
-  i_t get_best_cuts(csr_matrix_t<i_t, f_t>& best_cuts, std::vector<f_t>& best_rhs);
+  i_t get_best_cuts(csr_matrix_t<i_t, f_t>& best_cuts, std::vector<f_t>& best_rhs, std::vector<cut_type_t>& best_cut_types);
 
   void age_cuts();
 
@@ -78,6 +104,7 @@ class cut_pool_t {
   csr_matrix_t<i_t, f_t> cut_storage_;
   std::vector<f_t> rhs_storage_;
   std::vector<i_t> cut_age_;
+  std::vector<cut_type_t> cut_type_;
 
   i_t scored_cuts_;
   std::vector<f_t> cut_distances_;
@@ -88,10 +115,49 @@ class cut_pool_t {
 };
 
 template <typename i_t, typename f_t>
+class knapsack_generation_t {
+ public:
+  knapsack_generation_t(const lp_problem_t<i_t, f_t>& lp,
+                        const simplex_solver_settings_t<i_t, f_t>& settings,
+                        csc_matrix_t<i_t, f_t>& Arow,
+                        const std::vector<i_t>& new_slacks,
+                        const std::vector<variable_type_t>& var_types);
+
+  i_t generate_knapsack_cuts(const lp_problem_t<i_t, f_t>& lp,
+                             const simplex_solver_settings_t<i_t, f_t>& settings,
+                             csc_matrix_t<i_t, f_t>& Arow,
+                             const std::vector<i_t>& new_slacks,
+                             const std::vector<variable_type_t>& var_types,
+                             const std::vector<f_t>& xstar,
+                             i_t knapsack_row,
+                             sparse_vector_t<i_t, f_t>& cut,
+                             f_t& cut_rhs);
+
+  i_t num_knapsack_constraints() const { return knapsack_constraints_.size(); }
+  const std::vector<i_t>& get_knapsack_constraints() const { return knapsack_constraints_; }
+
+ private:
+
+  f_t greedy_knapsack_problem(const std::vector<f_t>& values, const std::vector<f_t>& weights, f_t rhs, std::vector<f_t>& solution);
+  f_t solve_knapsack_problem(const std::vector<f_t>& values, const std::vector<f_t>& weights, f_t rhs, std::vector<f_t>& solution);
+
+
+  std::vector<i_t> is_slack_;
+  std::vector<i_t> knapsack_constraints_;
+};
+
+template <typename i_t, typename f_t>
 class cut_generation_t {
  public:
-  cut_generation_t(cut_pool_t<i_t, f_t>& cut_pool) : cut_pool_(cut_pool) {}
-
+  cut_generation_t(cut_pool_t<i_t, f_t>& cut_pool,
+                   const lp_problem_t<i_t, f_t>& lp,
+                   const simplex_solver_settings_t<i_t, f_t>& settings,
+                   csc_matrix_t<i_t, f_t>& Arow,
+                   const std::vector<i_t>& new_slacks,
+                   const std::vector<variable_type_t>& var_types)
+    : cut_pool_(cut_pool), knapsack_generation_(lp, settings, Arow, new_slacks, var_types)
+  {
+  }
 
   void generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                      const simplex_solver_settings_t<i_t, f_t>& settings,
@@ -120,7 +186,15 @@ class cut_generation_t {
                          const std::vector<i_t>& new_slacks,
                          const std::vector<variable_type_t>& var_types,
                          const std::vector<f_t>& xstar);
+
+  void generate_knapsack_cuts(const lp_problem_t<i_t, f_t>& lp,
+                              const simplex_solver_settings_t<i_t, f_t>& settings,
+                              csc_matrix_t<i_t, f_t>& Arow,
+                              const std::vector<i_t>& new_slacks,
+                              const std::vector<variable_type_t>& var_types,
+                              const std::vector<f_t>& xstar);
   cut_pool_t<i_t, f_t>& cut_pool_;
+  knapsack_generation_t<i_t, f_t> knapsack_generation_;
 };
 
 template <typename i_t, typename f_t>
