@@ -302,7 +302,7 @@ void set_pdlp_solver_mode(pdlp_solver_settings_t<i_t, f_t>& settings)
     set_Stable3(settings.hyper_params);
 }
 
-volatile int global_concurrent_halt;
+std::atomic<int> global_concurrent_halt{0};
 
 template <typename i_t, typename f_t>
 optimization_problem_solution_t<i_t, f_t> convert_dual_simplex_sol(
@@ -988,21 +988,10 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
                       reduced_costs,
                       cuopt::linear_programming::problem_category_t::LP,
                       status_to_skip,
+                      settings.dual_postsolve,
                       op_problem.get_handle_ptr()->get_stream());
 
-      thrust::fill(rmm::exec_policy(op_problem.get_handle_ptr()->get_stream()),
-                   dual_solution.data(),
-                   dual_solution.data() + dual_solution.size(),
-                   std::numeric_limits<f_t>::signaling_NaN());
-      thrust::fill(rmm::exec_policy(op_problem.get_handle_ptr()->get_stream()),
-                   reduced_costs.data(),
-                   reduced_costs.data() + reduced_costs.size(),
-                   std::numeric_limits<f_t>::signaling_NaN());
-
-      std::vector<pdlp_termination_status_t> term_vec =
-    solution.get_terminations_status();
-
-      std::vector<typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t> full_stats = solution.get_additional_termination_informations();
+      auto full_stats = solution.get_additional_termination_information();
 
       // Create a new solution with the full problem solution
       solution = optimization_problem_solution_t<i_t, f_t>(primal_solution,
