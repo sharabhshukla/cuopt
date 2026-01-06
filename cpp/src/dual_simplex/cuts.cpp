@@ -194,7 +194,7 @@ template <typename i_t, typename f_t>
 knapsack_generation_t<i_t, f_t>::knapsack_generation_t(
   const lp_problem_t<i_t, f_t>& lp,
   const simplex_solver_settings_t<i_t, f_t>& settings,
-  csc_matrix_t<i_t, f_t>& Arow,
+  csr_matrix_t<i_t, f_t>& Arow,
   const std::vector<i_t>& new_slacks,
   const std::vector<variable_type_t>& var_types)
 {
@@ -206,14 +206,14 @@ knapsack_generation_t<i_t, f_t>::knapsack_generation_t(
   }
 
   for (i_t i = 0; i < lp.num_rows; i++) {
-    const i_t row_start = Arow.col_start[i];
-    const i_t row_end   = Arow.col_start[i + 1];
+    const i_t row_start = Arow.row_start[i];
+    const i_t row_end   = Arow.row_start[i + 1];
     if (row_end - row_start < 3) { continue; }
     bool is_knapsack    = true;
     f_t sum_pos         = 0.0;
     //printf("i %d ", i);
     for (i_t p = row_start; p < row_end; p++) {
-      const i_t j = Arow.i[p];
+      const i_t j = Arow.j[p];
       if (is_slack_[j]) { continue; }
       const f_t aj = Arow.x[p];
       //printf(" j %d (%e < %e) aj %e\n", j, lp.lower[j], lp.upper[j], aj);
@@ -252,7 +252,7 @@ template <typename i_t, typename f_t>
 i_t knapsack_generation_t<i_t, f_t>::generate_knapsack_cuts(
   const lp_problem_t<i_t, f_t>& lp,
   const simplex_solver_settings_t<i_t, f_t>& settings,
-  csc_matrix_t<i_t, f_t>& Arow,
+  csr_matrix_t<i_t, f_t>& Arow,
   const std::vector<i_t>& new_slacks,
   const std::vector<variable_type_t>& var_types,
   const std::vector<f_t>& xstar,
@@ -519,7 +519,7 @@ f_t knapsack_generation_t<i_t, f_t>::solve_knapsack_problem(const std::vector<f_
 template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                const simplex_solver_settings_t<i_t, f_t>& settings,
-                                               csc_matrix_t<i_t, f_t>& Arow,
+                                               csr_matrix_t<i_t, f_t>& Arow,
                                                const std::vector<i_t>& new_slacks,
                                                const std::vector<variable_type_t>& var_types,
                                                basis_update_mpf_t<i_t, f_t>& basis_update,
@@ -544,7 +544,7 @@ template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_knapsack_cuts(
   const lp_problem_t<i_t, f_t>& lp,
   const simplex_solver_settings_t<i_t, f_t>& settings,
-  csc_matrix_t<i_t, f_t>& Arow,
+  csr_matrix_t<i_t, f_t>& Arow,
   const std::vector<i_t>& new_slacks,
   const std::vector<variable_type_t>& var_types,
   const std::vector<f_t>& xstar)
@@ -568,7 +568,7 @@ void cut_generation_t<i_t, f_t>::generate_knapsack_cuts(
 template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                    const simplex_solver_settings_t<i_t, f_t>& settings,
-                                                   csc_matrix_t<i_t, f_t>& Arow,
+                                                   csr_matrix_t<i_t, f_t>& Arow,
                                                    const std::vector<i_t>& new_slacks,
                                                    const std::vector<variable_type_t>& var_types,
                                                    const std::vector<f_t>& xstar)
@@ -580,11 +580,11 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
     sparse_vector_t<i_t, f_t> inequality(Arow, i);
     f_t inequality_rhs = lp.rhs[i];
 
-    const i_t row_start = Arow.col_start[i];
-    const i_t row_end = Arow.col_start[i + 1];
+    const i_t row_start = Arow.row_start[i];
+    const i_t row_end = Arow.row_start[i + 1];
     i_t last_slack = -1;
     for (i_t p = row_start; p < row_end; p++) {
-      const i_t j = Arow.i[p];
+      const i_t j = Arow.j[p];
       const f_t a = Arow.x[p];
       if (var_types[j] == variable_type_t::CONTINUOUS && a == 1.0 && lp.lower[j] == 0.0) {
         last_slack = j;
@@ -633,7 +633,7 @@ template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
   const lp_problem_t<i_t, f_t>& lp,
   const simplex_solver_settings_t<i_t, f_t>& settings,
-  csc_matrix_t<i_t, f_t>& Arow,
+  csr_matrix_t<i_t, f_t>& Arow,
   const std::vector<i_t>& new_slacks,
   const std::vector<variable_type_t>& var_types,
   basis_update_mpf_t<i_t, f_t>& basis_update,
@@ -744,7 +744,7 @@ template <typename i_t, typename f_t>
 i_t mixed_integer_gomory_base_inequality_t<i_t, f_t>::generate_base_inequality(
   const lp_problem_t<i_t, f_t>& lp,
   const simplex_solver_settings_t<i_t, f_t>& settings,
-  csc_matrix_t<i_t, f_t>& Arow,
+  csr_matrix_t<i_t, f_t>& Arow,
   const std::vector<variable_type_t>& var_types,
   basis_update_mpf_t<i_t, f_t>& basis_update,
   const std::vector<f_t>& xstar,
@@ -805,10 +805,10 @@ i_t mixed_integer_gomory_base_inequality_t<i_t, f_t>::generate_base_inequality(
     for (i_t k = 0; k < nz_ubar; k++) {
       const i_t ii        = u_bar.i[k];
       const f_t u_bar_i   = u_bar.x[k];
-      const i_t row_start = Arow.col_start[ii];
-      const i_t row_end   = Arow.col_start[ii + 1];
+      const i_t row_start = Arow.row_start[ii];
+      const i_t row_end   = Arow.row_start[ii + 1];
       for (i_t p = row_start; p < row_end; p++) {
-        const i_t jj = Arow.i[p];
+        const i_t jj = Arow.j[p];
         if (nonbasic_mark_[jj] == 1) {
           x_workspace_[jj] += u_bar_i * Arow.x[p];
           if (!x_mark_[jj]) {
@@ -1118,7 +1118,7 @@ i_t mixed_integer_rounding_cut_t<i_t, f_t>::generate_cut(
 
 template <typename i_t, typename f_t>
 void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_t<i_t, f_t>& lp,
-                                                               csc_matrix_t<i_t, f_t>& Arow,
+                                                               csr_matrix_t<i_t, f_t>& Arow,
                                                                sparse_vector_t<i_t, f_t>& cut,
                                                                f_t& cut_rhs)
 {
@@ -1179,10 +1179,10 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
       const i_t i         = slack_rows_[j];
       //printf("Found slack %d in cut. lo %e up %e. Slack row %d\n", j, lp.lower[j], lp.upper[j], i);
       cut_rhs -= cj * lp.rhs[i] / alpha;
-      const i_t row_start = Arow.col_start[i];
-      const i_t row_end   = Arow.col_start[i + 1];
+      const i_t row_start = Arow.row_start[i];
+      const i_t row_end   = Arow.row_start[i + 1];
       for (i_t q = row_start; q < row_end; q++) {
-        const i_t h = Arow.i[q];
+        const i_t h = Arow.j[q];
         if (h != j) {
           const f_t aih = Arow.x[q];
           x_workspace_[h] -= cj * aih / alpha;
@@ -1315,8 +1315,6 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
   csc_matrix_t<i_t, f_t> new_A_col(lp.num_rows + p, lp.num_cols, 1);
   new_A_row.to_compressed_col(new_A_col);
 
-  printf("slacks size %ld m %d\n", new_slacks.size(), lp.num_rows);
-
   // Add in slacks variables for the new rows
   lp.lower.resize(lp.num_cols + p);
   lp.upper.resize(lp.num_cols + p);
@@ -1335,7 +1333,6 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
     lp.upper[j]     = inf;
     lp.objective[j] = 0.0;
     new_slacks.push_back(j);
-    printf("Added slack %d\n", j);
   }
   settings.log.debug("Done adding slacks\n");
   new_A_col.col_start[lp.num_cols + p] = nz;
@@ -1457,7 +1454,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
 template <typename i_t, typename f_t>
 void remove_cuts(lp_problem_t<i_t, f_t>& lp,
                  const simplex_solver_settings_t<i_t, f_t>& settings,
-                 csc_matrix_t<i_t, f_t>& Arow,
+                 csr_matrix_t<i_t, f_t>& Arow,
                  std::vector<i_t>& new_slacks,
                  i_t original_rows,
                  std::vector<variable_type_t>& var_types,
@@ -1490,12 +1487,12 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
 
   for (i_t k = original_rows; k < lp.num_rows; k++) {
     if (std::abs(y[k]) < dual_tol) {
-      const i_t row_start = Arow.col_start[k];
-      const i_t row_end   = Arow.col_start[k + 1];
+      const i_t row_start = Arow.row_start[k];
+      const i_t row_end   = Arow.row_start[k + 1];
       i_t last_slack      = -1;
       const f_t slack_tol = 1e-3;
       for (i_t p = row_start; p < row_end; p++) {
-        const i_t j      = Arow.i[p];
+        const i_t j      = Arow.j[p];
         if (is_slack[j]) {
           if (vstatus[j] == variable_status_t::BASIC && x[j] > slack_tol) { last_slack = j; }
         }
@@ -1528,9 +1525,10 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
         h++;
       }
     }
-
-    Arow.remove_columns(marked_rows);
-    Arow.transpose(lp.A);
+    csr_matrix_t<i_t, f_t> new_Arow(1, 1, 0);
+    Arow.remove_rows(marked_rows, new_Arow);
+    Arow = new_Arow;
+    Arow.to_compressed_col(lp.A);
 
     std::vector<f_t> new_objective(lp.num_cols - slacks_to_remove.size());
     std::vector<f_t> new_lower(lp.num_cols - slacks_to_remove.size());
@@ -1564,7 +1562,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
       }
     }
     lp.A.remove_columns(marked_cols);
-    lp.A.transpose(Arow);
+    lp.A.to_compressed_row(Arow);
     lp.objective  = new_objective;
     lp.lower      = new_lower;
     lp.upper      = new_upper;
@@ -1621,7 +1619,7 @@ int add_cuts(const simplex_solver_settings_t<int, double>& settings,
 template
 void remove_cuts<int, double>(lp_problem_t<int, double>& lp,
                  const simplex_solver_settings_t<int, double>& settings,
-                 csc_matrix_t<int, double>& Arow,
+                 csr_matrix_t<int, double>& Arow,
                  std::vector<int>& new_slacks,
                  int original_rows,
                  std::vector<variable_type_t>& var_types,

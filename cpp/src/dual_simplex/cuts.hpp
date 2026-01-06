@@ -119,13 +119,13 @@ class knapsack_generation_t {
  public:
   knapsack_generation_t(const lp_problem_t<i_t, f_t>& lp,
                         const simplex_solver_settings_t<i_t, f_t>& settings,
-                        csc_matrix_t<i_t, f_t>& Arow,
+                        csr_matrix_t<i_t, f_t>& Arow,
                         const std::vector<i_t>& new_slacks,
                         const std::vector<variable_type_t>& var_types);
 
   i_t generate_knapsack_cuts(const lp_problem_t<i_t, f_t>& lp,
                              const simplex_solver_settings_t<i_t, f_t>& settings,
-                             csc_matrix_t<i_t, f_t>& Arow,
+                             csr_matrix_t<i_t, f_t>& Arow,
                              const std::vector<i_t>& new_slacks,
                              const std::vector<variable_type_t>& var_types,
                              const std::vector<f_t>& xstar,
@@ -152,7 +152,7 @@ class cut_generation_t {
   cut_generation_t(cut_pool_t<i_t, f_t>& cut_pool,
                    const lp_problem_t<i_t, f_t>& lp,
                    const simplex_solver_settings_t<i_t, f_t>& settings,
-                   csc_matrix_t<i_t, f_t>& Arow,
+                   csr_matrix_t<i_t, f_t>& Arow,
                    const std::vector<i_t>& new_slacks,
                    const std::vector<variable_type_t>& var_types)
     : cut_pool_(cut_pool), knapsack_generation_(lp, settings, Arow, new_slacks, var_types)
@@ -161,7 +161,7 @@ class cut_generation_t {
 
   void generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                      const simplex_solver_settings_t<i_t, f_t>& settings,
-                     csc_matrix_t<i_t, f_t>& Arow,
+                     csr_matrix_t<i_t, f_t>& Arow,
                      const std::vector<i_t>& new_slacks,
                      const std::vector<variable_type_t>& var_types,
                      basis_update_mpf_t<i_t, f_t>& basis_update,
@@ -172,7 +172,7 @@ class cut_generation_t {
 
   void generate_gomory_cuts(const lp_problem_t<i_t, f_t>& lp,
                             const simplex_solver_settings_t<i_t, f_t>& settings,
-                            csc_matrix_t<i_t, f_t>& Arow,
+                            csr_matrix_t<i_t, f_t>& Arow,
                             const std::vector<i_t>& new_slacks,
                             const std::vector<variable_type_t>& var_types,
                             basis_update_mpf_t<i_t, f_t>& basis_update,
@@ -182,14 +182,14 @@ class cut_generation_t {
 
   void generate_mir_cuts(const lp_problem_t<i_t, f_t>& lp,
                          const simplex_solver_settings_t<i_t, f_t>& settings,
-                         csc_matrix_t<i_t, f_t>& Arow,
+                         csr_matrix_t<i_t, f_t>& Arow,
                          const std::vector<i_t>& new_slacks,
                          const std::vector<variable_type_t>& var_types,
                          const std::vector<f_t>& xstar);
 
   void generate_knapsack_cuts(const lp_problem_t<i_t, f_t>& lp,
                               const simplex_solver_settings_t<i_t, f_t>& settings,
-                              csc_matrix_t<i_t, f_t>& Arow,
+                              csr_matrix_t<i_t, f_t>& Arow,
                               const std::vector<i_t>& new_slacks,
                               const std::vector<variable_type_t>& var_types,
                               const std::vector<f_t>& xstar);
@@ -217,7 +217,7 @@ class mixed_integer_gomory_base_inequality_t {
   // Generates the base inequalities: C*x == d that will be turned into cuts
   i_t generate_base_inequality(const lp_problem_t<i_t, f_t>& lp,
                                const simplex_solver_settings_t<i_t, f_t>& settings,
-                               csc_matrix_t<i_t, f_t>& Arow,
+                               csr_matrix_t<i_t, f_t>& Arow,
                                const std::vector<variable_type_t>& var_types,
                                basis_update_mpf_t<i_t, f_t>& basis_update,
                                const std::vector<f_t>& xstar,
@@ -261,7 +261,7 @@ class mixed_integer_rounding_cut_t {
                    f_t& cut_rhs);
 
   void substitute_slacks(const lp_problem_t<i_t, f_t>& lp,
-                         csc_matrix_t<i_t, f_t>& Arow,
+                         csr_matrix_t<i_t, f_t>& Arow,
                          sparse_vector_t<i_t, f_t>& cut,
                          f_t& cut_rhs);
 
@@ -293,7 +293,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
 template <typename i_t, typename f_t>
 void remove_cuts(lp_problem_t<i_t, f_t>& lp,
                  const simplex_solver_settings_t<i_t, f_t>& settings,
-                 csc_matrix_t<i_t, f_t>& Arow,
+                 csr_matrix_t<i_t, f_t>& Arow,
                  std::vector<i_t>& new_slacks,
                  i_t original_rows,
                  std::vector<variable_type_t>& var_types,
