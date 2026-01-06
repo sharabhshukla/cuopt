@@ -39,7 +39,7 @@ class lp_solution_t {
   std::vector<f_t> x;
   // Dual solution vector. Lagrange multipliers for equality constraints.
   std::vector<f_t> y;
-  // Dual solution vector. Lagrange multipliers for inequality constraints.
+  // Reduced costs
   std::vector<f_t> z;
   f_t objective;
   f_t user_objective;

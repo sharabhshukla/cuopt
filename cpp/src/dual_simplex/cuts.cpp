@@ -921,7 +921,7 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::initialize(const lp_problem_t<i_t, 
     const i_t col_start = lp.A.col_start[j];
     const i_t i = lp.A.i[col_start];
     slack_rows_[j] = i;
-    if (lp.A.x[col_start] != 1.0) {
+    if (std::abs(lp.A.x[col_start]) != 1.0) {
       printf("Initialize: Slack row %d has non-unit coefficient %e for variable %d\n", i, lp.A.x[col_start], j);
       exit(1);
     }
@@ -1149,30 +1149,43 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
     const f_t cj = cut.x[k];
     if (is_slack_[j]) {
       found_slack = true;
+      const i_t slack_start = lp.A.col_start[j];
+      const i_t slack_end = lp.A.col_start[j + 1];
+      const i_t slack_len = slack_end - slack_start;
+      if (slack_len != 1) {
+        printf("Slack %d has %d nzs in colum\n", j, slack_len);
+        exit(1);
+      }
+      const f_t alpha = lp.A.x[slack_start];
+      if (std::abs(alpha) != 1.0) {
+        printf("Slack %d has non-unit coefficient %e\n", j, alpha);
+        exit(1);
+      }
 
       // Do the substitution
       // Slack variable s_j participates in row i of the constraint matrix
       // Row i is of the form:
-      // sum_{k != j} A(i, k) * x_k + s_j = rhs_i
+      // sum_{k != j} A(i, k) * x_k + alpha * s_j = rhs_i
+      // where alpha = +1/-1
       /// So we have that
-      // s_j = rhs_i - sum_{k != j} A(i, k) * x_k
+      // s_j = (rhs_i - sum_{k != j} A(i, k) * x_k)/alpha
 
       // Our cut is of the form:
       // sum_{k != j} C(k) * x_k + C(j) * s_j >= cut_rhs
       // So the cut becomes
-      // sum_{k != j} C(k) * x_k + C(j) * (rhs_i - sum_{h != j} A(i, h) * x_h) >= cut_rhs
+      // sum_{k != j} C(k) * x_k + C(j)/alpha * (rhs_i - sum_{h != j} A(i, h) * x_h) >= cut_rhs
       // This is equivalent to:
-      // sum_{k != j} C(k) * x_k + sum_{h != j} -C(j) * A(i, h) * x_h >= cut_rhs - C(j) * rhs_i
+      // sum_{k != j} C(k) * x_k + sum_{h != j} -C(j)/alpha * A(i, h) * x_h >= cut_rhs - C(j)/alpha * rhs_i
       const i_t i         = slack_rows_[j];
       //printf("Found slack %d in cut. lo %e up %e. Slack row %d\n", j, lp.lower[j], lp.upper[j], i);
-      cut_rhs -= cj * lp.rhs[i];
+      cut_rhs -= cj * lp.rhs[i] / alpha;
       const i_t row_start = Arow.col_start[i];
       const i_t row_end   = Arow.col_start[i + 1];
       for (i_t q = row_start; q < row_end; q++) {
         const i_t h = Arow.i[q];
         if (h != j) {
           const f_t aih = Arow.x[q];
-          x_workspace_[h] -= cj * aih;
+          x_workspace_[h] -= cj * aih / alpha;
           if (!x_mark_[h]) {
             x_mark_[h] = 1;
             cut_indices.push_back(h);
@@ -1180,7 +1193,7 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
           }
         } else {
             const f_t aij = Arow.x[q];
-            if (aij != 1.0) {
+            if (std::abs(aij)!= 1.0) {
                 printf("Slack row %d has non-unit coefficient %e for variable %d\n", i, aij, j);
                 exit(1);
             }
@@ -1302,6 +1315,8 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
   csc_matrix_t<i_t, f_t> new_A_col(lp.num_rows + p, lp.num_cols, 1);
   new_A_row.to_compressed_col(new_A_col);
 
+  printf("slacks size %ld m %d\n", new_slacks.size(), lp.num_rows);
+
   // Add in slacks variables for the new rows
   lp.lower.resize(lp.num_cols + p);
   lp.upper.resize(lp.num_cols + p);
@@ -1320,12 +1335,26 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
     lp.upper[j]     = inf;
     lp.objective[j] = 0.0;
     new_slacks.push_back(j);
+    printf("Added slack %d\n", j);
   }
   settings.log.debug("Done adding slacks\n");
   new_A_col.col_start[lp.num_cols + p] = nz;
   new_A_col.n                          = lp.num_cols + p;
 
   lp.A         = new_A_col;
+
+  // Check that all slack columns have length 1
+  for (i_t slack: new_slacks) {
+    const i_t col_start = lp.A.col_start[slack];
+    const i_t col_end = lp.A.col_start[slack + 1];
+    const i_t col_len = col_end - col_start;
+    if (col_len != 1) {
+      printf("Add cuts: Slack %d has %d nzs in column\n", slack, col_len);
+      exit(1);
+    }
+  }
+
+
   i_t old_rows = lp.num_rows;
   lp.num_rows += p;
   i_t old_cols = lp.num_cols;
@@ -1449,6 +1478,14 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
   std::vector<i_t> is_slack(lp.num_cols, 0);
   for (i_t j : new_slacks) {
     is_slack[j] = 1;
+    // Check that slack column length is 1
+    const i_t col_start = lp.A.col_start[j];
+    const i_t col_end = lp.A.col_start[j + 1];
+    const i_t col_len = col_end - col_start;
+    if (col_len != 1) {
+      printf("Remove cuts: Slack %d has %d nzs in column\n", j, col_len);
+      exit(1);
+    }
   }
 
   for (i_t k = original_rows; k < lp.num_rows; k++) {

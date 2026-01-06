@@ -224,6 +224,24 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
   }
   printf("num_integer_variables %d\n", num_integer_variables_);
 
+  // Check slack
+  printf("slacks size %ld m %d\n", new_slacks_.size(), original_lp_.num_rows);
+  for (i_t slack : new_slacks_) {
+    const i_t col_start = original_lp_.A.col_start[slack];
+    const i_t col_end = original_lp_.A.col_start[slack + 1];
+    const i_t col_len = col_end - col_start;
+    if (col_len != 1) {
+      printf("Slack %d has %d nzs\n", slack, col_len);
+      exit(1);
+    }
+    const i_t i = original_lp_.A.i[col_start];
+    const f_t x = original_lp_.A.x[col_start];
+    if (std::abs(x) != 1.0) {
+      printf("Slack %d row %d has non-unit coefficient %e\n", slack, i, x);
+      exit(1);
+    }
+  }
+
   mutex_upper_.lock();
   upper_bound_ = inf;
   mutex_upper_.unlock();
@@ -260,6 +278,84 @@ i_t branch_and_bound_t<i_t, f_t>::get_heap_size()
   i_t size = heap_.size();
   mutex_heap_.unlock();
   return size;
+}
+
+template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
+{
+  printf("Finding reduced cost fixings\n");
+  mutex_original_lp_.lock();
+  std::vector<f_t> reduced_costs = root_relax_soln_.z;
+  std::vector<f_t> lower_bounds = original_lp_.lower;
+  std::vector<f_t> upper_bounds = original_lp_.upper;
+  std::vector<bool> bounds_changed(original_lp_.num_cols, false);
+  const f_t root_obj = compute_objective(original_lp_, root_relax_soln_.x);
+  const f_t threshold = 1e-3;
+  const f_t weaken = 1e-5;
+  i_t num_improved = 0;
+  i_t num_fixed = 0;
+  for (i_t j = 0; j < original_lp_.num_cols; j++) {
+    //printf("Variable %d type %d reduced cost %e\n", j, var_types_[j], reduced_costs[j]);
+    if (var_types_[j] == variable_type_t::INTEGER && reduced_costs[j] > threshold) {
+      const f_t lower_j = original_lp_.lower[j];
+      const f_t upper_j = original_lp_.upper[j];
+      const f_t abs_gap = upper_bound - root_obj;
+      f_t reduced_cost_upper_bound = upper_j;
+      f_t reduced_cost_lower_bound = lower_j;
+      if (lower_j > -inf && reduced_costs[j] > 0)
+      {
+        const f_t new_upper_bound = lower_j + abs_gap/reduced_costs[j];
+        reduced_cost_upper_bound = std::floor(new_upper_bound + weaken);
+        if (reduced_cost_upper_bound < upper_j)
+        {
+          //printf("Improved upper bound for variable %d from %e to %e (%e)\n", j, upper_j, reduced_cost_upper_bound, new_upper_bound);
+          num_improved++;
+          upper_bounds[j] = reduced_cost_upper_bound;
+          bounds_changed[j] = true;
+        }
+      }
+      if (upper_j < inf && reduced_costs[j] < 0)
+      {
+        const f_t new_lower_bound = upper_j + abs_gap/reduced_costs[j];
+        reduced_cost_lower_bound = std::ceil(new_lower_bound - weaken);
+        if (reduced_cost_lower_bound > lower_j)
+        {
+          //printf("Improved lower bound for variable %d from %e to %e (%e)\n", j, lower_j, reduced_cost_lower_bound, new_lower_bound);
+          num_improved++;
+          lower_bounds[j] = reduced_cost_lower_bound;
+          bounds_changed[j] = true;
+        }
+      }
+      if (reduced_cost_upper_bound <= reduced_cost_lower_bound)
+      {
+        num_fixed++;
+      }
+    }
+  }
+
+  printf("Reduced costs: Found %d improved bounds and %d fixed variables (%.1f%%)\n", num_improved, num_fixed, 100.0*static_cast<f_t>(num_fixed)/static_cast<f_t>(num_integer_variables_));
+
+  if (num_improved > 0) {
+    lp_problem_t<i_t, f_t> new_lp = original_lp_;
+    new_lp.lower                  = lower_bounds;
+    new_lp.upper                  = upper_bounds;
+    std::vector<char> row_sense;
+    csc_matrix_t<i_t, f_t> Arow(original_lp_.num_rows,
+                                original_lp_.num_cols,
+                                original_lp_.A.col_start[original_lp_.num_cols]);
+    original_lp_.A.transpose(Arow);
+    bool feasible =
+      bound_strengthening(row_sense, settings_, new_lp, Arow, var_types_, bounds_changed);
+
+    num_improved = 0;
+    for (i_t j = 0; j < original_lp_.num_cols; j++) {
+      if (new_lp.lower[j] > original_lp_.lower[j]) { num_improved++; }
+      if (new_lp.upper[j] < original_lp_.upper[j]) { num_improved++; }
+    }
+    printf("Bound strengthening: Found %d improved bounds\n", num_improved);
+  }
+
+  mutex_original_lp_.unlock();
 }
 
 template <typename i_t, typename f_t>
@@ -319,6 +415,8 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
         user_lower,
         gap.c_str(),
         toc(stats_.start_time));
+
+      find_reduced_cost_fixings(obj);
     } else {
       settings_.log.printf("New solution from primal heuristics. Objective %+.6e. Time %.2f\n",
                            compute_user_objective(original_lp_, obj),
@@ -438,6 +536,8 @@ void branch_and_bound_t<i_t, f_t>::repair_heuristic_solutions()
             uncrush_primal_solution(original_problem_, original_lp_, repaired_solution, original_x);
             settings_.solution_callback(original_x, repaired_obj);
           }
+
+          find_reduced_cost_fixings(obj);
         }
 
         mutex_upper_.unlock();
@@ -571,6 +671,8 @@ void branch_and_bound_t<i_t, f_t>::add_feasible_solution(f_t leaf_objective,
                          user_mip_gap<f_t>(obj, lower).c_str(),
                          toc(stats_.start_time));
 
+    find_reduced_cost_fixings(upper_bound_);
+
     send_solution = true;
   }
 
@@ -613,8 +715,8 @@ node_status_t branch_and_bound_t<i_t, f_t>::solve_node(search_tree_t<i_t, f_t>& 
 {
   f_t abs_fathom_tol = settings_.absolute_mip_gap_tol / 10;
 
-  if (node_ptr->depth >= num_integer_variables_) {
-    printf("Depth %d >= num_integer_variables %d\n", node_ptr->depth, num_integer_variables_);
+  if (node_ptr->depth > num_integer_variables_) {
+    printf("Depth %d > num_integer_variables %d\n", node_ptr->depth, num_integer_variables_);
     mip_node_t<i_t, f_t>* parent = node_ptr->parent;
     while (parent != nullptr) {
       printf("Parent depth %d\n", parent->depth);
@@ -1478,6 +1580,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       local_lower_bounds_.assign(settings_.num_bfs_threads, root_objective_);
 
+      mutex_original_lp_.lock();
       remove_cuts(original_lp_,
                   settings_,
                   Arow,
@@ -1491,6 +1594,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                   basic_list,
                   nonbasic_list,
                   basis_update);
+      mutex_original_lp_.unlock();
 
       fractional.clear();
       num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
