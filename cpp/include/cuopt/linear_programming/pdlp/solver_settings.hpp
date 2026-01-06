@@ -235,6 +235,11 @@ class pdlp_solver_settings_t {
   static constexpr f_t minimal_absolute_tolerance = 1.0e-12;
   bool use_batch_mode{false};
   pdlp_hyper_params::pdlp_hyper_params_t hyper_params;
+  // Holds the information of new variable lower and upper bounds for each climber in the format:
+  // (variable index, new lower bound, new upper bound)
+  // For each entry in the vector, a new version of the problem (climber) will be solved concurrently
+  // i.e. if new_bounds.size() == 2, then 2 versions of the problem with updated bounds will be solved concurrently
+  std::vector<std::tuple<i_t, f_t, f_t>> new_bounds;
 
  private:
   /** Initial primal solution */

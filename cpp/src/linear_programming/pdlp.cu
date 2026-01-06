@@ -35,398 +35,22 @@
 #include <thrust/extrema.h>
 
 #include <optional>
-#include <unordered_set>
 
 namespace cuopt::linear_programming::detail {
 
 template <typename i_t, typename f_t>
-struct SpMM_benchmarks_context_t
+static size_t batch_size_handler(const problem_t<i_t, f_t>& op_problem,
+                                 const pdlp_solver_settings_t<i_t, f_t>& settings)
 {
-  SpMM_benchmarks_context_t(cusparse_sp_mat_descr_wrapper_t<i_t, f_t>& A,
-    cusparse_sp_mat_descr_wrapper_t<i_t, f_t>& A_T, int primal_size, int dual_size, size_t current_batch_size, raft::handle_t const* handle_ptr)
-    : x(primal_size * current_batch_size, handle_ptr->get_stream()),
-      y(dual_size * current_batch_size, handle_ptr->get_stream()),
-      buffer_non_transpose_batch(0, handle_ptr->get_stream()),
-      buffer_transpose_batch(0, handle_ptr->get_stream()),
-      ping_pong_graph(handle_ptr->get_stream())
-  {
-  auto stream_view = handle_ptr->get_stream();
-  cusparse_dn_mat_descr_wrapper_t<f_t> x_descr;
-  cusparse_dn_mat_descr_wrapper_t<f_t> y_descr;
-  
-  int rows_primal = primal_size;
-  int col_primal = current_batch_size;
-  int ld_primal = (use_row_row) ? current_batch_size : rows_primal;
-
-  int rows_dual = dual_size;
-  int col_dual = current_batch_size;
-  int ld_dual = (use_row_row) ? current_batch_size : rows_dual;
-
-  x_descr.create(rows_primal, col_primal, ld_primal, x.data());
-  y_descr.create(rows_dual, col_dual, ld_dual, y.data());
-
-  // Init buffers for SpMMs
-  const rmm::device_scalar<f_t> alpha{1, stream_view};
-  const rmm::device_scalar<f_t> beta{0, stream_view};
-  size_t buffer_size_non_transpose_batch = 0;
-  RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsespmm_bufferSize(handle_ptr->get_cusparse_handle(),
-                                                              CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                                              CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                                              alpha.data(),
-                                                              A,
-                                                              x_descr,
-                                                              beta.data(),
-                                                              y_descr,
-                                                              CUSPARSE_SPMM_CSR_ALG3,
-                                                              &buffer_size_non_transpose_batch,
-                                                              stream_view));
-
-
-  size_t buffer_size_transpose_batch = 0;
-    RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsespmm_bufferSize(handle_ptr->get_cusparse_handle(),
-                                                                   CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                                                   CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                                                   alpha.data(),
-                                                                   A_T,
-                                                                   y_descr,
-                                                                   beta.data(),
-                                                                   x_descr,
-                                                                   CUSPARSE_SPMM_CSR_ALG3,
-                                                                   &buffer_size_transpose_batch,
-                                                                   stream_view));
-
-  rmm::device_buffer buffer_transpose_batch(buffer_size_transpose_batch, stream_view);
-  rmm::device_buffer buffer_non_transpose_batch(buffer_size_non_transpose_batch, stream_view);
-
-#if CUDART_VERSION >= 12040
-  // Preprocess buffers for SpMMs
-  my_cusparsespmm_preprocess<f_t>(handle_ptr->get_cusparse_handle(),
-  CUSPARSE_OPERATION_NON_TRANSPOSE,
-  CUSPARSE_OPERATION_NON_TRANSPOSE,
-  alpha.data(),
-  A_T,
-  y_descr,
-  beta.data(), x_descr, CUSPARSE_SPMM_CSR_ALG3, buffer_transpose_batch.data(), stream_view);
-                                       
-  my_cusparsespmm_preprocess<f_t>(handle_ptr->get_cusparse_handle(),
-                          CUSPARSE_OPERATION_NON_TRANSPOSE,
-                          CUSPARSE_OPERATION_NON_TRANSPOSE,
-                          alpha.data(),
-                          A,
-                          x_descr,
-                          beta.data(), y_descr, CUSPARSE_SPMM_CSR_ALG3, buffer_non_transpose_batch.data(), stream_view);
-#endif
-
-
-  // First empty run for warm up and put it in a CUDA Graph
-  ping_pong_graph.start_capture(0);
-  RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsespmm(handle_ptr->get_cusparse_handle(),
-  CUSPARSE_OPERATION_NON_TRANSPOSE,
-  CUSPARSE_OPERATION_NON_TRANSPOSE,
-  alpha.data(),
-  A,
-  x_descr,
-  beta.data(),
-  y_descr,
-  CUSPARSE_SPMM_CSR_ALG3,
-  (f_t*)buffer_non_transpose_batch.data(),
-  stream_view));
-
-  RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsespmm(handle_ptr->get_cusparse_handle(),
-  CUSPARSE_OPERATION_NON_TRANSPOSE,
-  CUSPARSE_OPERATION_NON_TRANSPOSE,
-  alpha.data(),
-  A_T,
-  y_descr,
-  beta.data(),
-  x_descr,
-  CUSPARSE_SPMM_CSR_ALG3,
-  (f_t*)buffer_transpose_batch.data(),
-  stream_view));
-
-  ping_pong_graph.end_capture(0);
-  // Just for the warm up
-  ping_pong_graph.launch(0);
-
-  }
-
-  void launch()
-  {
-    ping_pong_graph.launch(0);
-  }
-
-  cusparse_dn_mat_descr_wrapper_t<f_t> x_descr;
-  cusparse_dn_mat_descr_wrapper_t<f_t> y_descr;
-  rmm::device_uvector<f_t> x;
-  rmm::device_uvector<f_t> y;
-  rmm::device_buffer buffer_non_transpose_batch;
-  rmm::device_buffer buffer_transpose_batch;
-  ping_pong_graph_t<i_t> ping_pong_graph;
-};
-
-template <typename i_t, typename f_t>
-static double evaluate_node(cusparse_sp_mat_descr_wrapper_t<i_t, f_t>& A, cusparse_sp_mat_descr_wrapper_t<i_t, f_t>& A_T, i_t primal_size, i_t dual_size, int current_batch_size, int benchmark_runs, raft::handle_t const* handle_ptr)
-{
-  rmm::cuda_stream_view stream_view = handle_ptr->get_stream();
-  SpMM_benchmarks_context_t<i_t, f_t> spmm_benchmarks_context(A, A_T, primal_size, dual_size, current_batch_size, handle_ptr);
-
-  event_handler_t start_event;
-  event_handler_t end_event;
-  double total_time = 0;
-  for (int j = 0; j < benchmark_runs; ++j) {
-    start_event.record(stream_view);
-    spmm_benchmarks_context.launch();
-    end_event.record(stream_view);
-    end_event.synchronize();
-    double elapsed_time = end_event.elapsed_time_since_ms(start_event);
-    total_time += elapsed_time;
-  }
-  double average_time = total_time / benchmark_runs;
-  return average_time / current_batch_size;
-}
-
-template <typename i_t, typename f_t>
-static int optimal_batch_size_handler(const problem_t<i_t, f_t>& op_problem, int max_batch_size)
-{
-  if (max_batch_size == 1)
-    return 1;
-
-  // Try to quickly find what is the optimal batch size for the problem
-  // We run the two most ran SpMMs for both A and A_T and compute "time / batch_size"
-  // The one with the best ratio has the optimal batch size (since can solve most amount of work in least time)
-  // To try to have something representative we run each SpMM 5 times and take the average
-  // We do it for both A and A_T and take the sum since both will be run for each batch size
-  
-  // We start with batch size 100 and try to improve by either multitipling or dividing by 2 each time
-  // At max we take 5 steps of search
-
-  constexpr int max_steps = 4; // 4 because we already do one step for direction
-  constexpr int initial_batch_size = 100;
-  constexpr int benchmark_runs = 5;
-  int current_batch_size = std::min(initial_batch_size, max_batch_size);
-  int optimal_batch_size = current_batch_size;
-  double best_ratio;
-  rmm::cuda_stream_view stream_view = op_problem.handle_ptr->get_stream();
-
-  // Init cuSparse views
-  cusparse_sp_mat_descr_wrapper_t<i_t, f_t> A;
-  cusparse_sp_mat_descr_wrapper_t<i_t, f_t> A_T;
-  i_t primal_size = op_problem.n_variables;
-  i_t dual_size = op_problem.n_constraints;
-  
-
-  A.create(op_problem.n_constraints,
-    op_problem.n_variables,
-    op_problem.nnz,
-    const_cast<i_t*>(op_problem.offsets.data()),
-    const_cast<i_t*>(op_problem.variables.data()),
-    const_cast<f_t*>(op_problem.coefficients.data()));
-
-  A_T.create(op_problem.n_variables,
-        op_problem.n_constraints,
-        op_problem.nnz,
-        const_cast<i_t*>(op_problem.reverse_offsets.data()),
-        const_cast<i_t*>(op_problem.reverse_constraints.data()),
-        const_cast<f_t*>(op_problem.reverse_coefficients.data()));
-
-  // Sync before starting anything to make sure everything is done
-  RAFT_CUDA_TRY(cudaStreamSynchronize(stream_view));
-
-  // Evaluate current, left and right nodes to pick a direction
-
-  const int left_node = current_batch_size / 2;
-  const int right_node = std::min(current_batch_size * 2, max_batch_size);
-  double current_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, current_batch_size, benchmark_runs, op_problem.handle_ptr);
-  double left_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, left_node, benchmark_runs, op_problem.handle_ptr);
-  double right_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, right_node, benchmark_runs, op_problem.handle_ptr);
-  int current_step = 1;
-
-#ifdef BATCH_VERBOSE_MODE
-  std::cout << "Starting batch size: " << current_batch_size << " and ratio: " << current_ratio << std::endl;
-  std::cout << "Left batch size: " << left_node << " and ratio: " << left_ratio << std::endl;
-  std::cout << "Right batch size: " << right_node << " and ratio: " << right_ratio << std::endl;
-  #endif
-
-  // Left is better, continue descreasing by dividing by 2 until we find worst
-  // Then take middle and keep best found
-  if (left_ratio < current_ratio)
-  {
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Left is better, continuing decreasing" << std::endl;
-    #endif
-    if (left_node == 1)
-    {
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Left is already 1, returning 1" << std::endl;
-      #endif
-      return 1;
-    }
-    current_batch_size = left_node;
-    best_ratio = left_ratio;
-    optimal_batch_size = current_batch_size;
-    do
-    {
-      current_batch_size = current_batch_size / 2;
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Evaluating left node: " << current_batch_size << std::endl;
-      #endif
-      left_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, current_batch_size, benchmark_runs, op_problem.handle_ptr);
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Left node ratio: " << left_ratio << std::endl;
-      #endif
-      if (left_ratio < best_ratio) // Better found continue reducing
-      {
-        if (current_batch_size == 1)
-        {
-          #ifdef BATCH_VERBOSE_MODE
-          std::cout << "Left is now 1, returning 1" << std::endl;
-          #endif
-          return 1;
-        }
-        ++current_step;
-        best_ratio = left_ratio;
-        optimal_batch_size = current_batch_size;
-      }
-      else // Worst found, stop reducing
-      {
-        #ifdef BATCH_VERBOSE_MODE
-        std::cout << "Left was worst, stopping decreasing" << std::endl;
-        #endif
-        break;
-      }
-    } while (current_step < max_steps);
-    // Testing one last time between the two
-    const int middle_node = ((current_batch_size * 2) + current_batch_size) / 2;
-    cuopt_assert(middle_node > 0, "Middle node should be greater than 0");
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Testing one last time between the two at node: " << middle_node << std::endl;
-    #endif
-    double middle_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, middle_node, benchmark_runs, op_problem.handle_ptr);
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Middle node ratio: " << middle_ratio << std::endl;
-    #endif
-    if (middle_ratio < best_ratio) // Middle is better, returning better
-    {
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Middle is better, returning " << middle_node << std::endl;
-      #endif
-      return middle_node;
-    }
-    else // Middle was worst, keep previous best
-    {
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Middle was worst, keeping previous best " << optimal_batch_size << std::endl;
-      #endif
-      return optimal_batch_size;
-    }
-  }
-  // Right is better, continue increasing by multiplying by 2 until we find worst or reach max batch size
-  // Then take middle and keep best found
-  if (right_ratio < current_ratio)
-  {
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Right is better, continuing increasing" << std::endl;
-    #endif
-    if (right_node == max_batch_size) // Right as already reached max, returning it
-    {
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Right is already at max, returning " << right_node << std::endl;
-      #endif
-      return right_node;
-    }
-    optimal_batch_size = right_node;
-    current_batch_size = right_node;
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Current batch size: " << current_batch_size << std::endl;
-    #endif
-    best_ratio = right_ratio;
-    do
-    {
-      current_batch_size = std::min(current_batch_size * 2, max_batch_size);
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Evaluating right node: " << current_batch_size << std::endl;
-      #endif
-      right_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, current_batch_size, benchmark_runs, op_problem.handle_ptr);
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Right node ratio: " << right_ratio << std::endl;
-      #endif
-      if (right_ratio < best_ratio) // Better found continue increasing
-      {
-        if (current_batch_size == max_batch_size) // Right as already reached max, returning it
-        {
-          #ifdef BATCH_VERBOSE_MODE
-          std::cout << "Right is now at max, returning " << current_batch_size << std::endl;
-          #endif
-          return current_batch_size;
-        }
-        ++current_step;
-        best_ratio = right_ratio;
-        optimal_batch_size = current_batch_size;
-      }
-      else // Worst found, stop increasing
-      {
-        #ifdef BATCH_VERBOSE_MODE
-        std::cout << "Right was worst, stopping increasing" << std::endl;
-        #endif
-        break;
-      }
-    } while (current_step < max_steps);
-    // Testing one last time between the two
-    int middle_node = std::min(((current_batch_size / 2) + current_batch_size) / 2, max_batch_size);
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Testing one last time between the two at node: " << middle_node << std::endl;
-    #endif
-    double middle_ratio = evaluate_node<i_t, f_t>(A, A_T, primal_size, dual_size, middle_node, benchmark_runs, op_problem.handle_ptr);
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Middle node ratio: " << middle_ratio << std::endl;
-    #endif
-    if (middle_ratio < best_ratio) // Middle is better, returning better
-    {
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Middle is better, returning " << middle_node << std::endl;
-      #endif
-      return middle_node;
-    }
-    else // Middle was worst, keep previous best
-    {
-      #ifdef BATCH_VERBOSE_MODE
-      std::cout << "Middle was worst, keeping previous best " << optimal_batch_size << std::endl;
-      #endif
-      return optimal_batch_size;
-    }
-  }
-  // Current is better -> directly return current and don't try to refine
-  else
-  {
-    #ifdef BATCH_VERBOSE_MODE
-    std::cout << "Current is better" << std::endl;
-    #endif
-    return current_batch_size;
-  }
-
-  cuopt_assert(false, "Should not be here");
-  return 0;
-}
-
-template <typename i_t, typename f_t>
-static size_t batch_size_handler(const problem_t<i_t, f_t>& op_problem)
-{
-  // TODO batch mode: handle if not on var bounds
-  cuopt_assert(op_problem.variable_bounds.size() != 0 && op_problem.n_variables != 0, "Those should never be 0");
-  int max_batch_size = op_problem.variable_bounds.size() / op_problem.n_variables;
-  //int optimal_batch_size = optimal_batch_size_handler(op_problem, max_batch_size);
-  //cuopt_assert(optimal_batch_size != 0 && optimal_batch_size <= max_batch_size, "Optimal batch size should be between 1 and max batch size");
-  //#ifdef BATCH_VERBOSE_MODE
-  std::cout << "Max batch size: " << max_batch_size << std::endl;
-  //#endif
-  return max_batch_size;
+  if (settings.new_bounds.empty()) { return 1; }
+  return settings.new_bounds.size();
 }
 
 template <typename i_t, typename f_t>
 pdlp_solver_t<i_t, f_t>::pdlp_solver_t(problem_t<i_t, f_t>& op_problem,
                                        pdlp_solver_settings_t<i_t, f_t> const& settings,
                                        bool is_legacy_batch_mode)
-  : climber_strategies_(batch_size_handler(op_problem)), // TODO batch mode: pass this properly somehow
+  : climber_strategies_(batch_size_handler(op_problem, settings)),
     batch_mode_(climber_strategies_.size() > 1),
     handle_ptr_(op_problem.handle_ptr),
     stream_view_(handle_ptr_->get_stream()),
@@ -442,8 +66,20 @@ pdlp_solver_t<i_t, f_t>::pdlp_solver_t(problem_t<i_t, f_t>& op_problem,
     primal_weight_{climber_strategies_.size(), stream_view_},
     best_primal_weight_{climber_strategies_.size(), stream_view_},
     step_size_{climber_strategies_.size(), stream_view_},
-    step_size_strategy_{handle_ptr_, &primal_weight_, &step_size_, is_legacy_batch_mode, op_problem.n_variables, op_problem.n_constraints, climber_strategies_, settings.hyper_params},
-    pdhg_solver_{handle_ptr_, op_problem_scaled_, is_legacy_batch_mode, climber_strategies_, settings.hyper_params},
+    step_size_strategy_{handle_ptr_,
+                        &primal_weight_,
+                        &step_size_,
+                        is_legacy_batch_mode,
+                        op_problem.n_variables,
+                        op_problem.n_constraints,
+                        climber_strategies_,
+                        settings.hyper_params},
+    pdhg_solver_{handle_ptr_,
+                 op_problem_scaled_,
+                 is_legacy_batch_mode,
+                 climber_strategies_,
+                 settings.hyper_params,
+                 settings.new_bounds},
     settings_(settings),
     initial_scaling_strategy_{handle_ptr_,
                               op_problem_scaled_,
@@ -1685,13 +1321,27 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
 
   // Needs to be performed here before the below line to make sure the initial primal_weight / step
   // size are used as previous point when potentially updating them in this next call
-  if (settings_.get_initial_step_size().has_value())
-    thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), step_size_.begin(), step_size_.end(), settings_.get_initial_step_size().value());
-  if (settings_.get_initial_primal_weight().has_value())
+  if (settings_.get_initial_step_size().has_value() || initial_step_size_.has_value())
   {
-    thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), primal_weight_.begin(), primal_weight_.end(), settings_.get_initial_primal_weight().value());
-    if (is_cupdlpx_restart<i_t, f_t>(settings_.hyper_params))
-      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), best_primal_weight_.begin(), best_primal_weight_.end(), settings_.get_initial_primal_weight().value());
+    if (initial_step_size_.has_value())
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), step_size_.begin(), step_size_.end(), initial_step_size_.value());
+    else
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), step_size_.begin(), step_size_.end(), settings_.get_initial_step_size().value());
+  }
+  if (settings_.get_initial_primal_weight().has_value() || initial_primal_weight_.has_value())
+  {
+    if (initial_primal_weight_.has_value())
+    {
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), primal_weight_.begin(), primal_weight_.end(), initial_primal_weight_.value());
+      if (is_cupdlpx_restart<i_t, f_t>(settings_.hyper_params))
+        thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), best_primal_weight_.begin(), best_primal_weight_.end(), initial_primal_weight_.value());
+    }
+    else
+    {
+      thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), primal_weight_.begin(), primal_weight_.end(), settings_.get_initial_primal_weight().value());
+      if (is_cupdlpx_restart<i_t, f_t>(settings_.hyper_params))
+        thrust::uninitialized_fill(handle_ptr_->get_thrust_policy(), best_primal_weight_.begin(), best_primal_weight_.end(), settings_.get_initial_primal_weight().value());
+    }
   }
   if (initial_k_.has_value()) {
     pdhg_solver_.total_pdhg_iterations_ = initial_k_.value();
@@ -1716,6 +1366,11 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
       (initial_dual_.size() != 0) ? std::make_optional(&initial_dual_) : std::nullopt);
   }
 
+#ifdef CUPDLP_DEBUG_MODE
+  std::cout << "Primal solution before projection" << std::endl;
+  print("pdhg_solver_.get_primal_solution()", pdhg_solver_.get_primal_solution());
+#endif
+
   // Project initial primal solution
   if (settings_.hyper_params.project_initial_primal) {
     // TODO batch mode: handle different variable bounds
@@ -1727,8 +1382,10 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
       pdhg_solver_.get_primal_solution().size(),
       clamp<f_t, f_t2>(),
       stream_view_);
-    if (!settings_.hyper_params.never_restart_to_average)
-    {
+
+    pdhg_solver_.refine_initial_primal_projection();
+
+    if (!settings_.hyper_params.never_restart_to_average) {
       cuopt_expects(!batch_mode_, cuopt::error_type_t::ValidationError, "Restart to average not supported in batch mode");
       cub::DeviceTransform::Transform(
         cuda::std::make_tuple(unscaled_primal_avg_solution_.data(),

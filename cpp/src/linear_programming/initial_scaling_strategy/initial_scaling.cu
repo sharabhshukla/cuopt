@@ -11,6 +11,7 @@
 
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
 #include <linear_programming/initial_scaling_strategy/initial_scaling.cuh>
+#include <linear_programming/pdlp_constants.hpp>
 #include <linear_programming/utils.cuh>
 #include <mip/mip_constants.hpp>
 
@@ -452,6 +453,25 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
                                   divide_check_zero<f_t, f_t2>(),
                                   stream_view_);
 
+  if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(
+        pdhg_solver_ptr_->get_new_bounds_lower().data(),
+        pdhg_solver_ptr_->get_new_bounds_upper().data(),
+        thrust::make_permutation_iterator(cummulative_variable_scaling_.data(),
+                                          pdhg_solver_ptr_->get_new_bounds_idx().data())),
+      thrust::make_zip_iterator(pdhg_solver_ptr_->get_new_bounds_lower().data(),
+                                pdhg_solver_ptr_->get_new_bounds_upper().data()),
+      pdhg_solver_ptr_->get_new_bounds_idx().size(),
+      [] __device__(f_t lower, f_t upper, f_t s) -> thrust::tuple<f_t, f_t> {
+        if (s != f_t(0)) {
+          return {lower / s, upper / s};
+        }
+        return {lower, upper};
+      },
+      stream_view_);
+  }
+
   // TODO batch mode: handle different constraints bounds
   raft::linalg::eltwiseMultiply(
     const_cast<rmm::device_uvector<f_t>&>(op_problem_scaled_.constraint_lower_bounds).data(),
@@ -498,6 +518,20 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
           return {variable_bounds.x * *bound_rescaling, variable_bounds.y * *bound_rescaling};
         },
         stream_view_);
+
+    if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
+      cub::DeviceTransform::Transform(
+        cuda::std::make_tuple(pdhg_solver_ptr_->get_new_bounds_lower().data(),
+                              pdhg_solver_ptr_->get_new_bounds_upper().data()),
+        thrust::make_zip_iterator(pdhg_solver_ptr_->get_new_bounds_lower().data(),
+                                  pdhg_solver_ptr_->get_new_bounds_upper().data()),
+        pdhg_solver_ptr_->get_new_bounds_idx().size(),
+        [bound_rescaling = bound_rescaling_.data()] __device__(f_t lower, f_t upper)
+          -> thrust::tuple<f_t, f_t> {
+          return {lower * *bound_rescaling, upper * *bound_rescaling};
+        },
+        stream_view_);
+    }
 
     cub::DeviceTransform::Transform(
                     op_problem_scaled_.objective_coefficients.data(),

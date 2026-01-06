@@ -24,7 +24,11 @@ template <typename i_t, typename f_t>
 class pdhg_solver_t {
  public:
   pdhg_solver_t(raft::handle_t const* handle_ptr,
-                problem_t<i_t, f_t>& op_problem, bool is_legacy_batch_mode, const std::vector<pdlp_climber_strategy_t>& climber_strategies, const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params);
+                problem_t<i_t, f_t>& op_problem,
+                bool is_legacy_batch_mode,
+                const std::vector<pdlp_climber_strategy_t>& climber_strategies,
+                const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params,
+                const std::vector<std::tuple<i_t, f_t, f_t>>& new_bounds = {});
 
   saddle_point_state_t<i_t, f_t>& get_saddle_point_state();
   cusparse_view_t<i_t, f_t>& get_cusparse_view();
@@ -44,6 +48,10 @@ class pdhg_solver_t {
   i_t get_primal_size() const;
   i_t get_dual_size() const;
 
+  rmm::device_uvector<i_t>& get_new_bounds_idx() { return new_bounds_idx_; }
+  rmm::device_uvector<f_t>& get_new_bounds_lower() { return new_bounds_lower_; }
+  rmm::device_uvector<f_t>& get_new_bounds_upper() { return new_bounds_upper_; }
+
   void take_step(rmm::device_uvector<f_t>& primal_step_size,
                  rmm::device_uvector<f_t>& dual_step_size,
                  i_t iterations_since_last_restart,
@@ -51,6 +59,7 @@ class pdhg_solver_t {
                  i_t total_pdlp_iterations,
                  bool is_major_iteration);
   void update_solution(cusparse_view_t<i_t, f_t>& current_op_problem_evaluation_cusparse_view_);
+  void refine_initial_primal_projection();
 
   i_t total_pdhg_iterations_;
 
@@ -111,6 +120,9 @@ class pdhg_solver_t {
 
   const std::vector<pdlp_climber_strategy_t>& climber_strategies_;
   const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params_;
+  rmm::device_uvector<i_t> new_bounds_idx_;
+  rmm::device_uvector<f_t> new_bounds_lower_;
+  rmm::device_uvector<f_t> new_bounds_upper_;
 };
 
 }  // namespace cuopt::linear_programming::detail
