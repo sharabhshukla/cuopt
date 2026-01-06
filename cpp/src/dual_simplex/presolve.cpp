@@ -213,7 +213,7 @@ bool bound_strengthening(const std::vector<char>& row_sense,
 
       if (new_lb > new_ub + 1e-6) {
         settings.log.printf(
-          "Iter:: %d, Infeasible variable after update %d, %e > %e\n", iter, k, new_lb, new_ub);
+          "Iter:: %d, Infeasible variable after update %d, new_lb = %e > %e = new_ub\n", iter, k, new_lb, new_ub);
         return false;
       }
       if (new_lb != old_lb || new_ub != old_ub) {

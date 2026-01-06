@@ -145,6 +145,7 @@ class branch_and_bound_t {
   lp_problem_t<i_t, f_t> original_lp_;
   std::vector<i_t> new_slacks_;
   std::vector<variable_type_t> var_types_;
+  i_t num_integer_variables_;
 
   // Local lower bounds for each thread
   std::vector<omp_atomic_t<f_t>> local_lower_bounds_;

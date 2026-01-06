@@ -26,8 +26,10 @@ void cut_pool_t<i_t, f_t>::add_cut(cut_type_t cut_type, const sparse_vector_t<i_
     }
   }
 
-  cut_storage_.append_row(cut);
-  settings_.log.printf("Added cut %d to pool\n", cut_storage_.m - 1);
+  sparse_vector_t<i_t, f_t> cut_squeezed;
+  cut.squeeze(cut_squeezed);
+  cut_storage_.append_row(cut_squeezed);
+  //settings_.log.printf("Added cut %d to pool\n", cut_storage_.m - 1);
   rhs_storage_.push_back(rhs);
   cut_type_.push_back(cut_type);
   cut_age_.push_back(0);
@@ -124,7 +126,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
     if (cut_age_[i] > 0) {
         settings_.log.printf("Adding cut with age %d\n", cut_age_[i]);
     }
-    settings_.log.printf("Scored cuts %d. Adding cut %d score %e\n", scored_cuts_, i, cut_scores_[i]);
+    //settings_.log.printf("Scored cuts %d. Adding cut %d score %e\n", scored_cuts_, i, cut_scores_[i]);
 
     best_cuts_.push_back(i);
     scored_cuts_++;
@@ -206,6 +208,7 @@ knapsack_generation_t<i_t, f_t>::knapsack_generation_t(
   for (i_t i = 0; i < lp.num_rows; i++) {
     const i_t row_start = Arow.col_start[i];
     const i_t row_end   = Arow.col_start[i + 1];
+    if (row_end - row_start < 3) { continue; }
     bool is_knapsack    = true;
     f_t sum_pos         = 0.0;
     //printf("i %d ", i);
@@ -527,11 +530,11 @@ void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
   // Generate Gomory Cuts
   generate_gomory_cuts(
     lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
-  settings.log.printf("Generated Gomory cuts\n");
+  //settings.log.printf("Generated Gomory cuts\n");
 
   // Generate Knapsack cuts
   generate_knapsack_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
-  settings.log.printf("Generated Knapsack cuts\n");
+  //settings.log.printf("Generated Knapsack cuts\n");
 
  // Generate MIR cuts
  // generate_mir_cuts(lp, settings, Arow, var_types, xstar);
@@ -727,10 +730,10 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
       }
 
       if ((cut_A_distance > cut_B_distance) && A_valid) {
-        printf("Adding Gomory cut A: nz %d distance %e valid %d\n", cut_A.i.size(), cut_A_distance, A_valid);
+        //printf("Adding Gomory cut A: nz %d distance %e valid %d\n", cut_A.i.size(), cut_A_distance, A_valid);
         cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_GOMORY, cut_A, cut_A_rhs);
       } else if (B_valid) {
-        printf("Adding Gomory cut B: nz %d distance %e valid %d\n", cut_B.i.size(), cut_B_distance, B_valid);
+        //printf("Adding Gomory cut B: nz %d distance %e valid %d\n", cut_B.i.size(), cut_B_distance, B_valid);
         cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_GOMORY, cut_B, cut_B_rhs);
       }
     }
@@ -918,6 +921,10 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::initialize(const lp_problem_t<i_t, 
     const i_t col_start = lp.A.col_start[j];
     const i_t i = lp.A.i[col_start];
     slack_rows_[j] = i;
+    if (lp.A.x[col_start] != 1.0) {
+      printf("Initialize: Slack row %d has non-unit coefficient %e for variable %d\n", i, lp.A.x[col_start], j);
+      exit(1);
+    }
   }
 
   needs_complement_ = false;
@@ -1174,7 +1181,7 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
         } else {
             const f_t aij = Arow.x[q];
             if (aij != 1.0) {
-                printf("Slack row %d has non-unit coefficient for variable %d\n", i, j);
+                printf("Slack row %d has non-unit coefficient %e for variable %d\n", i, aij, j);
                 exit(1);
             }
         }
@@ -1199,6 +1206,21 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
 
     for (i_t k = 0; k < cut_nz; k++) {
       const i_t j = cut_indices[k];
+
+      // Check for small coefficients
+      const f_t aj = x_workspace_[j];
+      if (std::abs(aj) < 1e-6) {
+        if (aj >= 0.0 && lp.upper[j] < inf) {
+          // Move this to the right-hand side
+          cut_rhs -= aj * lp.upper[j];
+          continue;
+        } else if (aj <= 0.0 && lp.lower[j] > -inf) {
+          cut_rhs += aj * lp.lower[j];
+          continue;
+        } else {
+        }
+      }
+
       cut.i.push_back(j);
       cut.x.push_back(x_workspace_[j]);
     }
@@ -1449,7 +1471,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
   }
 
   if (cuts_to_remove.size() > 0) {
-    settings.log.printf("Removing %d cuts\n", cuts_to_remove.size());
+    //settings.log.printf("Removing %d cuts\n", cuts_to_remove.size());
     std::vector<i_t> marked_rows(lp.num_rows, 0);
     for (i_t i : cuts_to_remove) {
       marked_rows[i] = 1;
@@ -1515,7 +1537,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     lp.num_rows   = lp.A.m;
 
     new_slacks.clear();
-    new_slacks.resize(lp.num_cols);
+    new_slacks.reserve(lp.num_cols);
     for (i_t j = 0; j < lp.num_cols; j++) {
         if (new_is_slacks[j]) {
             new_slacks.push_back(j);
@@ -1528,7 +1550,8 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     y             = new_solution_y;
     z             = new_solution_z;
 
-    settings.log.printf("After removal %d rows %d columns %d nonzeros\n",
+    settings.log.printf("Removed %d cuts. After removal %d rows %d columns %d nonzeros\n",
+                        cuts_to_remove.size(),
                         lp.num_rows,
                         lp.num_cols,
                         lp.A.col_start[lp.A.n]);

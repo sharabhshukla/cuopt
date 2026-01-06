@@ -51,6 +51,8 @@ class sparse_vector_t {
   void negate();
   f_t find_coefficient(i_t index) const;
 
+  void squeeze(sparse_vector_t<i_t, f_t>& y) const;
+
   i_t n;
   std::vector<i_t> i;
   std::vector<f_t> x;

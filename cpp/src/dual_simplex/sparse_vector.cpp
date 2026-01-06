@@ -233,6 +233,30 @@ f_t sparse_vector_t<i_t, f_t>::find_coefficient(i_t index) const
   return std::numeric_limits<f_t>::quiet_NaN();
 }
 
+template <typename i_t, typename f_t>
+void sparse_vector_t<i_t, f_t>::squeeze(sparse_vector_t<i_t, f_t>& y) const
+{
+  y.n = n;
+
+  i_t nz = 0;
+  const i_t n = x.size();
+  for (i_t k = 0; k < n; k++) {
+    if (x[k] != 0.0) {
+      nz++;
+    }
+  }
+  y.i.reserve(nz);
+  y.x.reserve(nz);
+  y.i.clear();
+  y.x.clear();
+  for (i_t k = 0; k < n; k++) {
+    if (x[k] != 0.0) {
+      y.i.push_back(i[k]);
+      y.x.push_back(x[k]);
+    }
+  }
+}
+
 #ifdef DUAL_SIMPLEX_INSTANTIATE_DOUBLE
 template class sparse_vector_t<int, double>;
 #endif

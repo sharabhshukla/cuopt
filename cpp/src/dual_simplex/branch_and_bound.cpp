@@ -216,6 +216,14 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
   convert_user_problem(original_problem_, settings_, original_lp_, new_slacks_, dualize_info);
   full_variable_types(original_problem_, original_lp_, var_types_);
 
+  num_integer_variables_ = 0;
+  for (i_t j = 0; j < original_lp_.num_cols; j++) {
+    if (var_types_[j] == variable_type_t::INTEGER) {
+      num_integer_variables_++;
+    }
+  }
+  printf("num_integer_variables %d\n", num_integer_variables_);
+
   mutex_upper_.lock();
   upper_bound_ = inf;
   mutex_upper_.unlock();
@@ -475,6 +483,31 @@ mip_status_t branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t
 
   if (gap <= settings_.absolute_mip_gap_tol || gap_rel <= settings_.relative_mip_gap_tol) {
     mip_status = mip_status_t::OPTIMAL;
+#if 1
+    FILE* fid = NULL;
+    fid       = fopen("solution.dat", "w");
+    if (fid != NULL) {
+      printf("Writing solution.dat\n");
+
+      std::vector<f_t> residual = original_lp_.rhs;
+      matrix_vector_multiply(original_lp_.A, 1.0, incumbent_.x, -1.0, residual);
+      printf("|| A*x - b ||_inf %e\n", vector_norm_inf<i_t, f_t>(residual));
+      auto hash_combine_f = [](size_t seed, f_t x) {
+        seed ^= std::hash<f_t>{}(x) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        return seed;
+      };
+      printf("incumbent size %ld original lp cols %d\n", incumbent_.x.size(), original_lp_.num_cols);
+      i_t n = original_lp_.num_cols;
+      size_t seed = n;
+      fprintf(fid, "%d\n", n);
+      for (i_t j = 0; j < n; ++j) {
+        fprintf(fid, "%.17g\n", incumbent_.x[j]);
+        seed = hash_combine_f(seed, incumbent_.x[j]);
+      }
+      printf("Solution hash: %20x\n", seed);
+      fclose(fid);
+    }
+#endif
     if (gap > 0 && gap <= settings_.absolute_mip_gap_tol) {
       settings_.log.printf("Optimal solution found within absolute MIP gap tolerance (%.1e)\n",
                            settings_.absolute_mip_gap_tol);
@@ -580,6 +613,16 @@ node_status_t branch_and_bound_t<i_t, f_t>::solve_node(search_tree_t<i_t, f_t>& 
 {
   f_t abs_fathom_tol = settings_.absolute_mip_gap_tol / 10;
 
+  if (node_ptr->depth >= num_integer_variables_) {
+    printf("Depth %d >= num_integer_variables %d\n", node_ptr->depth, num_integer_variables_);
+    mip_node_t<i_t, f_t>* parent = node_ptr->parent;
+    while (parent != nullptr) {
+      printf("Parent depth %d\n", parent->depth);
+      printf("Parent branch var %d dir %d lower %e upper %e\n", parent->branch_var, parent->branch_dir, parent->branch_var_lower, parent->branch_var_upper);
+      parent = parent->parent;
+    }
+  }
+
   lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
   std::vector<variable_status_t>& leaf_vstatus = node_ptr->vstatus;
   assert(leaf_vstatus.size() == leaf_problem.num_cols);
@@ -602,12 +645,11 @@ node_status_t branch_and_bound_t<i_t, f_t>::solve_node(search_tree_t<i_t, f_t>& 
     bound_strengthening(row_sense, lp_settings, leaf_problem, Arow, var_types_, bounds_changed);
 
   dual::status_t lp_status = dual::status_t::DUAL_UNBOUNDED;
+  std::vector<f_t> leaf_edge_norms = edge_norms_;  // = node.steepest_edge_norms;
 
   if (feasible) {
     i_t node_iter                    = 0;
     f_t lp_start_time                = tic();
-    std::vector<f_t> leaf_edge_norms = edge_norms_;  // = node.steepest_edge_norms;
-
     lp_status = dual_phase2(2,
                             0,
                             lp_start_time,
@@ -650,6 +692,23 @@ node_status_t branch_and_bound_t<i_t, f_t>::solve_node(search_tree_t<i_t, f_t>& 
     i_t leaf_num_fractional =
       fractional_variables(settings_, leaf_solution.x, var_types_, leaf_fractional);
 
+    // Check if any of the fractional variables were fixed to their bounds
+    for (i_t j : leaf_fractional)
+    {
+      if (leaf_problem.lower[j] == leaf_problem.upper[j])
+      {
+        printf(
+          "Node %d: Fixed variable %d has a fractional value %e. Lower %e upper %e. Variable status %d\n",
+          node_ptr->node_id,
+          j,
+          leaf_solution.x[j],
+          leaf_problem.lower[j],
+          leaf_problem.upper[j],
+          leaf_vstatus[j]);
+      }
+    }
+
+
     f_t leaf_objective    = compute_objective(leaf_problem, leaf_solution.x);
     node_ptr->lower_bound = leaf_objective;
     search_tree.graphviz_node(log, node_ptr, "lower bound", leaf_objective);
@@ -670,8 +729,14 @@ node_status_t branch_and_bound_t<i_t, f_t>::solve_node(search_tree_t<i_t, f_t>& 
 
     } else if (leaf_objective <= upper_bound + abs_fathom_tol) {
       // Choose fractional variable to branch on
+
+#ifdef RELIABLE_BRANCHING
+      const i_t branch_var =
+        pc_.reliable_variable_selection(leaf_problem, lp_settings, var_types_, leaf_vstatus, leaf_edge_norms, leaf_fractional, leaf_solution.x, leaf_objective, lp_settings.log);
+#else
       const i_t branch_var =
         pc_.variable_selection(leaf_fractional, leaf_solution.x, lp_settings.log);
+#endif
 
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
       search_tree.branch(
@@ -1057,6 +1122,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   stats_.nodes_unexplored = 0;
   stats_.nodes_explored   = 0;
 
+  printf("Branch and bound solve called\n");
+
   if (guess_.size() != 0) {
     std::vector<f_t> crushed_guess;
     crush_primal_solution(original_problem_, original_lp_, guess_, new_slacks_, crushed_guess);
@@ -1151,6 +1218,96 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   cut_pool_t<i_t, f_t> cut_pool(original_lp_.num_cols, settings_);
   cut_generation_t<i_t, f_t> cut_generation(cut_pool, original_lp_, settings_, Arow, new_slacks_, var_types_);
 
+  std::vector<f_t> saved_solution;
+#if 1
+  printf("Trying to open solution.dat\n");
+  FILE* fid = NULL;
+  fid = fopen("solution.dat", "r");
+  if (fid != NULL)
+  {
+    i_t n_solution_dat;
+    i_t count = fscanf(fid, "%d\n", &n_solution_dat);
+    printf("Solution.dat variables %d =? %d =? %ld count %d\n", n_solution_dat, original_lp_.num_cols, solution.x.size(), count);
+    bool good = true;
+    if (count == 1 && n_solution_dat == original_lp_.num_cols)
+    {
+      printf("Opened solution.dat with %d number of variables\n", n_solution_dat);
+      saved_solution.resize(n_solution_dat);
+       for (i_t j = 0; j < n_solution_dat; j++)
+       {
+         count = fscanf(fid, "%lf", &saved_solution[j]);
+         if (count != 1)
+         {
+           printf("bad read solution.dat: j %d count %d\n", j, count);
+           good = false;
+           break;
+         }
+       }
+    } else {
+      good = false;
+    }
+    fclose(fid);
+
+    if (!good)
+    {
+      saved_solution.resize(0);
+      printf("Solution.dat is bad\n");
+    }
+    else
+    {
+      printf("Read solution file\n");
+
+      auto hash_combine_f = [](size_t seed, f_t x) {
+        seed ^= std::hash<f_t>{}(x) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        return seed;
+      };
+      size_t seed = original_lp_.num_cols;
+      for (i_t j = 0; j < original_lp_.num_cols; ++j)
+      {
+        seed = hash_combine_f(seed, saved_solution[j]);
+      }
+      printf("Saved solution hash: %20x\n", seed);
+
+      FILE* fid = NULL;
+      fid       = fopen("solution.dat.2", "w");
+      if (fid != NULL) {
+        printf("Writing solution.dat.2\n");
+        i_t n = original_lp_.num_cols;
+        size_t seed = n;
+        fprintf(fid, "%d\n", n);
+        for (i_t j = 0; j < n; ++j) {
+          fprintf(fid, "%.17g\n", saved_solution[j]);
+        }
+        fclose(fid);
+      }
+
+      // Compute || A * x - b ||_inf
+      std::vector<f_t> residual = original_lp_.rhs;
+      matrix_vector_multiply(original_lp_.A, 1.0, saved_solution, -1.0, residual);
+      printf("Saved solution: || A*x - b ||_inf %e\n", vector_norm_inf<i_t, f_t>(residual));
+      f_t infeas = 0;
+      for (i_t j = 0; j < original_lp_.num_cols; j++) {
+        if (saved_solution[j] < original_lp_.lower[j] - 1e-6) {
+          f_t curr_infeas = (original_lp_.lower[j] - saved_solution[j]);
+          infeas += curr_infeas;
+          printf(
+            "j: %d saved solution %e lower %e\n", j, saved_solution[j], original_lp_.lower[j]);
+        }
+        if (saved_solution[j] > original_lp_.upper[j] + 1e-6) {
+          f_t curr_infeas = (saved_solution[j] - original_lp_.upper[j]);
+          infeas += curr_infeas;
+          printf(
+            "j %d saved solution %e upper %e\n", j, saved_solution[j], original_lp_.upper[j]);
+        }
+      }
+      printf("Bound infeasibility %e\n", infeas);
+    }
+  } else {
+    printf("Could not open solution.dat\n");
+  }
+#endif
+
+
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
 #ifdef PRINT_SOLUTION
@@ -1191,18 +1348,20 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       // Generate cuts and add them to the cut pool
       cut_generation.generate_cuts(original_lp_, settings_, Arow, new_slacks_, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
-      settings_.log.printf("Generated cuts\n");
 
       // Score the cuts
       cut_pool.score_cuts(root_relax_soln_.x);
-      settings_.log.printf("Scored cuts\n");
       // Get the best cuts from the cut pool
       csr_matrix_t<i_t, f_t> cuts_to_add(0, original_lp_.num_cols, 0);
       std::vector<f_t> cut_rhs;
       std::vector<cut_type_t> cut_types;
       i_t num_cuts = cut_pool.get_best_cuts(cuts_to_add, cut_rhs, cut_types);
-      settings_.log.printf("Got best cuts\n");
-      print_cut_types(cut_types, settings_);
+      if (num_cuts == 0)
+      {
+        settings_.log.printf("No cuts found\n");
+        break;
+      }
+      //print_cut_types(cut_types, settings_);
 
       cuts_to_add.check_matrix();
 
@@ -1217,8 +1376,25 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
 #if 1
       f_t min_cut_violation = minimum_violation(cuts_to_add, cut_rhs, root_relax_soln_.x);
-      settings_.log.printf("Min cut violation %e\n", min_cut_violation);
+      if (min_cut_violation < 1e-6) {
+        settings_.log.printf("Min cut violation %e\n", min_cut_violation);
+      }
 #endif
+
+      // Check against saved solution
+      if (saved_solution.size() > 0) {
+        csc_matrix_t<i_t, f_t> cuts_to_add_col(cuts_to_add.m, cuts_to_add.n, cuts_to_add.row_start[cuts_to_add.m]);
+        cuts_to_add.to_compressed_col(cuts_to_add_col);
+        std::vector<f_t> Cx(cuts_to_add.m);
+        matrix_vector_multiply(cuts_to_add_col, 1.0, saved_solution, 0.0, Cx);
+        for (i_t k = 0; k < num_cuts; k++) {
+          //printf("Cx[%d] = %e cut_rhs[%d] = %e\n", k, Cx[k], k, cut_rhs[k]);
+          if (Cx[k] > cut_rhs[k] + 1e-6) {
+            printf("Cut %d is violated by saved solution. Cx %e cut_rhs %e\n", k, Cx[k], cut_rhs[k]);
+            exit(1);
+          }
+        }
+      }
 
       // Resolve the LP with the new cuts
       settings_.log.printf("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
@@ -1337,6 +1513,19 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         stats_.total_lp_iters.load(),
         gap.c_str(),
         toc(stats_.start_time));
+    }
+  }
+
+  if (edge_norms_.size() != original_lp_.num_cols)
+  {
+    edge_norms_.resize(original_lp_.num_cols, -1.0);
+  }
+  for (i_t k = 0; k < original_lp_.num_rows; k++)
+  {
+    const i_t j = basic_list[k];
+    if (edge_norms_[j] < 0.0)
+    {
+      edge_norms_[j] = 1e-4;
     }
   }
 

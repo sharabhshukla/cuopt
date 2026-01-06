@@ -2014,7 +2014,8 @@ f_t amount_of_perturbation(const lp_problem_t<i_t, f_t>& lp, const std::vector<f
 }
 
 template <typename i_t, typename f_t>
-void prepare_optimality(const lp_problem_t<i_t, f_t>& lp,
+void prepare_optimality(i_t info,
+                        const lp_problem_t<i_t, f_t>& lp,
                         const simplex_solver_settings_t<i_t, f_t>& settings,
                         basis_update_mpf_t<i_t, f_t>& ft,
                         const std::vector<f_t>& objective,
@@ -2080,6 +2081,11 @@ void prepare_optimality(const lp_problem_t<i_t, f_t>& lp,
       settings.log.printf("Root relaxation objective %+.8e\n", sol.user_objective);
       settings.log.printf("\n");
     }
+  }
+
+  if (primal_infeas > settings.primal_tol)
+  {
+    printf("Primal infeasibility %e. Info %d\n", primal_infeas, info);
   }
 }
 
@@ -2324,6 +2330,22 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       }
     }
   } else {
+
+    // Check that none of the basic variables have a steepest edge that is nonpositive
+    for (i_t k = 0; k < m; k++)
+    {
+      const i_t j = basic_list[k];
+      bool fix_needed = false;
+      if (delta_y_steepest_edge[j] <= 0.0)
+      {
+        fix_needed = true;
+        //printf("Basic variable %d has a nonpositive steepest edge %e\n", j, delta_y_steepest_edge[j]);
+        delta_y_steepest_edge[j] = 1e-4;
+      }
+      if (fix_needed) {
+        //printf("Basic variable had nonpositive steepest edge\n");
+      }
+    }
     settings.log.printf("using exisiting steepest edge %e\n",
                         vector_norm2<i_t, f_t>(delta_y_steepest_edge));
   }
@@ -2429,8 +2451,27 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
 #endif
 
+      //primal_infeasibility = phase2::compute_initial_primal_infeasibilities(
+      //  lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
+      if (0 && primal_infeasibility > settings.primal_tol) {
 
-      phase2::prepare_optimality(lp,
+        const i_t nz      = infeasibility_indices.size();
+        for (i_t k = 0; k < nz; ++k) {
+          const i_t j              = infeasibility_indices[k];
+          const f_t squared_infeas = squared_infeasibilities[j];
+          const f_t val            = squared_infeas / delta_y_steepest_edge[j];
+          if (squared_infeas >= 0.0 && delta_y_steepest_edge[j] < 0.0) {
+            printf("Iter %d potential leaving %d val %e squared infeas %e delta_y_steepest_edge %e\n", iter, j, val, squared_infeas, delta_y_steepest_edge[j]);
+            delta_y_steepest_edge[j] = 1e-4;
+          }
+        }
+
+        //printf("No leaving variable. Updated primal infeasibility: %e\n", primal_infeasibility);
+        continue;
+      }
+
+      phase2::prepare_optimality(0,
+                                 lp,
                                  settings,
                                  ft,
                                  objective,
@@ -2596,7 +2637,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
             // Need to reset the objective value, since we have recomputed x
             obj = phase2::compute_perturbed_objective(objective, x);
             if (dual_infeas <= settings.dual_tol && primal_infeasibility <= settings.primal_tol) {
-              phase2::prepare_optimality(lp,
+              phase2::prepare_optimality(1,
+                                         lp,
                                          settings,
                                          ft,
                                          objective,
@@ -2633,7 +2675,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
             if (primal_infeasibility <= settings.primal_tol &&
                 orig_dual_infeas <= settings.dual_tol) {
-              phase2::prepare_optimality(lp,
+              phase2::prepare_optimality(2,
+                                         lp,
                                          settings,
                                          ft,
                                          objective,
