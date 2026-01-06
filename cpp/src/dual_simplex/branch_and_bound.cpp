@@ -315,7 +315,7 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
   i_t num_fixed = 0;
   for (i_t j = 0; j < original_lp_.num_cols; j++) {
     //printf("Variable %d type %d reduced cost %e\n", j, var_types_[j], reduced_costs[j]);
-    if (var_types_[j] == variable_type_t::INTEGER && reduced_costs[j] > threshold) {
+    if (std::abs(reduced_costs[j]) > threshold) {
       const f_t lower_j = original_lp_.lower[j];
       const f_t upper_j = original_lp_.upper[j];
       const f_t abs_gap = upper_bound - root_obj;
@@ -324,7 +324,7 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
       if (lower_j > -inf && reduced_costs[j] > 0)
       {
         const f_t new_upper_bound = lower_j + abs_gap/reduced_costs[j];
-        reduced_cost_upper_bound = std::floor(new_upper_bound + weaken);
+        reduced_cost_upper_bound = var_types_[j] == variable_type_t::INTEGER ? std::floor(new_upper_bound + weaken) : new_upper_bound;
         if (reduced_cost_upper_bound < upper_j)
         {
           //printf("Improved upper bound for variable %d from %e to %e (%e)\n", j, upper_j, reduced_cost_upper_bound, new_upper_bound);
@@ -336,7 +336,7 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
       if (upper_j < inf && reduced_costs[j] < 0)
       {
         const f_t new_lower_bound = upper_j + abs_gap/reduced_costs[j];
-        reduced_cost_lower_bound = std::ceil(new_lower_bound - weaken);
+        reduced_cost_lower_bound = var_types_[j] == variable_type_t::INTEGER ? std::ceil(new_lower_bound - weaken) : new_lower_bound;
         if (reduced_cost_lower_bound > lower_j)
         {
           //printf("Improved lower bound for variable %d from %e to %e (%e)\n", j, lower_j, reduced_cost_lower_bound, new_lower_bound);
@@ -345,7 +345,7 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
           bounds_changed[j] = true;
         }
       }
-      if (reduced_cost_upper_bound <= reduced_cost_lower_bound)
+      if (var_types_[j] == variable_type_t::INTEGER && reduced_cost_upper_bound <= reduced_cost_lower_bound)
       {
         num_fixed++;
       }
