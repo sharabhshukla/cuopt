@@ -402,35 +402,6 @@ __global__ void scale_transposed_problem_kernel(
 }
 
 template <typename i_t, typename f_t>
-__global__ void scale_new_bounds_variable_scaling_kernel(i_t n,
-                                                         const i_t* idx,
-                                                         f_t* lower,
-                                                         f_t* upper,
-                                                         const f_t* variable_scaling)
-{
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i >= n) return;
-  i_t v_idx = idx[i];
-  f_t s     = variable_scaling[v_idx];
-  if (s != f_t(0)) {
-    lower[i] /= s;
-    upper[i] /= s;
-  }
-}
-
-template <typename f_t>
-__global__ void scale_new_bounds_bound_rescaling_kernel(size_t n,
-                                                        f_t* lower,
-                                                        f_t* upper,
-                                                        const f_t* bound_rescaling)
-{
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i >= n) return;
-  lower[i] *= *bound_rescaling;
-  upper[i] *= *bound_rescaling;
-}
-
-template <typename i_t, typename f_t>
 f_t pdlp_initial_scaling_strategy_t<i_t, f_t>::get_h_bound_rescaling() const
 {
   return h_bound_rescaling;
@@ -483,14 +454,22 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
                                   stream_view_);
 
   if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
-    const auto [grid_size, block_size] =
-      kernel_config_from_batch_size(pdhg_solver_ptr_->get_new_bounds_idx().size());
-    scale_new_bounds_variable_scaling_kernel<<<grid_size, block_size, 0, stream_view_>>>(
-      (i_t)pdhg_solver_ptr_->get_new_bounds_idx().size(),
-      pdhg_solver_ptr_->get_new_bounds_idx().data(),
-      pdhg_solver_ptr_->get_new_bounds_lower().data(),
-      pdhg_solver_ptr_->get_new_bounds_upper().data(),
-      cummulative_variable_scaling_.data());
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(
+        pdhg_solver_ptr_->get_new_bounds_lower().data(),
+        pdhg_solver_ptr_->get_new_bounds_upper().data(),
+        thrust::make_permutation_iterator(cummulative_variable_scaling_.data(),
+                                          pdhg_solver_ptr_->get_new_bounds_idx().data())),
+      thrust::make_zip_iterator(pdhg_solver_ptr_->get_new_bounds_lower().data(),
+                                pdhg_solver_ptr_->get_new_bounds_upper().data()),
+      pdhg_solver_ptr_->get_new_bounds_idx().size(),
+      [] __device__(f_t lower, f_t upper, f_t s) -> thrust::tuple<f_t, f_t> {
+        if (s != f_t(0)) {
+          return {lower / s, upper / s};
+        }
+        return {lower, upper};
+      },
+      stream_view_);
   }
 
   // TODO batch mode: handle different constraints bounds
@@ -541,13 +520,17 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
         stream_view_);
 
     if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
-      const auto [grid_size, block_size] =
-        kernel_config_from_batch_size(pdhg_solver_ptr_->get_new_bounds_idx().size());
-      scale_new_bounds_bound_rescaling_kernel<<<grid_size, block_size, 0, stream_view_>>>(
+      cub::DeviceTransform::Transform(
+        cuda::std::make_tuple(pdhg_solver_ptr_->get_new_bounds_lower().data(),
+                              pdhg_solver_ptr_->get_new_bounds_upper().data()),
+        thrust::make_zip_iterator(pdhg_solver_ptr_->get_new_bounds_lower().data(),
+                                  pdhg_solver_ptr_->get_new_bounds_upper().data()),
         pdhg_solver_ptr_->get_new_bounds_idx().size(),
-        pdhg_solver_ptr_->get_new_bounds_lower().data(),
-        pdhg_solver_ptr_->get_new_bounds_upper().data(),
-        bound_rescaling_.data());
+        [bound_rescaling = bound_rescaling_.data()] __device__(f_t lower, f_t upper)
+          -> thrust::tuple<f_t, f_t> {
+          return {lower * *bound_rescaling, upper * *bound_rescaling};
+        },
+        stream_view_);
     }
 
     cub::DeviceTransform::Transform(
