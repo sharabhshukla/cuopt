@@ -108,8 +108,6 @@ DEPENDENCIES=(
   libraft-headers
   librmm
   pylibraft
-  raft-dask
-  rapids-dask-dependency
   rmm
 )
 
