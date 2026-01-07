@@ -1,14 +1,19 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
 
 #pragma once
 
-#include <dual_simplex/mip_node.hpp>
+// Enable BSP debug macros. The actual logging is controlled at runtime via
+// environment variables (CUOPT_BSP_DEBUG_*). This define enables the macro
+// infrastructure; without it, all BSP_DEBUG_* macros become complete no-ops.
+#define BSP_DEBUG_ENABLED
+
 #include <dual_simplex/bb_event.hpp>
+#include <dual_simplex/mip_node.hpp>
 
 #include <chrono>
 #include <cstdio>
@@ -150,10 +155,10 @@ struct bsp_debug_settings_t {
     if (get_env_bool("CUOPT_BSP_DEBUG_ALL")) {
       settings.enable_all();
     } else {
-      settings.enable_event_log       = get_env_bool("CUOPT_BSP_DEBUG_LOG");
-      settings.enable_timeline        = get_env_bool("CUOPT_BSP_DEBUG_TIMELINE");
-      settings.enable_tree_dot        = get_env_bool("CUOPT_BSP_DEBUG_TREE");
-      settings.enable_state_json      = get_env_bool("CUOPT_BSP_DEBUG_JSON");
+      settings.enable_event_log         = get_env_bool("CUOPT_BSP_DEBUG_LOG");
+      settings.enable_timeline          = get_env_bool("CUOPT_BSP_DEBUG_TIMELINE");
+      settings.enable_tree_dot          = get_env_bool("CUOPT_BSP_DEBUG_TREE");
+      settings.enable_state_json        = get_env_bool("CUOPT_BSP_DEBUG_JSON");
       settings.enable_determinism_trace = get_env_bool("CUOPT_BSP_DEBUG_TRACE");
     }
 
@@ -195,10 +200,10 @@ class bsp_debug_logger_t {
         std::filesystem::create_directories(settings_.output_dir);
       } catch (const std::filesystem::filesystem_error& e) {
         // Silently disable debug output if we can't create the directory
-        settings_.enable_event_log       = false;
-        settings_.enable_timeline        = false;
-        settings_.enable_tree_dot        = false;
-        settings_.enable_state_json      = false;
+        settings_.enable_event_log         = false;
+        settings_.enable_timeline          = false;
+        settings_.enable_tree_dot          = false;
+        settings_.enable_state_json        = false;
         settings_.enable_determinism_trace = false;
       }
 
@@ -225,12 +230,16 @@ class bsp_debug_logger_t {
 
   void log_horizon_start(int horizon_num, double vt_start, double vt_end)
   {
-    current_horizon_ = horizon_num;
+    current_horizon_  = horizon_num;
     horizon_vt_start_ = vt_start;
     horizon_vt_end_   = vt_end;
 
     if (settings_.enable_event_log) {
-      log_event(vt_start, -1, bsp_log_event_t::HORIZON_START, -1, -1,
+      log_event(vt_start,
+                -1,
+                bsp_log_event_t::HORIZON_START,
+                -1,
+                -1,
                 "horizon=[" + std::to_string(vt_start) + "," + std::to_string(vt_end) + ")");
     }
 
@@ -244,19 +253,19 @@ class bsp_debug_logger_t {
 
   void log_horizon_end(int horizon_num, double vt)
   {
-    if (settings_.enable_event_log) {
-      log_event(vt, -1, bsp_log_event_t::HORIZON_END, -1, -1, "");
-    }
+    if (settings_.enable_event_log) { log_event(vt, -1, bsp_log_event_t::HORIZON_END, -1, -1, ""); }
 
-    if (settings_.enable_timeline) {
-      emit_timeline_for_horizon(horizon_num);
-    }
+    if (settings_.enable_timeline) { emit_timeline_for_horizon(horizon_num); }
   }
 
   void log_node_assigned(double vt, int worker_id, i_t node_id, i_t final_id, f_t lower_bound)
   {
     if (settings_.enable_event_log) {
-      log_event(vt, worker_id, bsp_log_event_t::NODE_ASSIGNED, node_id, final_id,
+      log_event(vt,
+                worker_id,
+                bsp_log_event_t::NODE_ASSIGNED,
+                node_id,
+                final_id,
                 "lb=" + std::to_string(lower_bound));
     }
 
@@ -276,15 +285,19 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_solve_start(double vt, int worker_id, i_t node_id, i_t final_id, double work_limit,
-                       bool is_resumed)
+  void log_solve_start(
+    double vt, int worker_id, i_t node_id, i_t final_id, double work_limit, bool is_resumed)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log && settings_.log_level >= 2) {
-      log_event_unlocked(vt, worker_id,
-                         is_resumed ? bsp_log_event_t::NODE_RESUMED : bsp_log_event_t::NODE_SOLVE_START,
-                         node_id, final_id, "work_limit=" + std::to_string(work_limit));
+      log_event_unlocked(
+        vt,
+        worker_id,
+        is_resumed ? bsp_log_event_t::NODE_RESUMED : bsp_log_event_t::NODE_SOLVE_START,
+        node_id,
+        final_id,
+        "work_limit=" + std::to_string(work_limit));
     }
 
     // Start timeline event
@@ -293,13 +306,17 @@ class bsp_debug_logger_t {
     current_solve_fid_[worker_id]   = final_id;
   }
 
-  void log_solve_end(double vt, int worker_id, i_t node_id, i_t final_id, const std::string& result,
-                     f_t lower_bound)
+  void log_solve_end(
+    double vt, int worker_id, i_t node_id, i_t final_id, const std::string& result, f_t lower_bound)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt, worker_id, bsp_log_event_t::NODE_SOLVE_END, node_id, final_id,
+      log_event_unlocked(vt,
+                         worker_id,
+                         bsp_log_event_t::NODE_SOLVE_END,
+                         node_id,
+                         final_id,
                          "result=" + result + ",lb=" + std::to_string(lower_bound));
     }
 
@@ -321,7 +338,11 @@ class bsp_debug_logger_t {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt, worker_id, bsp_log_event_t::NODE_BRANCHED, parent_id, -1,
+      log_event_unlocked(vt,
+                         worker_id,
+                         bsp_log_event_t::NODE_BRANCHED,
+                         parent_id,
+                         -1,
                          "children=" + std::to_string(down_id) + "," + std::to_string(up_id));
     }
 
@@ -336,7 +357,11 @@ class bsp_debug_logger_t {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt, worker_id, bsp_log_event_t::NODE_PAUSED, node_id, final_id,
+      log_event_unlocked(vt,
+                         worker_id,
+                         bsp_log_event_t::NODE_PAUSED,
+                         node_id,
+                         final_id,
                          "acc_vt=" + std::to_string(accumulated_vt));
     }
 
@@ -350,7 +375,11 @@ class bsp_debug_logger_t {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt, worker_id, bsp_log_event_t::NODE_INTEGER, node_id, -1,
+      log_event_unlocked(vt,
+                         worker_id,
+                         bsp_log_event_t::NODE_INTEGER,
+                         node_id,
+                         -1,
                          "obj=" + std::to_string(objective));
     }
 
@@ -364,7 +393,11 @@ class bsp_debug_logger_t {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log && settings_.log_level >= 2) {
-      log_event_unlocked(vt, worker_id, bsp_log_event_t::NODE_FATHOMED, node_id, -1,
+      log_event_unlocked(vt,
+                         worker_id,
+                         bsp_log_event_t::NODE_FATHOMED,
+                         node_id,
+                         -1,
                          "lb=" + std::to_string(lower_bound));
     }
   }
@@ -383,15 +416,24 @@ class bsp_debug_logger_t {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log && settings_.log_level >= 2) {
-      log_event_unlocked(vt, -1, bsp_log_event_t::NODE_PRUNED, node_id, final_id,
-                         "lb=" + std::to_string(lower_bound) + ",ub=" + std::to_string(upper_bound));
+      log_event_unlocked(
+        vt,
+        -1,
+        bsp_log_event_t::NODE_PRUNED,
+        node_id,
+        final_id,
+        "lb=" + std::to_string(lower_bound) + ",ub=" + std::to_string(upper_bound));
     }
   }
 
   void log_sync_phase_start(double vt, size_t num_events)
   {
     if (settings_.enable_event_log) {
-      log_event(vt, -1, bsp_log_event_t::SYNC_PHASE_START, -1, -1,
+      log_event(vt,
+                -1,
+                bsp_log_event_t::SYNC_PHASE_START,
+                -1,
+                -1,
                 "num_events=" + std::to_string(num_events));
     }
   }
@@ -433,8 +475,8 @@ class bsp_debug_logger_t {
   void log_heuristic_received(double vt, f_t objective)
   {
     if (settings_.enable_event_log) {
-      log_event(vt, -1, bsp_log_event_t::HEURISTIC_RECEIVED, -1, -1,
-                "obj=" + std::to_string(objective));
+      log_event(
+        vt, -1, bsp_log_event_t::HEURISTIC_RECEIVED, -1, -1, "obj=" + std::to_string(objective));
     }
 
     if (settings_.enable_determinism_trace) {
@@ -445,7 +487,11 @@ class bsp_debug_logger_t {
   void log_incumbent_update(double vt, f_t objective, const std::string& source)
   {
     if (settings_.enable_event_log) {
-      log_event(vt, -1, bsp_log_event_t::INCUMBENT_UPDATE, -1, -1,
+      log_event(vt,
+                -1,
+                bsp_log_event_t::INCUMBENT_UPDATE,
+                -1,
+                -1,
                 "obj=" + std::to_string(objective) + ",source=" + source);
     }
 
@@ -496,9 +542,16 @@ class bsp_debug_logger_t {
   // ========================================================================
 
   template <typename WorkerPool>
-  void emit_state_json(int horizon_num, double vt_start, double vt_end, i_t next_final_id,
-                       f_t upper_bound, f_t lower_bound, i_t nodes_explored, i_t nodes_unexplored,
-                       const WorkerPool& workers, const std::vector<mip_node_t<i_t, f_t>*>& heap_nodes,
+  void emit_state_json(int horizon_num,
+                       double vt_start,
+                       double vt_end,
+                       i_t next_final_id,
+                       f_t upper_bound,
+                       f_t lower_bound,
+                       i_t nodes_explored,
+                       i_t nodes_unexplored,
+                       const WorkerPool& workers,
+                       const std::vector<mip_node_t<i_t, f_t>*>& heap_nodes,
                        const bb_event_batch_t<i_t, f_t>& events)
   {
     if (!settings_.enable_state_json) return;
@@ -593,15 +646,23 @@ class bsp_debug_logger_t {
     return std::chrono::duration<double>(now - start_time_).count();
   }
 
-  void log_event(double vt, int worker_id, bsp_log_event_t event, i_t node_id, i_t final_id,
+  void log_event(double vt,
+                 int worker_id,
+                 bsp_log_event_t event,
+                 i_t node_id,
+                 i_t final_id,
                  const std::string& details)
   {
     std::lock_guard<std::mutex> lock(mutex_);
     log_event_unlocked(vt, worker_id, event, node_id, final_id, details);
   }
 
-  void log_event_unlocked(double vt, int worker_id, bsp_log_event_t event, i_t node_id,
-                          i_t final_id, const std::string& details)
+  void log_event_unlocked(double vt,
+                          int worker_id,
+                          bsp_log_event_t event,
+                          i_t node_id,
+                          i_t final_id,
+                          const std::string& details)
   {
     log_ss_ << std::fixed << std::setprecision(3) << vt << "\t" << get_real_time() << "\t"
             << current_horizon_ << "\t" << (worker_id < 0 ? "COORD" : std::to_string(worker_id))
@@ -639,9 +700,9 @@ class bsp_debug_logger_t {
     std::ofstream file(filename, std::ios::app);
     if (!file.is_open()) return;
 
-    const int width     = 80;
-    const double vt_min = horizon_vt_start_;
-    const double vt_max = horizon_vt_end_;
+    const int width       = 80;
+    const double vt_min   = horizon_vt_start_;
+    const double vt_max   = horizon_vt_end_;
     const double vt_range = vt_max - vt_min;
 
     // Avoid division by zero
@@ -713,7 +774,8 @@ class bsp_debug_logger_t {
     file << std::string(width, '=') << "\n";
   }
 
-  void emit_tree_node_recursive(std::ofstream& file, const mip_node_t<i_t, f_t>* node,
+  void emit_tree_node_recursive(std::ofstream& file,
+                                const mip_node_t<i_t, f_t>* node,
                                 f_t upper_bound)
   {
     if (node == nullptr) return;
@@ -764,9 +826,8 @@ class bsp_debug_logger_t {
 
     // Emit edges to children
     if (node->get_down_child() != nullptr) {
-      file << "  N" << node->node_id << " -> N" << node->get_down_child()->node_id
-           << " [label=\"x" << node->branch_var << "<=" << std::floor(node->fractional_val)
-           << "\"];\n";
+      file << "  N" << node->node_id << " -> N" << node->get_down_child()->node_id << " [label=\"x"
+           << node->branch_var << "<=" << std::floor(node->fractional_val) << "\"];\n";
       emit_tree_node_recursive(file, node->get_down_child(), upper_bound);
     }
 
@@ -781,63 +842,133 @@ class bsp_debug_logger_t {
 // ============================================================================
 // Convenience Macros
 // ============================================================================
+//
+// These macros provide a clean interface for BSP debug logging.
+// - When BSP_DEBUG_ENABLED is defined: macros are active (controlled by settings at runtime)
+// - When BSP_DEBUG_ENABLED is not defined: macros are no-ops (zero overhead)
+//
+// The 'settings' parameter is a bsp_debug_settings_t& that controls which features are enabled.
 
 #ifdef BSP_DEBUG_ENABLED
 
-#define BSP_DEBUG_LOG_HORIZON_START(logger, h, vs, ve) (logger).log_horizon_start(h, vs, ve)
-#define BSP_DEBUG_LOG_HORIZON_END(logger, h, vt) (logger).log_horizon_end(h, vt)
-#define BSP_DEBUG_LOG_NODE_ASSIGNED(logger, vt, w, nid, fid, lb) \
-  (logger).log_node_assigned(vt, w, nid, fid, lb)
-#define BSP_DEBUG_FLUSH_ASSIGN_TRACE(logger) (logger).flush_assign_trace()
-#define BSP_DEBUG_LOG_SOLVE_START(logger, vt, w, nid, fid, wl, resumed) \
-  (logger).log_solve_start(vt, w, nid, fid, wl, resumed)
-#define BSP_DEBUG_LOG_SOLVE_END(logger, vt, w, nid, fid, result, lb) \
-  (logger).log_solve_end(vt, w, nid, fid, result, lb)
-#define BSP_DEBUG_LOG_BRANCHED(logger, vt, w, pid, did, uid) \
-  (logger).log_branched(vt, w, pid, did, uid)
-#define BSP_DEBUG_LOG_PAUSED(logger, vt, w, nid, fid, acc) (logger).log_paused(vt, w, nid, fid, acc)
-#define BSP_DEBUG_LOG_INTEGER(logger, vt, w, nid, obj) (logger).log_integer(vt, w, nid, obj)
-#define BSP_DEBUG_LOG_FATHOMED(logger, vt, w, nid, lb) (logger).log_fathomed(vt, w, nid, lb)
-#define BSP_DEBUG_LOG_INFEASIBLE(logger, vt, w, nid) (logger).log_infeasible(vt, w, nid)
-#define BSP_DEBUG_LOG_SYNC_PHASE_START(logger, vt, ne) (logger).log_sync_phase_start(vt, ne)
-#define BSP_DEBUG_LOG_SYNC_PHASE_END(logger, vt) (logger).log_sync_phase_end(vt)
-#define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(logger, pid, fid) (logger).log_final_id_assigned(pid, fid)
-#define BSP_DEBUG_FLUSH_FINAL_IDS_TRACE(logger) (logger).flush_final_ids_trace()
-#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(logger, vt, obj) (logger).log_heuristic_received(vt, obj)
-#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(logger, vt, obj, src) \
-  (logger).log_incumbent_update(vt, obj, src)
-#define BSP_DEBUG_LOG_HEAP_ORDER(logger, fids) (logger).log_heap_order(fids)
-#define BSP_DEBUG_EMIT_TREE_STATE(logger, h, root, ub) (logger).emit_tree_state(h, root, ub)
-#define BSP_DEBUG_EMIT_STATE_JSON(logger, h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events) \
-  (logger).emit_state_json(h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events)
-#define BSP_DEBUG_FINALIZE(logger) (logger).finalize()
+#define BSP_DEBUG_LOG_HORIZON_START(settings, logger, h, vs, ve)         \
+  do {                                                                   \
+    if ((settings).any_enabled()) (logger).log_horizon_start(h, vs, ve); \
+  } while (0)
+#define BSP_DEBUG_LOG_HORIZON_END(settings, logger, h, vt)         \
+  do {                                                             \
+    if ((settings).any_enabled()) (logger).log_horizon_end(h, vt); \
+  } while (0)
+#define BSP_DEBUG_LOG_NODE_ASSIGNED(settings, logger, vt, w, nid, fid, lb)         \
+  do {                                                                             \
+    if ((settings).any_enabled()) (logger).log_node_assigned(vt, w, nid, fid, lb); \
+  } while (0)
+#define BSP_DEBUG_FLUSH_ASSIGN_TRACE(settings, logger)           \
+  do {                                                           \
+    if ((settings).any_enabled()) (logger).flush_assign_trace(); \
+  } while (0)
+#define BSP_DEBUG_LOG_SOLVE_START(settings, logger, vt, w, nid, fid, wl, resumed)         \
+  do {                                                                                    \
+    if ((settings).any_enabled()) (logger).log_solve_start(vt, w, nid, fid, wl, resumed); \
+  } while (0)
+#define BSP_DEBUG_LOG_SOLVE_END(settings, logger, vt, w, nid, fid, result, lb)         \
+  do {                                                                                 \
+    if ((settings).any_enabled()) (logger).log_solve_end(vt, w, nid, fid, result, lb); \
+  } while (0)
+#define BSP_DEBUG_LOG_BRANCHED(settings, logger, vt, w, pid, did, uid)         \
+  do {                                                                         \
+    if ((settings).any_enabled()) (logger).log_branched(vt, w, pid, did, uid); \
+  } while (0)
+#define BSP_DEBUG_LOG_PAUSED(settings, logger, vt, w, nid, fid, acc)         \
+  do {                                                                       \
+    if ((settings).any_enabled()) (logger).log_paused(vt, w, nid, fid, acc); \
+  } while (0)
+#define BSP_DEBUG_LOG_INTEGER(settings, logger, vt, w, nid, obj)         \
+  do {                                                                   \
+    if ((settings).any_enabled()) (logger).log_integer(vt, w, nid, obj); \
+  } while (0)
+#define BSP_DEBUG_LOG_FATHOMED(settings, logger, vt, w, nid, lb)         \
+  do {                                                                   \
+    if ((settings).any_enabled()) (logger).log_fathomed(vt, w, nid, lb); \
+  } while (0)
+#define BSP_DEBUG_LOG_INFEASIBLE(settings, logger, vt, w, nid)         \
+  do {                                                                 \
+    if ((settings).any_enabled()) (logger).log_infeasible(vt, w, nid); \
+  } while (0)
+#define BSP_DEBUG_LOG_PRUNED(settings, logger, vt, nid, fid, lb, ub)         \
+  do {                                                                       \
+    if ((settings).any_enabled()) (logger).log_pruned(vt, nid, fid, lb, ub); \
+  } while (0)
+#define BSP_DEBUG_LOG_SYNC_PHASE_START(settings, logger, vt, ne)         \
+  do {                                                                   \
+    if ((settings).any_enabled()) (logger).log_sync_phase_start(vt, ne); \
+  } while (0)
+#define BSP_DEBUG_LOG_SYNC_PHASE_END(settings, logger, vt)         \
+  do {                                                             \
+    if ((settings).any_enabled()) (logger).log_sync_phase_end(vt); \
+  } while (0)
+#define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(settings, logger, pid, fid)         \
+  do {                                                                      \
+    if ((settings).any_enabled()) (logger).log_final_id_assigned(pid, fid); \
+  } while (0)
+#define BSP_DEBUG_FLUSH_FINAL_IDS_TRACE(settings, logger)           \
+  do {                                                              \
+    if ((settings).any_enabled()) (logger).flush_final_ids_trace(); \
+  } while (0)
+#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(settings, logger, vt, obj)         \
+  do {                                                                      \
+    if ((settings).any_enabled()) (logger).log_heuristic_received(vt, obj); \
+  } while (0)
+#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(settings, logger, vt, obj, src)         \
+  do {                                                                         \
+    if ((settings).any_enabled()) (logger).log_incumbent_update(vt, obj, src); \
+  } while (0)
+#define BSP_DEBUG_LOG_HEAP_ORDER(settings, logger, fids)         \
+  do {                                                           \
+    if ((settings).any_enabled()) (logger).log_heap_order(fids); \
+  } while (0)
+#define BSP_DEBUG_EMIT_TREE_STATE(settings, logger, h, root, ub)         \
+  do {                                                                   \
+    if ((settings).any_enabled()) (logger).emit_tree_state(h, root, ub); \
+  } while (0)
+#define BSP_DEBUG_EMIT_STATE_JSON(                                                      \
+  settings, logger, h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events)             \
+  do {                                                                                  \
+    if ((settings).any_enabled())                                                       \
+      (logger).emit_state_json(h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events); \
+  } while (0)
+#define BSP_DEBUG_FINALIZE(settings, logger)           \
+  do {                                                 \
+    if ((settings).any_enabled()) (logger).finalize(); \
+  } while (0)
 
 #else
 
-#define BSP_DEBUG_LOG_HORIZON_START(logger, h, vs, ve) ((void)0)
-#define BSP_DEBUG_LOG_HORIZON_END(logger, h, vt) ((void)0)
-#define BSP_DEBUG_LOG_NODE_ASSIGNED(logger, vt, w, nid, fid, lb) ((void)0)
-#define BSP_DEBUG_FLUSH_ASSIGN_TRACE(logger) ((void)0)
-#define BSP_DEBUG_LOG_SOLVE_START(logger, vt, w, nid, fid, wl, resumed) ((void)0)
-#define BSP_DEBUG_LOG_SOLVE_END(logger, vt, w, nid, fid, result, lb) ((void)0)
-#define BSP_DEBUG_LOG_BRANCHED(logger, vt, w, pid, did, uid) ((void)0)
-#define BSP_DEBUG_LOG_PAUSED(logger, vt, w, nid, fid, acc) ((void)0)
-#define BSP_DEBUG_LOG_INTEGER(logger, vt, w, nid, obj) ((void)0)
-#define BSP_DEBUG_LOG_FATHOMED(logger, vt, w, nid, lb) ((void)0)
-#define BSP_DEBUG_LOG_INFEASIBLE(logger, vt, w, nid) ((void)0)
-#define BSP_DEBUG_LOG_SYNC_PHASE_START(logger, vt, ne) ((void)0)
-#define BSP_DEBUG_LOG_SYNC_PHASE_END(logger, vt) ((void)0)
-#define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(logger, pid, fid) ((void)0)
-#define BSP_DEBUG_FLUSH_FINAL_IDS_TRACE(logger) ((void)0)
-#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(logger, vt, obj) ((void)0)
-#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(logger, vt, obj, src) ((void)0)
-#define BSP_DEBUG_LOG_HEAP_ORDER(logger, fids) ((void)0)
-#define BSP_DEBUG_EMIT_TREE_STATE(logger, h, root, ub) ((void)0)
-#define BSP_DEBUG_EMIT_STATE_JSON(logger, h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events) \
+#define BSP_DEBUG_LOG_HORIZON_START(settings, logger, h, vs, ve)                  ((void)0)
+#define BSP_DEBUG_LOG_HORIZON_END(settings, logger, h, vt)                        ((void)0)
+#define BSP_DEBUG_LOG_NODE_ASSIGNED(settings, logger, vt, w, nid, fid, lb)        ((void)0)
+#define BSP_DEBUG_FLUSH_ASSIGN_TRACE(settings, logger)                            ((void)0)
+#define BSP_DEBUG_LOG_SOLVE_START(settings, logger, vt, w, nid, fid, wl, resumed) ((void)0)
+#define BSP_DEBUG_LOG_SOLVE_END(settings, logger, vt, w, nid, fid, result, lb)    ((void)0)
+#define BSP_DEBUG_LOG_BRANCHED(settings, logger, vt, w, pid, did, uid)            ((void)0)
+#define BSP_DEBUG_LOG_PAUSED(settings, logger, vt, w, nid, fid, acc)              ((void)0)
+#define BSP_DEBUG_LOG_INTEGER(settings, logger, vt, w, nid, obj)                  ((void)0)
+#define BSP_DEBUG_LOG_FATHOMED(settings, logger, vt, w, nid, lb)                  ((void)0)
+#define BSP_DEBUG_LOG_INFEASIBLE(settings, logger, vt, w, nid)                    ((void)0)
+#define BSP_DEBUG_LOG_PRUNED(settings, logger, vt, nid, fid, lb, ub)              ((void)0)
+#define BSP_DEBUG_LOG_SYNC_PHASE_START(settings, logger, vt, ne)                  ((void)0)
+#define BSP_DEBUG_LOG_SYNC_PHASE_END(settings, logger, vt)                        ((void)0)
+#define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(settings, logger, pid, fid)               ((void)0)
+#define BSP_DEBUG_FLUSH_FINAL_IDS_TRACE(settings, logger)                         ((void)0)
+#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(settings, logger, vt, obj)               ((void)0)
+#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(settings, logger, vt, obj, src)            ((void)0)
+#define BSP_DEBUG_LOG_HEAP_ORDER(settings, logger, fids)                          ((void)0)
+#define BSP_DEBUG_EMIT_TREE_STATE(settings, logger, h, root, ub)                  ((void)0)
+#define BSP_DEBUG_EMIT_STATE_JSON(                                          \
+  settings, logger, h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events) \
   ((void)0)
-#define BSP_DEBUG_FINALIZE(logger) ((void)0)
+#define BSP_DEBUG_FINALIZE(settings, logger) ((void)0)
 
 #endif
 
 }  // namespace cuopt::linear_programming::dual_simplex
-
