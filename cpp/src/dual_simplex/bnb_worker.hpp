@@ -158,7 +158,8 @@ class bnb_worker_pool_t {
   // Worker pool
   std::vector<std::unique_ptr<bnb_worker_t<i_t, f_t>>> workers_;
 
-  // FIXME: Implement a lock-free queue
+  // FIXME: Implement a lock-free queue (it can also be used for
+  // passing feasible solutions between bnb and heuristics)
   omp_mutex_t mutex_;
   std::deque<i_t> available_workers_;
 };

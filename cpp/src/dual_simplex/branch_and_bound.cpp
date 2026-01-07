@@ -839,6 +839,7 @@ void branch_and_bound_t<i_t, f_t>::plunge_with(bnb_worker_t<i_t, f_t>* worker)
       solver_status_ = mip_exploration_status_t::TIME_LIMIT;
       break;
     }
+
     if (exploration_stats_.nodes_explored >= settings_.node_limit) {
       solver_status_ = mip_exploration_status_t::NODE_LIMIT;
       break;
