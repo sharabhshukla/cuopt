@@ -88,6 +88,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
 {
   const f_t weight_distance = 1.0;
   const f_t weight_orthogonality = 1.0;
+  const f_t min_cut_distance = 1e-4;
   cut_distances_.resize(cut_storage_.m, 0.0);
   cut_norms_.resize(cut_storage_.m, 0.0);
   cut_orthogonality_.resize(cut_storage_.m, 1);
@@ -95,7 +96,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
   for (i_t i = 0; i < cut_storage_.m; i++) {
     f_t violation;
     cut_distances_[i] = cut_distance(i, x_relax, violation, cut_norms_[i]);
-    cut_scores_[i] = weight_distance * cut_distances_[i]  + weight_orthogonality * cut_orthogonality_[i];
+    cut_scores_[i] = cut_distances_[i] <= min_cut_distance ? 0.0 : weight_distance * cut_distances_[i]  + weight_orthogonality * cut_orthogonality_[i];
     //settings_.log.printf("Cut %d distance %e violation %e orthogonality %e score %e\n", i, cut_distances_[i], violation, cut_orthogonality_[i], cut_scores_[i]);
   }
 
@@ -111,7 +112,6 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
 
   const i_t max_cuts = 2000;
   const f_t min_orthogonality = 0.5;
-  const f_t min_cut_distance = 1e-4;
   best_cuts_.reserve(std::min(max_cuts, cut_storage_.m));
   best_cuts_.clear();
   scored_cuts_ = 0;
@@ -120,6 +120,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
     const i_t i = sorted_indices[0];
 
     if (cut_distances_[i] <= min_cut_distance) {
+        //settings_.log.printf("Cut %d distance %e <= %e. Stopping\n", i, cut_distances_[i], min_cut_distance);
         break;
     }
 
@@ -137,7 +138,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
       cut_orthogonality_[j] = std::min(cut_orthogonality_[j], cut_orthogonality(i, j));
       if (cut_orthogonality_[j] >= min_orthogonality) {
         indices.push_back(j);
-        cut_scores_[j] = weight_distance * cut_distances_[j] + weight_orthogonality * cut_orthogonality_[j];
+        cut_scores_[j] = cut_distances_[j] <= min_cut_distance ? 0.0 : weight_distance * cut_distances_[j] + weight_orthogonality * cut_orthogonality_[j];
         //settings_.log.printf("Recomputed cut %d score %e\n", j, cut_scores_[j]);
       }
     }
@@ -149,6 +150,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
     std::sort(sorted_indices.begin(), sorted_indices.end(), [&](i_t a, i_t b) {
         return cut_scores_[a] > cut_scores_[b];
     });
+    //settings_.log.printf("\t Sorted indicies %d\n", sorted_indices.size());
   }
 }
 
