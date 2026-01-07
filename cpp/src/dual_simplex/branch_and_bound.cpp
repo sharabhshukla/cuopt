@@ -307,7 +307,6 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
     settings_.log.printf(
       "Solution size mismatch %ld %d\n", solution.size(), original_problem_.num_cols);
   }
-
   std::vector<f_t> crushed_solution;
   crush_primal_solution<i_t, f_t>(
     original_problem_, original_lp_, solution, new_slacks_, crushed_solution);
@@ -801,95 +800,6 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(mip_node_t<i_t, f_t>*
     return node_solve_info_t::NUMERICAL;
   }
 }
-
-// template <typename i_t, typename f_t>
-// void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(mip_node_t<i_t, f_t>* node,
-//                                                        i_t initial_heap_size)
-// {
-//   if (solver_status_ != mip_exploration_status_t::RUNNING) { return; }
-
-//   // Note that we do not know which thread will execute the
-//   // `exploration_ramp_up` task, so we allow to any thread
-//   // to repair the heuristic solution.
-//   repair_heuristic_solutions();
-
-//   i_t tid                                  = omp_get_thread_num();
-//   bnb_worker_data_t<i_t, f_t>* worker_data = get_worker_data(tid);
-//   assert(worker_data);
-
-//   f_t lower_bound = node->lower_bound;
-//   f_t upper_bound = get_upper_bound();
-//   f_t rel_gap     = user_relative_gap(original_lp_, upper_bound, lower_bound);
-//   f_t abs_gap     = upper_bound - lower_bound;
-
-//   if (lower_bound > upper_bound || rel_gap < settings_.relative_mip_gap_tol) {
-//     search_tree_.graphviz_node(settings_.log, node, "cutoff", node->lower_bound);
-//     search_tree_.update(node, node_status_t::FATHOMED);
-//     --exploration_stats_.nodes_unexplored;
-//     return;
-//   }
-
-//   f_t now = toc(exploration_stats_.start_time);
-//   f_t time_since_last_log =
-//     exploration_stats_.last_log == 0 ? 1.0 : toc(exploration_stats_.last_log);
-
-//   if (((exploration_stats_.nodes_since_last_log >= 10 ||
-//         abs_gap < 10 * settings_.absolute_mip_gap_tol) &&
-//        (time_since_last_log >= 1)) ||
-//       (time_since_last_log > 30) || now > settings_.time_limit) {
-//     bool should_report = should_report_.exchange(false);
-
-//   if (should_report) {
-//     report("  ", upper_bound, root_objective_, node->depth);
-//     exploration_stats_.nodes_since_last_log = 0;
-//     exploration_stats_.last_log             = tic();
-//     should_report_                          = true;
-//   }
-// }
-
-//   if (now > settings_.time_limit) {
-//     solver_status_ = mip_exploration_status_t::TIME_LIMIT;
-//     return;
-//   }
-
-//   worker_data->recompute_basis  = true;
-//   worker_data->recompute_bounds = true;
-
-//   node_solve_info_t status = solve_node(node,
-//                                         search_tree_,
-//                                         bnb_worker_type_t::EXPLORATION,
-//                                         worker_data,
-//                                         original_lp_.lower,
-//                                         original_lp_.upper,
-//                                         exploration_stats_,
-//                                         settings_.log);
-
-//   ++exploration_stats_.nodes_since_last_log;
-//   ++exploration_stats_.nodes_explored;
-//   --exploration_stats_.nodes_unexplored;
-
-//   if (status == node_solve_info_t::TIME_LIMIT) {
-//     solver_status_ = mip_exploration_status_t::TIME_LIMIT;
-//     return;
-
-//   } else if (has_children(status)) {
-//     exploration_stats_.nodes_unexplored += 2;
-
-//     // If we haven't generated enough nodes to keep the threads busy, continue the ramp up phase
-//     if (exploration_stats_.nodes_unexplored < initial_heap_size) {
-// #pragma omp task
-//       exploration_ramp_up(node->get_down_child(), initial_heap_size);
-
-// #pragma omp task
-//       exploration_ramp_up(node->get_up_child(), initial_heap_size);
-
-//     } else {
-//       // We've generated enough nodes, push further nodes onto the heap
-//       node_queue.push(node->get_down_child());
-//       node_queue.push(node->get_up_child());
-//     }
-//   }
-// }
 
 template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::plunge_with(bnb_worker_t<i_t, f_t>* worker)
