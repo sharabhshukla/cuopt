@@ -1071,10 +1071,11 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
   while (solver_status_ == mip_exploration_status_t::RUNNING &&
          abs_gap > settings_.absolute_mip_gap_tol && rel_gap > settings_.relative_mip_gap_tol &&
          (active_workers_per_type[0] > 0 || node_queue.best_first_queue_size() > 0)) {
-    lower_bound = get_lower_bound();
-    upper_bound = get_upper_bound();
-    abs_gap     = upper_bound - lower_bound;
-    rel_gap     = user_relative_gap(original_lp_, upper_bound, lower_bound);
+    bool launched_any_task = false;
+    lower_bound            = get_lower_bound();
+    upper_bound            = get_upper_bound();
+    abs_gap                = upper_bound - lower_bound;
+    rel_gap                = user_relative_gap(original_lp_, upper_bound, lower_bound);
 
     repair_heuristic_solutions();
 
@@ -1102,13 +1103,6 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
     }
 
     if (now > settings_.time_limit) { break; }
-
-    // There is no node in the queue, so we suspend temporarily the execution of the master
-    // so it can execute a worker task instead.
-    if (node_queue.best_first_queue_size() == 0 && node_queue.diving_queue_size() == 0) {
-#pragma omp taskyield
-      continue;
-    }
 
     for (auto type : worker_types) {
       if (active_workers_per_type[type] >= max_num_workers_per_type[type]) { continue; }
@@ -1139,6 +1133,7 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
         last_node_depth = start_node.value()->depth;
         active_workers_per_type[type]++;
         nodes_since_last_log++;
+        launched_any_task = true;
 
 #pragma omp task
         plunge_with(worker);
@@ -1164,10 +1159,17 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
         }
 
         active_workers_per_type[type]++;
+        launched_any_task = true;
 
 #pragma omp task
         dive_with(worker);
       }
+    }
+
+    // If no new task was launched in this iteration, suspend temporarily the execution of the
+    // master
+    if (!launched_any_task) {
+#pragma omp taskyield
     }
   }
 }

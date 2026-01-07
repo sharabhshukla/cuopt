@@ -184,14 +184,14 @@ std::array<i_t, bnb_num_worker_types> bnb_get_num_workers_round_robin(
   auto worker_types = bnb_get_worker_types(settings);
 
   max_num_workers.fill(0);
-  max_num_workers[EXPLORATION] = std::max(1, num_threads / 4);
+  max_num_workers[EXPLORATION] = std::max(1, num_threads / 2);
 
-  i_t diving_workers = settings.num_diving_workers;
+  i_t diving_workers = 2 * settings.num_diving_workers;
   i_t m              = worker_types.size() - 1;
   for (size_t i = 1, k = 0; i < bnb_num_worker_types; ++i) {
     i_t start          = (double)k * diving_workers / m;
     i_t end            = (double)(k + 1) * diving_workers / m;
-    max_num_workers[i] = 2 * (end - start);
+    max_num_workers[i] = end - start;
     ++k;
   }
 
