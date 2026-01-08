@@ -78,7 +78,7 @@ class cut_pool_t {
   }
 
   // Add a cut in the form: cut'*x >= rhs.
-  // We expect that the cut is violated by the current relaxation
+  // We expect that the cut is violated by the current relaxation xstar
   // cut'*xstart < rhs
   void add_cut(cut_type_t cut_type, const sparse_vector_t<i_t, f_t>& cut, f_t rhs);
 
@@ -137,10 +137,14 @@ class knapsack_generation_t {
   const std::vector<i_t>& get_knapsack_constraints() const { return knapsack_constraints_; }
 
  private:
-
-  f_t greedy_knapsack_problem(const std::vector<f_t>& values, const std::vector<f_t>& weights, f_t rhs, std::vector<f_t>& solution);
-  f_t solve_knapsack_problem(const std::vector<f_t>& values, const std::vector<f_t>& weights, f_t rhs, std::vector<f_t>& solution);
-
+  f_t greedy_knapsack_problem(const std::vector<f_t>& values,
+                              const std::vector<f_t>& weights,
+                              f_t rhs,
+                              std::vector<f_t>& solution);
+  f_t solve_knapsack_problem(const std::vector<f_t>& values,
+                             const std::vector<f_t>& weights,
+                             f_t rhs,
+                             std::vector<f_t>& solution);
 
   std::vector<i_t> is_slack_;
   std::vector<i_t> knapsack_constraints_;

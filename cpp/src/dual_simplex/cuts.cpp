@@ -1444,7 +1444,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
       return -1;
     }
     in_basis[j] = k;
-    if (j < cuts.n) { C_B_nz += C_col_degree[j]; }
+    if (j < cuts.n) { C_B_nz += C_col_degree[j]; } else { printf("j >= cuts.n %d %d\n", j, cuts.n); }
   }
   settings.log.debug("Done estimating C_B_nz\n");
 
@@ -1466,7 +1466,15 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
   C_B.row_start[p] = nz;
 
   if (nz != C_B_nz) {
-    settings.log.printf("predicted nz %d actual nz %d\n", C_B_nz, nz);
+    settings.log.printf("Add cuts: predicted nz %d actual nz %d\n", C_B_nz, nz);
+    for (i_t i = 0; i < p; i++) {
+      const i_t row_start = cuts.row_start[i];
+      const i_t row_end = cuts.row_start[i + 1];
+      for (i_t q = row_start; q < row_end; q++) {
+        const i_t j = cuts.j[q];
+        printf("C(%d, %d) = %e\n", i, j, C_B.x[q]);
+      }
+    }
     return -1;
   }
   settings.log.debug("C_B rows %d cols %d nz %d\n", C_B.m, C_B.n, nz);
@@ -1641,7 +1649,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     y             = new_solution_y;
     z             = new_solution_z;
 
-    settings.log.printf("Removed %d cuts. After removal %d rows %d columns %d nonzeros\n",
+    settings.log.debug("Removed %d cuts. After removal %d rows %d columns %d nonzeros\n",
                         cuts_to_remove.size(),
                         lp.num_rows,
                         lp.num_cols,

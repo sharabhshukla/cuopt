@@ -75,6 +75,7 @@ struct simplex_solver_settings_t {
       max_cut_passes(10),
       random_seed(0),
       inside_mip(0),
+      reliability_branching(-1),
       solution_callback(nullptr),
       heuristic_preemption_callback(nullptr),
       concurrent_halt(nullptr)
@@ -142,6 +143,7 @@ struct simplex_solver_settings_t {
   i_t num_diving_threads;          // number of threads dedicated to diving
   i_t max_cut_passes;              // number of cut passes to make
   i_t inside_mip;  // 0 if outside MIP, 1 if inside MIP at root node, 2 if inside MIP at leaf node
+  i_t reliability_branching;      // -1 automatic, 0 to disable, >0 to enable reliability branching
   std::function<void(std::vector<f_t>&, f_t)> solution_callback;
   std::function<void(const std::vector<f_t>&, f_t)> node_processed_callback;
   std::function<void()> heuristic_preemption_callback;

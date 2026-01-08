@@ -163,6 +163,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
     // Fill in the settings for branch and bound
     branch_and_bound_settings.time_limit           = timer_.remaining_time();
+    branch_and_bound_settings.node_limit           = context.settings.node_limit;
+    branch_and_bound_settings.reliability_branching = context.settings.reliability_branching;
     branch_and_bound_settings.print_presolve_stats = false;
     branch_and_bound_settings.absolute_mip_gap_tol = context.settings.tolerances.absolute_mip_gap;
     branch_and_bound_settings.relative_mip_gap_tol = context.settings.tolerances.relative_mip_gap;

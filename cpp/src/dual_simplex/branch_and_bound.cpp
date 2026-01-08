@@ -324,9 +324,10 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
       if (lower_j > -inf && reduced_costs[j] > 0)
       {
         const f_t new_upper_bound = lower_j + abs_gap/reduced_costs[j];
-        reduced_cost_upper_bound = var_types_[j] == variable_type_t::INTEGER ? std::floor(new_upper_bound + weaken) : new_upper_bound;
-        if (reduced_cost_upper_bound < upper_j)
-        {
+        reduced_cost_upper_bound  = var_types_[j] == variable_type_t::INTEGER
+                                      ? std::floor(new_upper_bound + weaken)
+                                      : new_upper_bound;
+        if (reduced_cost_upper_bound < upper_j) {
           //printf("Improved upper bound for variable %d from %e to %e (%e)\n", j, upper_j, reduced_cost_upper_bound, new_upper_bound);
           num_improved++;
           upper_bounds[j] = reduced_cost_upper_bound;
@@ -336,9 +337,10 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
       if (upper_j < inf && reduced_costs[j] < 0)
       {
         const f_t new_lower_bound = upper_j + abs_gap/reduced_costs[j];
-        reduced_cost_lower_bound = var_types_[j] == variable_type_t::INTEGER ? std::ceil(new_lower_bound - weaken) : new_lower_bound;
-        if (reduced_cost_lower_bound > lower_j)
-        {
+        reduced_cost_lower_bound  = var_types_[j] == variable_type_t::INTEGER
+                                      ? std::ceil(new_lower_bound - weaken)
+                                      : new_lower_bound;
+        if (reduced_cost_lower_bound > lower_j) {
           //printf("Improved lower bound for variable %d from %e to %e (%e)\n", j, lower_j, reduced_cost_lower_bound, new_lower_bound);
           num_improved++;
           lower_bounds[j] = reduced_cost_lower_bound;
@@ -902,13 +904,20 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
     } else if (leaf_objective <= upper_bound + abs_fathom_tol) {
       // Choose fractional variable to branch on
 
-#ifdef RELIABLE_BRANCHING
-      const i_t branch_var =
-        pc_.reliable_variable_selection(leaf_problem, lp_settings, var_types_, leaf_vstatus, leaf_edge_norms, leaf_fractional, leaf_solution.x, leaf_objective, lp_settings.log);
-#else
-      const i_t branch_var =
-        pc_.variable_selection(leaf_fractional, leaf_solution.x, lp_settings.log);
-#endif
+      i_t branch_var = -1;
+      if (lp_settings.reliability_branching > 0) {
+        branch_var = pc_.reliable_variable_selection(leaf_problem,
+                                                     lp_settings,
+                                                     var_types_,
+                                                     leaf_vstatus,
+                                                     leaf_edge_norms,
+                                                     leaf_fractional,
+                                                     leaf_solution.x,
+                                                     leaf_objective,
+                                                     lp_settings.log);
+      } else {
+        branch_var = pc_.variable_selection(leaf_fractional, leaf_solution.x, lp_settings.log);
+      }
 
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
       search_tree.branch(
@@ -1474,7 +1483,15 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
           nonbasic_list.push_back(j);
         }
       }
-
+      if (basic_list.size() != original_lp_.num_rows) {
+        printf("basic_list size %d != m %d\n", basic_list.size(), original_lp_.num_rows);
+        exit(1);
+      }
+      if (nonbasic_list.size() != original_lp_.num_cols - original_lp_.num_rows) {
+        printf("nonbasic_list size %d != n - m %d\n", nonbasic_list.size(), original_lp_.num_cols - original_lp_.num_rows);
+        exit(1);
+      }
+      root_crossover_settings.max_cut_passes = 3;
       // Populate the basis_update from the crossover vstatus
       basis_update.refactor_basis(
         original_lp_.A, root_crossover_settings, basic_list, nonbasic_list, crossover_vstatus_);
@@ -1482,11 +1499,13 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       // Set the edge norms to a default value
       edge_norms.resize(original_lp_.num_cols, -1.0);
       set_uninitialized_steepest_edge_norms<i_t, f_t>(edge_norms);
-
+      printf("Using crossover solution\n");
     } else {
+      printf("Using dual simplex solution 1\n");
       root_status = root_status_future.get();
     }
   } else {
+    printf("Using dual simplex solution\n");
     root_status = root_status_future.get();
   }
   return root_status;
@@ -1534,6 +1553,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   basis_update_mpf_t<i_t, f_t> basis_update(original_lp_.num_rows, settings_.refactor_frequency);
   lp_status_t root_status;
   if (!enable_concurrent_lp_root_solve()) {
+    printf("Non concurrent LP root solve\n");
     // RINS/SUBMIP path
     root_status = solve_linear_program_with_advanced_basis(original_lp_,
                                                            exploration_stats_.start_time,
@@ -1545,7 +1565,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                                            root_vstatus_,
                                                            edge_norms_);
   } else {
-    root_status = solve_root_relaxation(lp_settings, root_relax_soln_, root_vstatus_, basis_update, basic_list, nonbasic_list, edge_norms_);
+    root_status = solve_root_relaxation(lp_settings,
+                                        root_relax_soln_,
+                                        root_vstatus_,
+                                        basis_update,
+                                        basic_list,
+                                        nonbasic_list,
+                                        edge_norms_);
   }
   exploration_stats_.total_lp_iters      = root_relax_soln_.iterations;
   exploration_stats_.total_lp_solve_time = toc(exploration_stats_.start_time);
@@ -1705,6 +1731,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   i_t num_gomory_cuts = 0;
   i_t num_mir_cuts = 0;
   i_t num_knapsack_cuts = 0;
+  i_t cut_pool_size = 0;
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
 #ifdef PRINT_SOLUTION
@@ -1755,7 +1782,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       i_t num_cuts = cut_pool.get_best_cuts(cuts_to_add, cut_rhs, cut_types);
       if (num_cuts == 0)
       {
-        settings_.log.printf("No cuts found\n");
+        //settings_.log.printf("No cuts found\n");
         break;
       }
       for (i_t k = 0; k < cut_types.size(); k++) {
@@ -1779,7 +1806,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       }
 #endif
 
-#if 1
+#if 0
       f_t min_cut_violation = minimum_violation(cuts_to_add, cut_rhs, root_relax_soln_.x);
       if (min_cut_violation < 1e-6) {
         settings_.log.printf("Min cut violation %e\n", min_cut_violation);
@@ -1801,8 +1828,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         }
       }
 
+      cut_pool_size = cut_pool.pool_size();
+
       // Resolve the LP with the new cuts
-      settings_.log.printf("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
+      settings_.log.debug("Solving LP with %d cuts (%d cut nonzeros). Cuts in pool %d. Total constraints %d\n",
                            num_cuts,
                            cuts_to_add.row_start[cuts_to_add.m],
                            cut_pool.pool_size(),
@@ -1918,16 +1947,18 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         user_lower,
         num_fractional,
         0,
-        exploration_stats_.total_lp_iters.load(),
+        static_cast<f_t>(iter),
         gap.c_str(),
         toc(exploration_stats_.start_time));
     }
   }
 
   if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts > 0) {
-    settings_.log.printf("Gomory cuts  : %d\n", num_gomory_cuts);
-    settings_.log.printf("MIR cuts     : %d\n", num_mir_cuts);
-    settings_.log.printf("Knapsack cuts: %d\n", num_knapsack_cuts);
+    settings_.log.printf("Gomory cuts   : %d\n", num_gomory_cuts);
+    settings_.log.printf("MIR cuts      : %d\n", num_mir_cuts);
+    settings_.log.printf("Knapsack cuts : %d\n", num_knapsack_cuts);
+    settings_.log.printf("Cut pool size : %d\n", cut_pool_size);
+    settings_.log.printf("Size with cuts: %d constraints, %d variables, %d nonzeros\n", original_lp_.num_rows, original_lp_.num_cols, original_lp_.A.col_start[original_lp_.A.n]);
   }
 
   if (edge_norms_.size() != original_lp_.num_cols)

@@ -58,6 +58,8 @@
 #define CUOPT_MIP_SCALING                 "mip_scaling"
 #define CUOPT_MIP_PRESOLVE                "mip_presolve"
 #define CUOPT_MIP_CUT_PASSES              "mip_cut_passes"
+#define CUOPT_MIP_NODE_LIMIT              "mip_node_limit"
+#define CUOPT_MIP_RELIABILITY_BRANCHING   "mip_reliability_branching"
 #define CUOPT_SOLUTION_FILE               "solution_file"
 #define CUOPT_NUM_CPU_THREADS             "num_cpu_threads"
 #define CUOPT_NUM_GPUS                    "num_gpus"

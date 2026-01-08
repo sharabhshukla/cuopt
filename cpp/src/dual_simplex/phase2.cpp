@@ -2083,7 +2083,7 @@ void prepare_optimality(i_t info,
     }
   }
 
-  if (primal_infeas > settings.primal_tol)
+  if (primal_infeas > 10.0*settings.primal_tol)
   {
     printf("Primal infeasibility %e. Info %d\n", primal_infeas, info);
   }
@@ -2465,12 +2465,12 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
           const f_t val            = squared_infeas / delta_y_steepest_edge[j];
           if (squared_infeas >= 0.0 && delta_y_steepest_edge[j] < 0.0) {
             printf("Iter %d potential leaving %d val %e squared infeas %e delta_y_steepest_edge %e\n", iter, j, val, squared_infeas, delta_y_steepest_edge[j]);
-            delta_y_steepest_edge[j] = 1e-4;
+            //delta_y_steepest_edge[j] = 1e-4;
           }
         }
 
         //printf("No leaving variable. Updated primal infeasibility: %e\n", primal_infeasibility);
-        continue;
+        //continue;
       }
 
       phase2::prepare_optimality(0,
