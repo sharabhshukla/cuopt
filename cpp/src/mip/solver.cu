@@ -168,15 +168,6 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_settings.relative_mip_gap_tol = context.settings.tolerances.relative_mip_gap;
     branch_and_bound_settings.integer_tol = context.settings.tolerances.integrality_tolerance;
 
-    branch_and_bound_settings.diving_settings.disable_coefficient_diving =
-      context.settings.disable_coefficient_diving;
-    branch_and_bound_settings.diving_settings.disable_pseudocost_diving =
-      context.settings.disable_pseudocost_diving;
-    branch_and_bound_settings.diving_settings.disable_guided_diving =
-      context.settings.disable_guided_diving;
-    branch_and_bound_settings.diving_settings.disable_line_search_diving =
-      context.settings.disable_line_search_diving;
-
     if (context.settings.num_cpu_threads < 0) {
       branch_and_bound_settings.num_threads = omp_get_max_threads() - 1;
     } else {
