@@ -237,15 +237,6 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
 }
 
 template <typename i_t, typename f_t>
-f_t branch_and_bound_t<i_t, f_t>::get_upper_bound()
-{
-  mutex_upper_.lock();
-  const f_t upper_bound = upper_bound_;
-  mutex_upper_.unlock();
-  return upper_bound;
-}
-
-template <typename i_t, typename f_t>
 f_t branch_and_bound_t<i_t, f_t>::get_lower_bound()
 {
   f_t lower_bound      = lower_bound_ceiling_.load();
@@ -469,11 +460,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t
     mip_status = mip_status_t::NODE_LIMIT;
   }
 
-  f_t upper_bound      = get_upper_bound();
-  f_t gap              = upper_bound - lower_bound;
-  f_t obj              = compute_user_objective(original_lp_, upper_bound);
+  f_t gap              = upper_bound_ - lower_bound;
+  f_t obj              = compute_user_objective(original_lp_, upper_bound_.load());
   f_t user_bound       = compute_user_objective(original_lp_, lower_bound);
-  f_t gap_rel          = user_relative_gap(original_lp_, upper_bound, lower_bound);
+  f_t gap_rel          = user_relative_gap(original_lp_, upper_bound_.load(), lower_bound);
   bool is_maximization = original_lp_.obj_scale < 0.0;
 
   settings_.log.printf("Explored %d nodes in %.2fs.\n",
@@ -503,7 +493,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t
 
   if (solver_status_ == mip_exploration_status_t::COMPLETED) {
     if (exploration_stats_.nodes_explored > 0 && exploration_stats_.nodes_unexplored == 0 &&
-        upper_bound == inf) {
+        upper_bound_ == inf) {
       settings_.log.printf("Integer infeasible.\n");
       mip_status = mip_status_t::INFEASIBLE;
       if (settings_.heuristic_preemption_callback != nullptr) {
@@ -512,7 +502,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t
     }
   }
 
-  if (upper_bound != inf) {
+  if (upper_bound_ != inf) {
     assert(incumbent_.has_incumbent);
     uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
   }
@@ -624,7 +614,6 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(mip_node_t<i_t, f_t>*
                                                            logger_t& log)
 {
   const f_t abs_fathom_tol = settings_.absolute_mip_gap_tol / 10;
-  const f_t upper_bound    = get_upper_bound();
 
   lp_problem_t<i_t, f_t>& leaf_problem = worker->leaf_problem;
   lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
@@ -633,7 +622,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(mip_node_t<i_t, f_t>*
 
   simplex_solver_settings_t lp_settings = settings_;
   lp_settings.set_log(false);
-  lp_settings.cut_off       = upper_bound + settings_.dual_tol;
+  lp_settings.cut_off       = upper_bound_ + settings_.dual_tol;
   lp_settings.inside_mip    = 2;
   lp_settings.time_limit    = settings_.time_limit - toc(exploration_stats_.start_time);
   lp_settings.scale_columns = false;
@@ -722,7 +711,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(mip_node_t<i_t, f_t>*
 
   } else if (lp_status == dual::status_t::CUTOFF) {
     // Node was cut off. Do not branch
-    node_ptr->lower_bound = upper_bound;
+    node_ptr->lower_bound = upper_bound_;
     f_t leaf_objective    = compute_objective(leaf_problem, leaf_solution.x);
     search_tree.graphviz_node(log, node_ptr, "cut off", leaf_objective);
     search_tree.update(node_ptr, node_status_t::FATHOMED);
@@ -754,7 +743,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(mip_node_t<i_t, f_t>*
       search_tree.update(node_ptr, node_status_t::INTEGER_FEASIBLE);
       return node_solve_info_t::NO_CHILDREN;
 
-    } else if (leaf_objective <= upper_bound + abs_fathom_tol) {
+    } else if (leaf_objective <= upper_bound_ + abs_fathom_tol) {
       // Choose fractional variable to branch on
       auto [branch_var, round_dir] = variable_selection(
         node_ptr, leaf_fractional, leaf_solution.x, thread_type, lp_settings.log);
@@ -815,7 +804,7 @@ void branch_and_bound_t<i_t, f_t>::plunge_with(bnb_worker_t<i_t, f_t>* worker)
     stack.pop_front();
 
     f_t lower_bound = node_ptr->lower_bound;
-    f_t upper_bound = get_upper_bound();
+    f_t upper_bound = upper_bound_;
     f_t rel_gap     = user_relative_gap(original_lp_, upper_bound, lower_bound);
 
     // This is based on three assumptions:
@@ -917,7 +906,7 @@ void branch_and_bound_t<i_t, f_t>::dive_with(bnb_worker_t<i_t, f_t>* worker)
     stack.pop_front();
 
     f_t lower_bound     = node_ptr->lower_bound;
-    f_t upper_bound     = get_upper_bound();
+    f_t upper_bound     = upper_bound_;
     f_t rel_gap         = user_relative_gap(original_lp_, upper_bound, lower_bound);
     worker->lower_bound = lower_bound;
 
@@ -965,15 +954,14 @@ template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::master_loop()
 {
   f_t lower_bound     = get_lower_bound();
-  f_t upper_bound     = get_upper_bound();
-  f_t abs_gap         = upper_bound - lower_bound;
-  f_t rel_gap         = user_relative_gap(original_lp_, upper_bound, lower_bound);
+  f_t abs_gap         = upper_bound_ - lower_bound;
+  f_t rel_gap         = user_relative_gap(original_lp_, upper_bound_.load(), lower_bound);
   i_t last_node_depth = 0;
 
   f_t last_log = 0.0;
 
   diving_heuristics_settings_t<i_t, f_t> diving_settings = settings_.diving_settings;
-  if (!std::isfinite(upper_bound)) { diving_settings.disable_guided_diving = true; }
+  if (!std::isfinite(upper_bound_)) { diving_settings.disable_guided_diving = true; }
 
   auto worker_types = bnb_get_worker_types(diving_settings);
   auto max_num_workers_per_type =
@@ -984,16 +972,15 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
          (active_workers_per_type[0] > 0 || node_queue.best_first_queue_size() > 0)) {
     bool launched_any_task = false;
     lower_bound            = get_lower_bound();
-    upper_bound            = get_upper_bound();
-    abs_gap                = upper_bound - lower_bound;
-    rel_gap                = user_relative_gap(original_lp_, upper_bound, lower_bound);
+    abs_gap                = upper_bound_ - lower_bound;
+    rel_gap                = user_relative_gap(original_lp_, upper_bound_.load(), lower_bound);
 
     repair_heuristic_solutions();
 
     // If the guided diving was disabled previously due to the lack of an incumbent solution,
     // re-enable as soon as a new incumbent is found.
     if (settings_.diving_settings.disable_guided_diving != diving_settings.disable_guided_diving) {
-      if (std::isfinite(upper_bound)) {
+      if (std::isfinite(upper_bound_)) {
         diving_settings.disable_guided_diving = settings_.diving_settings.disable_guided_diving;
         max_num_workers_per_type =
           bnb_get_num_workers_round_robin(settings_.num_threads, diving_settings);
@@ -1009,7 +996,7 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
         (time_since_last_log > 30) || now > settings_.time_limit) {
       i_t depth =
         node_queue.best_first_queue_size() > 0 ? node_queue.bfs_top()->depth : last_node_depth;
-      report("  ", upper_bound, lower_bound, depth);
+      report("  ", upper_bound_, lower_bound, depth);
       last_log             = tic();
       nodes_since_last_log = 0;
     }
@@ -1031,7 +1018,7 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
         std::optional<mip_node_t<i_t, f_t>*> start_node = node_queue.pop_best_first();
 
         if (!start_node.has_value()) { continue; }
-        if (get_upper_bound() < start_node.value()->lower_bound) {
+        if (upper_bound_ < start_node.value()->lower_bound) {
           // This node was put on the heap earlier but its lower bound is now greater than the
           // current upper bound
           search_tree_.graphviz_node(
@@ -1055,7 +1042,7 @@ void branch_and_bound_t<i_t, f_t>::master_loop()
         std::optional<mip_node_t<i_t, f_t>*> start_node = node_queue.pop_diving();
 
         if (!start_node.has_value()) { continue; }
-        if (get_upper_bound() < start_node.value()->lower_bound) { continue; }
+        if (upper_bound_ < start_node.value()->lower_bound) { continue; }
 
         bool is_feasible = worker->init_diving(start_node.value(), type, original_lp_, settings_);
         if (!is_feasible) { continue; }

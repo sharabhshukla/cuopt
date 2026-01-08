@@ -95,7 +95,6 @@ class branch_and_bound_t {
                        f_t& repaired_obj,
                        std::vector<f_t>& repaired_solution) const;
 
-  f_t get_upper_bound();
   f_t get_lower_bound();
   bool enable_concurrent_lp_root_solve() const { return enable_concurrent_lp_root_solve_; }
   std::atomic<int>* get_root_concurrent_halt() { return &root_concurrent_halt_; }
@@ -122,7 +121,7 @@ class branch_and_bound_t {
   omp_mutex_t mutex_upper_;
 
   // Global variable for upper bound
-  f_t upper_bound_;
+  omp_atomic_t<f_t> upper_bound_;
 
   // Global variable for incumbent. The incumbent should be updated with the upper bound
   mip_solution_t<i_t, f_t> incumbent_;
