@@ -103,9 +103,10 @@ static void test_constraint_sanity_per_row(
 
 static std::tuple<mip_termination_status_t, double, double> test_mps_file(
   std::string test_instance,
-  double time_limit    = 1,
-  bool heuristics_only = true,
-  bool presolve        = true)
+  double time_limit                                           = 1,
+  bool heuristics_only                                        = true,
+  bool presolve                                               = true,
+  std::vector<internals::base_solution_callback_t*> callbacks = {})
 {
   const raft::handle_t handle_{};
 
@@ -114,6 +115,9 @@ static std::tuple<mip_termination_status_t, double, double> test_mps_file(
     cuopt::mps_parser::parse_mps<int, double>(path, false);
   handle_.sync_stream();
   mip_solver_settings_t<int, double> settings;
+  for (auto callback : callbacks) {
+    settings.set_mip_callback(callback);
+  }
   settings.time_limit                  = time_limit;
   settings.heuristics_only             = heuristics_only;
   settings.presolve                    = presolve;
