@@ -229,7 +229,7 @@ class mixed_integer_gomory_base_inequality_t {
 
  private:
   std::vector<f_t> b_bar_;
-  std::vector<f_t> nonbasic_mark_;
+  std::vector<i_t> nonbasic_mark_;
   std::vector<f_t> x_workspace_;
   std::vector<i_t> x_mark_;
 };

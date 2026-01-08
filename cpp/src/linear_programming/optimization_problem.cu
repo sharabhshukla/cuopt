@@ -181,12 +181,10 @@ void optimization_problem_t<i_t, f_t>::set_quadratic_objective_matrix(
       H_i.push_back(i);
       H_j.push_back(j);
       H_x.push_back(x);
-      if (i != j) {
-        // Add H(j,i)
-        H_i.push_back(j);
-        H_j.push_back(i);
-        H_x.push_back(x);
-      }
+      // Add H(j,i)
+      H_i.push_back(j);
+      H_j.push_back(i);
+      H_x.push_back(x);
     }
   }
 
@@ -202,13 +200,43 @@ void optimization_problem_t<i_t, f_t>::set_quadratic_objective_matrix(
     H_cumulative_counts[k + 1] = H_cumulative_counts[k] + H_row_counts[k];
   }
   std::vector<i_t> H_row_starts = H_cumulative_counts;
+  std::vector<i_t> H_map(H_nz);
   std::vector<i_t> H_indices(H_nz);
   std::vector<f_t> H_values(H_nz);
   for (i_t k = 0; k < H_nz; ++k) {
-    i_t p = H_cumulative_counts[H_i[k]]++;
-    H_indices[p] = H_j[k];
-    H_values[p] = H_x[k];
+    const i_t p = H_cumulative_counts[H_i[k]]++;
+    H_map[k] = p;
   }
+  rmm::device_uvector<i_t> d_H_map(H_nz, stream_view_);
+  rmm::device_uvector<i_t> d_H_j(H_nz, stream_view_);
+  rmm::device_uvector<f_t> d_H_x(H_nz, stream_view_);
+  rmm::device_uvector<i_t> d_H_indices(H_nz, stream_view_);
+  rmm::device_uvector<f_t> d_H_values(H_nz, stream_view_);
+
+  raft::copy(d_H_map.data(), H_map.data(), H_nz, stream_view_);
+  raft::copy(d_H_j.data(), H_j.data(), H_nz, stream_view_);
+  raft::copy(d_H_x.data(), H_x.data(), H_nz, stream_view_);
+  stream_view_.synchronize();
+  thrust::for_each_n(rmm::exec_policy(stream_view_),
+                     thrust::make_counting_iterator<i_t>(0),
+                     H_nz,
+                     [span_H_map = cuopt::make_span(d_H_map),
+                      span_H_j = cuopt::make_span(d_H_j),
+                      span_H_indices = cuopt::make_span(d_H_indices)] __device__(i_t k) {
+                      span_H_indices[span_H_map[k]] = span_H_j[k];
+                     });
+  thrust::for_each_n(rmm::exec_policy(stream_view_),
+                     thrust::make_counting_iterator<i_t>(0),
+                     H_nz,
+                     [span_H_map = cuopt::make_span(d_H_map),
+                      span_H_x = cuopt::make_span(d_H_x),
+                      span_H_values = cuopt::make_span(d_H_values)] __device__(i_t k) {
+                      span_H_values[span_H_map[k]] = span_H_x[k];
+                     });
+
+  raft::copy(H_indices.data(), d_H_indices.data(), H_nz, stream_view_);
+  raft::copy(H_values.data(), d_H_values.data(), H_nz, stream_view_);
+  stream_view_.synchronize();
 
   // H_row_starts, H_indices, H_values are the CSR representation of H
   // But this contains duplicate entries

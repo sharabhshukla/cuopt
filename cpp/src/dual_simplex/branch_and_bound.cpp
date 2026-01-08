@@ -1702,7 +1702,9 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 #endif
 
-
+  i_t num_gomory_cuts = 0;
+  i_t num_mir_cuts = 0;
+  i_t num_knapsack_cuts = 0;
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
 #ifdef PRINT_SOLUTION
@@ -1756,7 +1758,15 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         settings_.log.printf("No cuts found\n");
         break;
       }
-      //print_cut_types(cut_types, settings_);
+      for (i_t k = 0; k < cut_types.size(); k++) {
+        if (cut_types[k] == cut_type_t::MIXED_INTEGER_GOMORY) {
+          num_gomory_cuts++;
+        } else if (cut_types[k] == cut_type_t::MIXED_INTEGER_ROUNDING) {
+          num_mir_cuts++;
+        } else if (cut_types[k] == cut_type_t::KNAPSACK) {
+          num_knapsack_cuts++;
+        }
+      }
 
       cuts_to_add.check_matrix();
 
@@ -1912,6 +1922,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         gap.c_str(),
         toc(exploration_stats_.start_time));
     }
+  }
+
+  if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts > 0) {
+    settings_.log.printf("Gomory cuts  : %d\n", num_gomory_cuts);
+    settings_.log.printf("MIR cuts     : %d\n", num_mir_cuts);
+    settings_.log.printf("Knapsack cuts: %d\n", num_knapsack_cuts);
   }
 
   if (edge_norms_.size() != original_lp_.num_cols)

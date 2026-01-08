@@ -2456,7 +2456,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
       //primal_infeasibility = phase2::compute_initial_primal_infeasibilities(
       //  lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
-      if (0 && primal_infeasibility > settings.primal_tol) {
+      if (primal_infeasibility > settings.primal_tol) {
 
         const i_t nz      = infeasibility_indices.size();
         for (i_t k = 0; k < nz; ++k) {

@@ -1169,7 +1169,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
     i_t V_nz           = 0;
     const f_t zero_tol = 1e-13;
     for (i_t h = 0; h < cuts_basic.m; h++) {
-      sparse_vector_t rhs(WT, h);
+      sparse_vector_t<i_t, f_t> rhs(WT, h);
       scatter_into_workspace(rhs);
       i_t nz = rhs.i.size();
       for (i_t k = num_updates_ - 1; k >= 0; --k) {

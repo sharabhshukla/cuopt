@@ -97,7 +97,7 @@ void cut_pool_t<i_t, f_t>::score_cuts(std::vector<f_t>& x_relax)
     f_t violation;
     cut_distances_[i] = cut_distance(i, x_relax, violation, cut_norms_[i]);
     cut_scores_[i] = cut_distances_[i] <= min_cut_distance ? 0.0 : weight_distance * cut_distances_[i]  + weight_orthogonality * cut_orthogonality_[i];
-    //settings_.log.printf("Cut %d distance %e violation %e orthogonality %e score %e\n", i, cut_distances_[i], violation, cut_orthogonality_[i], cut_scores_[i]);
+    //settings_.log.printf("Cut %d type %d distance %e violation %e orthogonality %e score %e\n", i, static_cast<int>(cut_type_[i]), cut_distances_[i], violation, cut_orthogonality_[i], cut_scores_[i]);
   }
 
   std::vector<i_t> sorted_indices(cut_storage_.m);
@@ -532,14 +532,13 @@ void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
   // Generate Gomory Cuts
   generate_gomory_cuts(
     lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
-  //settings.log.printf("Generated Gomory cuts\n");
 
   // Generate Knapsack cuts
   generate_knapsack_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
   //settings.log.printf("Generated Knapsack cuts\n");
 
  // Generate MIR cuts
- // generate_mir_cuts(lp, settings, Arow, var_types, xstar);
+  generate_mir_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
 }
 
 template <typename i_t, typename f_t>
@@ -578,54 +577,67 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
   mixed_integer_rounding_cut_t<i_t, f_t> mir(lp.num_cols, settings);
   mir.initialize(lp, new_slacks, xstar);
 
+  std::vector<i_t> slack_map(lp.num_rows);
+  for (i_t slack : new_slacks) {
+    const i_t col_start = lp.A.col_start[slack];
+    const i_t col_end = lp.A.col_start[slack + 1];
+    const i_t col_len = col_end - col_start;
+    if (col_len != 1) {
+      printf("Generate MIR cuts: Slack %d has %d nzs in column\n", slack, col_len);
+      exit(1);
+    }
+    const i_t i = lp.A.i[col_start];
+    slack_map[i] = slack;
+  }
+
   for (i_t i = 0; i < lp.num_rows; i++) {
     sparse_vector_t<i_t, f_t> inequality(Arow, i);
     f_t inequality_rhs = lp.rhs[i];
 
     const i_t row_start = Arow.row_start[i];
     const i_t row_end = Arow.row_start[i + 1];
-    i_t last_slack = -1;
-    for (i_t p = row_start; p < row_end; p++) {
-      const i_t j = Arow.j[p];
-      const f_t a = Arow.x[p];
-      if (var_types[j] == variable_type_t::CONTINUOUS && a == 1.0 && lp.lower[j] == 0.0) {
-        last_slack = j;
-      }
+    i_t slack = slack_map[i];
+
+    // Remove the slack from the equality to get an inequality
+    for (i_t k = 0; k < inequality.i.size(); k++) {
+      const i_t j = inequality.i[k];
+      if (j == slack) { inequality.x[k] = 0.0; }
     }
 
-    if (last_slack != -1) {
-        // Remove the slack from the equality to get an inequality
-        for (i_t k = 0; k < inequality.i.size(); k++) {
-          const i_t j = inequality.i[k];
-          if (j == last_slack) {
-            inequality.x[k] = 0.0;
-          }
-        }
+    // inequaility'*x <= inequality_rhs
+    // But for MIR we need: inequality'*x >= inequality_rhs
+    inequality_rhs *= -1;
+    inequality.negate();
 
-        // inequaility'*x <= inequality_rhs
-        // But for MIR we need: inequality'*x >= inequality_rhs
-        inequality_rhs *= -1;
-        inequality.negate();
-
-        sparse_vector_t<i_t, f_t> cut(lp.num_cols, 0);
-        f_t cut_rhs;
-        i_t mir_status = mir.generate_cut(inequality, inequality_rhs, lp.upper, lp.lower, var_types, cut, cut_rhs);
-        if (mir_status == 0) {
-          f_t dot = 0.0;
-          f_t cut_norm = 0.0;
-          for (i_t k = 0; k < cut.i.size(); k++) {
-            const i_t jj = cut.i[k];
-            const f_t aj = cut.x[k];
-            dot += aj * xstar[jj];
-            cut_norm += aj * aj;
-          }
-          if (dot >= cut_rhs) {
-            continue;
-          }
-        }
-
-        settings.log.printf("Adding MIR cut %d\n", i);
-        cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_ROUNDING, cut, cut_rhs);
+    sparse_vector_t<i_t, f_t> cut(lp.num_cols, 0);
+    f_t cut_rhs;
+    i_t mir_status =
+      mir.generate_cut(inequality, inequality_rhs, lp.upper, lp.lower, var_types, cut, cut_rhs);
+    bool add_cut = false;
+    const f_t min_cut_distance = 1e-4;
+    if (mir_status == 0) {
+      if (cut.i.size() == 0) {
+        continue;
+      }
+      mir.substitute_slacks(lp, Arow, cut, cut_rhs);
+      if (cut.i.size() == 0) {
+        continue;
+      }
+       // Check that the cut is violated
+       // The cut is of the form cut'*x >= cut_rhs
+       // We need that cut'*xstar < cut_rhs for the cut to be violated by the current relaxation solution xstar
+       f_t dot      = cut.dot(xstar);
+       f_t cut_norm = cut.norm2_squared();
+       if (dot < cut_rhs && cut_norm > 0.0) {
+        // Cut is violated. Compute it's distance
+         f_t cut_distance = (cut_rhs - dot) / std::sqrt(cut_norm);
+         if (cut_distance > min_cut_distance) {
+           add_cut = true;
+         }
+       }
+    }
+    if (add_cut) {
+      cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_ROUNDING, cut, cut_rhs);
     }
   }
 }
@@ -950,6 +962,19 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::initialize(const lp_problem_t<i_t, 
 
     if (lj > -inf) { has_lower_[j] = 1; }
   }
+
+#if 0
+  for (i_t j = 0; j < x_workspace_.size(); j++) {
+    if (x_workspace_[j] != 0.0) {
+      printf("Initialize: Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      exit(1);
+    }
+    if (x_mark_[j] != 0) {
+      printf("Initialize: Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      exit(1);
+    }
+  }
+#endif
 }
 
 template <typename i_t, typename f_t>
@@ -962,6 +987,22 @@ i_t mixed_integer_rounding_cut_t<i_t, f_t>::generate_cut(
   sparse_vector_t<i_t, f_t>& cut,
   f_t& cut_rhs)
 {
+#if 0
+  for (i_t j = 0; j < x_workspace_.size(); j++) {
+    if (x_workspace_[j] != 0.0) {
+      printf("Before generate_cut: Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      printf("num_vars_ %d\n", num_vars_);
+      printf("x_workspace_.size() %ld\n", x_workspace_.size());
+      exit(1);
+    }
+    if (x_mark_[j] != 0) {
+      printf("Before generate_cut: Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      exit(1);
+    }
+  }
+#endif
+
+
   auto f = [](f_t q_1, f_t q_2) -> f_t {
     f_t q_1_hat = q_1 - std::floor(q_1);
     f_t q_2_hat = q_2 - std::floor(q_2);
@@ -1104,6 +1145,19 @@ i_t mixed_integer_rounding_cut_t<i_t, f_t>::generate_cut(
   }
 
 
+#if 0
+  for (i_t j = 0; j < x_workspace_.size(); j++) {
+    if (x_workspace_[j] != 0.0) {
+      printf("After generate_cut: Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      exit(1);
+    }
+    if (x_mark_[j] != 0) {
+      printf("After generate_cut: Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      exit(1);
+    }
+  }
+#endif
+
   // The new cut is: g'*x >= R
   // But we want to have it in the form h'*x <= b
   cut.sort();
@@ -1111,7 +1165,7 @@ i_t mixed_integer_rounding_cut_t<i_t, f_t>::generate_cut(
   cut_rhs = R;
 
   if (cut.i.size() == 0) {
-    settings_.log.printf("No coefficients in cut\n");
+    //settings_.log.printf("MIR: No coefficients in cut\n");
     return -1;
   }
 
@@ -1131,14 +1185,14 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
   std::vector<i_t> cut_indices;
   cut_indices.reserve(cut.i.size());
 
-#if 1
+#if 0
   for (i_t j = 0; j < x_workspace_.size(); j++) {
     if (x_workspace_[j] != 0.0) {
-      printf("Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      printf("Begin Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
       exit(1);
     }
     if (x_mark_[j] != 0) {
-      printf("Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      printf("Begin Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
       exit(1);
     }
   }
@@ -1250,14 +1304,14 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::substitute_slacks(const lp_problem_
   }
 
 
-#if 1
+#if 0
   for (i_t j = 0; j < x_workspace_.size(); j++) {
     if (x_workspace_[j] != 0.0) {
-      printf("Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
+      printf("End Dirty x_workspace_[%d] = %e\n", j, x_workspace_[j]);
       exit(1);
     }
     if (x_mark_[j] != 0) {
-      printf("Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
+      printf("End Dirty x_mark_[%d] = %d\n", j, x_mark_[j]);
       exit(1);
     }
   }

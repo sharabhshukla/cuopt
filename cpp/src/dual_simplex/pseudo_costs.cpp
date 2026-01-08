@@ -389,11 +389,13 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
   for (i_t k = 0; k < num_fractional; k++) {
     const i_t j = fractional[k];
     mutex.lock();
-    if (pseudo_cost_num_down[j] >= reliable_threshold) {
+    bool down_reliable = pseudo_cost_num_down[j] >= reliable_threshold;
+    mutex.unlock();
+    if (down_reliable) {
+      mutex.lock();
       pseudo_cost_down[k] = pseudo_cost_sum_down[j] / pseudo_cost_num_down[j];
       mutex.unlock();
     } else {
-      mutex.unlock();
       // Do trial branching on the down branch
       f_t obj = trial_branching(lp, settings, var_types, vstatus, edge_norms, j, lp.lower[j], std::floor(solution[j]));
       if (!std::isnan(obj)) {
@@ -402,17 +404,19 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
         mutex.lock();
         pseudo_cost_sum_down[j] += change_in_obj / change_in_x;
         pseudo_cost_num_down[j]++;
-        pseudo_cost_down[k] = pseudo_cost_sum_down[j] / pseudo_cost_num_down[j];
         mutex.unlock();
+        pseudo_cost_down[k] = pseudo_cost_sum_down[j] / pseudo_cost_num_down[j];
       }
     }
 
     mutex.lock();
-    if (pseudo_cost_num_up[j] >= reliable_threshold) {
+    bool up_reliable = pseudo_cost_num_up[j] >= reliable_threshold;
+    mutex.unlock();
+    if (up_reliable) {
+      mutex.lock();
       pseudo_cost_up[k] = pseudo_cost_sum_up[j] / pseudo_cost_num_up[j];
       mutex.unlock();
     } else {
-      mutex.unlock();
       // Do trial branching on the up branch
       f_t obj = trial_branching(lp, settings, var_types, vstatus, edge_norms, j, std::ceil(solution[j]), lp.upper[j]);
       if (!std::isnan(obj)) {
@@ -446,7 +450,6 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
   log.printf(
     "pc branching on %d. Value %e. Score %e\n", branch_var, solution[branch_var], score[select]);
 
-  mutex.unlock();
 
   return branch_var;
 }
