@@ -1418,8 +1418,8 @@ problem_t<i_t, f_t> problem_t<i_t, f_t>::get_problem_after_fixing_vars(
   auto end_time = std::chrono::high_resolution_clock::now();
   double time_taken =
     std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-  static double total_time_taken = 0.;
-  static int total_calls         = 0;
+  [[maybe_unused]] static double total_time_taken = 0.;
+  [[maybe_unused]] static int total_calls         = 0;
   total_time_taken += time_taken;
   total_calls++;
   // CUOPT_LOG_DEBUG(

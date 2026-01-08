@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -16,6 +16,8 @@
 #include <linear_programming/solve.cuh>
 
 #include <utilities/scope_guard.hpp>
+
+#include <thread>  // for std::this_thread::sleep_for
 
 constexpr bool fj_only_run = false;
 
@@ -302,6 +304,20 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   CUOPT_LOG_DEBUG("Determinism mode: %s",
                   context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC ? "deterministic"
                                                                                 : "opportunistic");
+
+  // Debug: Allow disabling GPU heuristics to test B&B tree determinism in isolation
+  const char* disable_heuristics_env = std::getenv("CUOPT_DISABLE_GPU_HEURISTICS");
+  if (disable_heuristics_env != nullptr && std::string(disable_heuristics_env) == "1") {
+    CUOPT_LOG_INFO("GPU heuristics disabled via CUOPT_DISABLE_GPU_HEURISTICS=1");
+    // Initialize population minimally and wait for B&B to finish
+    population.initialize_population();
+    population.allocate_solutions();
+    // Wait for B&B to signal completion
+    while (!check_b_b_preemption()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return population.best_feasible();
+  }
 
   population.timer     = timer;
   const f_t time_limit = timer.remaining_time();

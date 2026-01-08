@@ -1691,6 +1691,24 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   assert(root_vstatus_.size() == original_lp_.num_cols);
+
+  // Validate root_vstatus_ has correct BASIC count
+  // This catches bugs where the root LP solve produces an invalid vstatus
+  {
+    const i_t expected_basic_count = original_lp_.num_rows;
+    i_t actual_basic_count         = 0;
+    for (const auto& status : root_vstatus_) {
+      if (status == variable_status_t::BASIC) { actual_basic_count++; }
+    }
+    if (actual_basic_count != expected_basic_count) {
+      settings_.log.printf("ERROR: root_vstatus_ has %d BASIC entries, expected %d (num_rows)\n",
+                           actual_basic_count,
+                           expected_basic_count);
+      assert(actual_basic_count == expected_basic_count &&
+             "root_vstatus_ BASIC count mismatch - LP solver returned invalid basis");
+    }
+  }
+
   set_uninitialized_steepest_edge_norms<i_t, f_t>(edge_norms_);
 
   root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
@@ -2112,6 +2130,29 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
 {
   raft::common::nvtx::range scope("BB::solve_node_bsp");
 
+  // Validate vstatus has correct BASIC count before processing
+  // This helps diagnose heap overflow bugs where vstatus has too many BASIC entries
+  {
+    const i_t expected_basic_count = original_lp_.num_rows;
+    i_t actual_basic_count         = 0;
+    for (const auto& status : node_ptr->vstatus) {
+      if (status == variable_status_t::BASIC) { actual_basic_count++; }
+    }
+    if (actual_basic_count != expected_basic_count) {
+      settings_.log.printf(
+        "ERROR: Node %d (final_id %d) vstatus has %d BASIC entries, expected %d (num_rows)\n",
+        node_ptr->node_id,
+        node_ptr->final_id,
+        actual_basic_count,
+        expected_basic_count);
+      settings_.log.printf("       vstatus.size() = %zu, num_cols = %d\n",
+                           node_ptr->vstatus.size(),
+                           original_lp_.num_cols);
+      assert(actual_basic_count == expected_basic_count &&
+             "vstatus BASIC count mismatch - this indicates vstatus corruption");
+    }
+  }
+
   // Track work units at start (from work_context, which simplex solver updates)
   double work_units_at_start = worker.work_context.global_work_units_elapsed;
   double clock_at_start      = worker.clock;
@@ -2191,6 +2232,26 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
                                                              node_iter,
                                                              leaf_edge_norms,
                                                              &worker.work_context);
+
+  // Validate vstatus after LP solve - check for corruption during simplex
+  {
+    const i_t expected_basic_count = original_lp_.num_rows;
+    i_t actual_basic_count         = 0;
+    for (const auto& status : leaf_vstatus) {
+      if (status == variable_status_t::BASIC) { actual_basic_count++; }
+    }
+    if (actual_basic_count != expected_basic_count) {
+      settings_.log.printf(
+        "ERROR: After LP solve, node %d vstatus has %d BASIC entries, expected %d\n",
+        node_ptr->node_id,
+        actual_basic_count,
+        expected_basic_count);
+      settings_.log.printf("       lp_status = %d, recompute_basis = %d\n",
+                           static_cast<int>(lp_status),
+                           worker.recompute_bounds_and_basis ? 1 : 0);
+      assert(actual_basic_count == expected_basic_count && "vstatus corrupted during LP solve");
+    }
+  }
 
   // Update worker clock with work performed
   // The simplex solver recorded work to work_context.global_work_units_elapsed
@@ -2340,7 +2401,13 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
                              up_child_id);
 
       exploration_stats_.nodes_unexplored += 2;
-      worker.recompute_bounds_and_basis = false;
+
+      // In BSP mode, always recompute basis to ensure basic_list matches the node's vstatus.
+      // When recompute_bounds_and_basis = false, the simplex reuses basic_list from the previous
+      // solve, but each node has its own vstatus (copied at branch time). If basic_list and vstatus
+      // diverge, pivoting corrupts vstatus by adding BASIC entries without properly removing
+      // others. This is safe because the child's vstatus is a copy of the parent's final vstatus.
+      worker.recompute_bounds_and_basis = true;
 
       // Add children to worker's local queue (deterministic order: down first)
       worker.enqueue_node(node_ptr->get_down_child());
