@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -86,11 +86,6 @@ class mip_solver_settings_t {
   std::string log_file;
   std::string sol_file;
   std::string user_problem_file;
-
-  bool disable_line_search_diving = false;
-  bool disable_pseudocost_diving  = false;
-  bool disable_guided_diving      = false;
-  bool disable_coefficient_diving = false;
 
   /** Initial primal solutions */
   std::vector<std::shared_ptr<rmm::device_uvector<f_t>>> initial_solutions;

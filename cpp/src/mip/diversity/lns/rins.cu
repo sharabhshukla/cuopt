@@ -221,7 +221,7 @@ void rins_t<i_t, f_t>::run_rins()
     &rins_handle, &fixed_problem, context.settings, context.scaling);
   fj_t<i_t, f_t> fj(fj_context);
   solution_t<i_t, f_t> fj_solution(fixed_problem);
-  fj_solution.copy_new_assignment(cuopt::host_copy(fixed_assignment));
+  fj_solution.copy_new_assignment(cuopt::host_copy(fixed_assignment, rins_handle.get_stream()));
   std::vector<f_t> default_weights(fixed_problem.n_constraints, 1.);
   cpu_fj_thread_t<i_t, f_t> cpu_fj_thread;
   cpu_fj_thread.fj_cpu             = fj.create_cpu_climber(fj_solution,
@@ -265,15 +265,9 @@ void rins_t<i_t, f_t>::run_rins()
   branch_and_bound_settings.diving_settings.num_diving_workers         = 1;
   branch_and_bound_settings.diving_settings.disable_line_search_diving = true;
   branch_and_bound_settings.diving_settings.disable_coefficient_diving = true;
-
-  if (context.settings.disable_guided_diving) {
-    branch_and_bound_settings.diving_settings.disable_guided_diving = true;
-  } else {
-    branch_and_bound_settings.diving_settings.disable_pseudocost_diving = true;
-  }
-
-  branch_and_bound_settings.log.log           = false;
-  branch_and_bound_settings.log.log_prefix    = "[RINS] ";
+  branch_and_bound_settings.diving_settings.disable_pseudocost_diving  = true;
+  branch_and_bound_settings.log.log                                    = false;
+  branch_and_bound_settings.log.log_prefix                             = "[RINS] ";
   branch_and_bound_settings.solution_callback = [this, &rins_solution_queue](
                                                   std::vector<f_t>& solution, f_t objective) {
     rins_solution_queue.push_back(solution);

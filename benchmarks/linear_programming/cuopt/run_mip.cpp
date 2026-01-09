@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -147,10 +147,6 @@ int run_single_file(std::string file_path,
                     int num_cpu_threads,
                     bool write_log_file,
                     bool log_to_console,
-                    bool disable_line_search_diving,
-                    bool disable_pseudocost_diving,
-                    bool disable_guided_diving,
-                    bool disable_coefficient_diving,
                     double time_limit)
 {
   const raft::handle_t handle_{};
@@ -208,11 +204,6 @@ int run_single_file(std::string file_path,
   settings.tolerances.relative_tolerance = 1e-12;
   settings.tolerances.absolute_tolerance = 1e-6;
   settings.presolve                      = true;
-  settings.disable_line_search_diving    = disable_line_search_diving;
-  settings.disable_pseudocost_diving     = disable_pseudocost_diving;
-  settings.disable_guided_diving         = disable_guided_diving;
-  settings.disable_coefficient_diving    = disable_coefficient_diving;
-
   cuopt::linear_programming::benchmark_info_t benchmark_info;
   settings.benchmark_info_ptr = &benchmark_info;
   auto start_run_solver       = std::chrono::high_resolution_clock::now();
@@ -259,10 +250,6 @@ void run_single_file_mp(std::string file_path,
                         int num_cpu_threads,
                         bool write_log_file,
                         bool log_to_console,
-                        bool disable_line_search_diving,
-                        bool disable_pseudocost_diving,
-                        bool disable_guided_diving,
-                        bool disable_coefficient_diving,
                         double time_limit)
 {
   std::cout << "running file " << file_path << " on gpu : " << device << std::endl;
@@ -278,10 +265,6 @@ void run_single_file_mp(std::string file_path,
                                   num_cpu_threads,
                                   write_log_file,
                                   log_to_console,
-                                  disable_line_search_diving,
-                                  disable_pseudocost_diving,
-                                  disable_guided_diving,
-                                  disable_coefficient_diving,
                                   time_limit);
   // this is a bad design to communicate the result but better than adding complexity of IPC or
   // pipes
@@ -365,22 +348,6 @@ int main(int argc, char* argv[])
     .help("track allocations (t/f)")
     .default_value(std::string("f"));
 
-  program.add_argument("--disable-line-search-diving")
-    .help("disable line search diving (t/f)")
-    .default_value(std::string("f"));
-
-  program.add_argument("--disable-pseudocost-diving")
-    .help("disable pseudocost diving (t/f)")
-    .default_value(std::string("f"));
-
-  program.add_argument("--disable-guided-diving")
-    .help("disable guided diving (t/f)")
-    .default_value(std::string("f"));
-
-  program.add_argument("--disable-coefficient-diving")
-    .help("disable coefficient diving (t/f)")
-    .default_value(std::string("f"));
-
   // Parse arguments
   try {
     program.parse_args(argc, argv);
@@ -409,14 +376,6 @@ int main(int argc, char* argv[])
   bool log_to_console    = program.get<std::string>("--log-to-console")[0] == 't';
   double memory_limit    = program.get<double>("--memory-limit");
   bool track_allocations = program.get<std::string>("--track-allocations")[0] == 't';
-
-  bool disable_line_search_diving =
-    program.get<std::string>("--disable-line-search-diving")[0] == 't';
-  bool disable_pseudocost_diving =
-    program.get<std::string>("--disable-pseudocost-diving")[0] == 't';
-  bool disable_guided_diving = program.get<std::string>("--disable-guided-diving")[0] == 't';
-  bool disable_coefficient_diving =
-    program.get<std::string>("--disable-coefficient-diving")[0] == 't';
 
   if (num_cpu_threads < 0) { num_cpu_threads = omp_get_max_threads() / n_gpus; }
 
@@ -504,10 +463,6 @@ int main(int argc, char* argv[])
                                num_cpu_threads,
                                write_log_file,
                                log_to_console,
-                               disable_line_search_diving,
-                               disable_pseudocost_diving,
-                               disable_guided_diving,
-                               disable_coefficient_diving,
                                time_limit);
           } else if (sys_pid < 0) {
             std::cerr << "Fork failed!" << std::endl;
@@ -548,10 +503,6 @@ int main(int argc, char* argv[])
                     num_cpu_threads,
                     write_log_file,
                     log_to_console,
-                    disable_line_search_diving,
-                    disable_pseudocost_diving,
-                    disable_guided_diving,
-                    disable_coefficient_diving,
                     time_limit);
   }
 

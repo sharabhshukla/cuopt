@@ -86,7 +86,7 @@ struct simplex_solver_settings_t {
       iteration_log_frequency(1000),
       first_iteration_log(2),
       num_threads(omp_get_max_threads() - 1),
-      num_bfs_workers(std::min(num_threads / 4, 1)),
+      num_bfs_workers(std::max(num_threads / 4, 1)),
       random_seed(0),
       inside_mip(0),
       solution_callback(nullptr),

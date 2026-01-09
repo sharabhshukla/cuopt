@@ -136,7 +136,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     auto opt_sol = solve_lp_with_method<i_t, f_t>(*context.problem_ptr, settings, lp_timer);
 
     solution_t<i_t, f_t> sol(*context.problem_ptr);
-    sol.copy_new_assignment(host_copy(opt_sol.get_primal_solution()));
+    sol.copy_new_assignment(
+      host_copy(opt_sol.get_primal_solution(), context.problem_ptr->handle_ptr->get_stream()));
     if (opt_sol.get_termination_status() == pdlp_termination_status_t::Optimal ||
         opt_sol.get_termination_status() == pdlp_termination_status_t::PrimalInfeasible ||
         opt_sol.get_termination_status() == pdlp_termination_status_t::DualInfeasible) {
@@ -167,15 +168,6 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_settings.relative_mip_gap_tol = context.settings.tolerances.relative_mip_gap;
     branch_and_bound_settings.integer_tol = context.settings.tolerances.integrality_tolerance;
 
-    branch_and_bound_settings.diving_settings.disable_coefficient_diving =
-      context.settings.disable_coefficient_diving;
-    branch_and_bound_settings.diving_settings.disable_pseudocost_diving =
-      context.settings.disable_pseudocost_diving;
-    branch_and_bound_settings.diving_settings.disable_guided_diving =
-      context.settings.disable_guided_diving;
-    branch_and_bound_settings.diving_settings.disable_line_search_diving =
-      context.settings.disable_line_search_diving;
-
     if (context.settings.num_cpu_threads < 0) {
       branch_and_bound_settings.num_threads = omp_get_max_threads() - 1;
     } else {
@@ -183,10 +175,10 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     }
 
     i_t num_threads                           = branch_and_bound_settings.num_threads;
-    i_t num_bfs_threads                       = std::max(1, num_threads / 4);
-    i_t num_diving_threads                    = std::max(1, num_threads - num_bfs_threads);
-    branch_and_bound_settings.num_bfs_workers = num_bfs_threads;
-    branch_and_bound_settings.diving_settings.num_diving_workers = num_diving_threads;
+    i_t num_bfs_workers                       = std::max(1, num_threads / 4);
+    i_t num_diving_workers                    = std::max(1, num_threads - num_bfs_workers);
+    branch_and_bound_settings.num_bfs_workers = num_bfs_workers;
+    branch_and_bound_settings.diving_settings.num_diving_workers = num_diving_workers;
 
     // Set the branch and bound -> primal heuristics callback
     branch_and_bound_settings.solution_callback =

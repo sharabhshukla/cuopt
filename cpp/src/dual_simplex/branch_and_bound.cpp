@@ -5,10 +5,9 @@
  */
 /* clang-format on */
 
-#include <omp.h>
-#include <algorithm>
-#include <dual_simplex/bounds_strengthening.hpp>
 #include <dual_simplex/branch_and_bound.hpp>
+
+#include <dual_simplex/bounds_strengthening.hpp>
 #include <dual_simplex/crossover.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/logger.hpp>
@@ -20,6 +19,9 @@
 #include <dual_simplex/tic_toc.hpp>
 #include <dual_simplex/user_problem.hpp>
 
+#include <omp.h>
+
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -196,10 +198,10 @@ inline const char* feasible_solution_symbol(bnb_worker_type_t type)
 {
   switch (type) {
     case bnb_worker_type_t::EXPLORATION: return "B ";
-    case bnb_worker_type_t::COEFFICIENT_DIVING: return "CD";
-    case bnb_worker_type_t::LINE_SEARCH_DIVING: return "LD";
-    case bnb_worker_type_t::PSEUDOCOST_DIVING: return "PD";
-    case bnb_worker_type_t::GUIDED_DIVING: return "GD";
+    case bnb_worker_type_t::COEFFICIENT_DIVING: return "D ";
+    case bnb_worker_type_t::LINE_SEARCH_DIVING: return "D ";
+    case bnb_worker_type_t::PSEUDOCOST_DIVING: return "D ";
+    case bnb_worker_type_t::GUIDED_DIVING: return "D ";
     default: return "U ";
   }
 }
@@ -570,19 +572,18 @@ branch_variable_t<i_t> branch_and_bound_t<i_t, f_t>::variable_selection(
   logger_t& log)
 {
   i_t branch_var                 = -1;
-  f_t obj_estimate               = 0;
   rounding_direction_t round_dir = rounding_direction_t::NONE;
 
   switch (type) {
     case bnb_worker_type_t::EXPLORATION:
-      std::tie(branch_var, obj_estimate) =
-        pc_.variable_selection_and_obj_estimate(fractional, solution, node_ptr->lower_bound, log);
-      round_dir = martin_criteria(solution[branch_var], root_relax_soln_.x[branch_var]);
+      branch_var = pc_.variable_selection(fractional, solution, log);
+      round_dir  = martin_criteria(solution[branch_var], root_relax_soln_.x[branch_var]);
 
       // Note that the exploration thread is the only one that can insert new nodes into the heap,
       // and thus, we only need to calculate the objective estimate here (it is used for
       // sorting the nodes for diving).
-      node_ptr->objective_estimate = obj_estimate;
+      node_ptr->objective_estimate =
+        pc_.obj_estimate(fractional, solution, node_ptr->lower_bound, log);
       return {branch_var, round_dir};
 
     case bnb_worker_type_t::COEFFICIENT_DIVING:
@@ -747,6 +748,8 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(mip_node_t<i_t, f_t>*
         node_ptr, leaf_fractional, leaf_solution.x, thread_type, lp_settings.log);
 
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
+      assert(branch_var >= 0);
+      assert(round_dir != rounding_direction_t::NONE);
 
       search_tree.branch(
         node_ptr, branch_var, leaf_solution.x[branch_var], leaf_vstatus, leaf_problem, log);
@@ -1174,8 +1177,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   // Choose variable to branch on
-  auto [branch_var, obj_estimate] =
-    pc_.variable_selection_and_obj_estimate(fractional, root_relax_soln_.x, root_objective_, log);
+  auto branch_var = pc_.variable_selection(fractional, root_relax_soln_.x, log);
 
   search_tree_.root      = std::move(mip_node_t<i_t, f_t>(root_objective_, root_vstatus_));
   search_tree_.num_nodes = 0;

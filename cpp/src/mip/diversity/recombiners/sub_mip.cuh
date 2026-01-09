@@ -110,13 +110,7 @@ class sub_mip_recombiner_t : public recombiner_t<i_t, f_t> {
       branch_and_bound_settings.diving_settings.num_diving_workers         = 1;
       branch_and_bound_settings.diving_settings.disable_line_search_diving = true;
       branch_and_bound_settings.diving_settings.disable_coefficient_diving = true;
-
-      if (context.settings.disable_guided_diving) {
-        branch_and_bound_settings.diving_settings.disable_guided_diving = true;
-      } else {
-        branch_and_bound_settings.diving_settings.disable_pseudocost_diving = true;
-      }
-
+      branch_and_bound_settings.diving_settings.disable_pseudocost_diving  = true;
       branch_and_bound_settings.solution_callback = [this](std::vector<f_t>& solution,
                                                            f_t objective) {
         this->solution_callback(solution, objective);
