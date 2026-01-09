@@ -722,9 +722,14 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
 
     } else if (leaf_objective <= upper_bound + abs_fathom_tol) {
       // Choose fractional variable to branch on
-      auto [branch_var, obj_estimate] = pc_.variable_selection_and_obj_estimate(
-        leaf_fractional, leaf_solution.x, node_ptr->lower_bound, log);
-      node_ptr->objective_estimate = obj_estimate;
+      const i_t branch_var =
+        pc_.variable_selection(leaf_fractional, leaf_solution.x, lp_settings.log);
+
+      // Note that the exploration thread is the only one that can insert new nodes into the heap,
+      // and thus, we only need to calculate the objective estimate here (it is used for
+      // sorting the nodes for diving).
+      node_ptr->objective_estimate =
+        pc_.obj_estimate(leaf_fractional, leaf_solution.x, node_ptr->lower_bound, lp_settings.log);
 
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
       search_tree.branch(
@@ -1101,6 +1106,8 @@ void branch_and_bound_t<i_t, f_t>::diving_thread(const csr_matrix_t<i_t, f_t>& A
   std::vector<f_t> start_upper;
   bool reset_starting_bounds = true;
 
+  constexpr i_t node_limit = 500;
+
   while (solver_status_ == mip_exploration_status_t::RUNNING &&
          (active_subtrees_ > 0 || node_queue.best_first_queue_size() > 0)) {
     if (reset_starting_bounds) {
@@ -1142,7 +1149,7 @@ void branch_and_bound_t<i_t, f_t>::diving_thread(const csr_matrix_t<i_t, f_t>& A
         }
 
         if (toc(exploration_stats_.start_time) > settings_.time_limit) { break; }
-        if (dive_stats.nodes_explored > 500) { break; }
+        if (dive_stats.nodes_explored > node_limit) { break; }
 
         node_solve_info_t status = solve_node(node_ptr,
                                               subtree,
@@ -1401,8 +1408,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   // Choose variable to branch on
-  auto [branch_var, obj_estimate] =
-    pc_.variable_selection_and_obj_estimate(fractional, root_relax_soln_.x, root_objective_, log);
+  i_t branch_var = pc_.variable_selection(fractional, root_relax_soln_.x, log);
 
   search_tree_.root      = std::move(mip_node_t<i_t, f_t>(root_objective_, root_vstatus_));
   search_tree_.num_nodes = 0;

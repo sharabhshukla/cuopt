@@ -237,6 +237,7 @@ class branch_and_bound_t {
                  std::vector<i_t>& basic_list,
                  std::vector<i_t>& nonbasic_list,
                  thread_type_t diving_type);
+
   // Each diving thread pops the first node from the dive queue and then performs
   // a deep dive into the subtree determined by the node.
   void diving_thread(const csr_matrix_t<i_t, f_t>& Arow);
