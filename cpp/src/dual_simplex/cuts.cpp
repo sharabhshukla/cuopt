@@ -1658,7 +1658,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
                         lp.A.col_start[lp.A.n]);
 
     basis_update.resize(lp.num_rows);
-    basis_update.refactor_basis(lp.A, settings, basic_list, nonbasic_list, vstatus);
+    basis_update.refactor_basis(lp.A, settings, lp.lower, lp.upper, basic_list, nonbasic_list, vstatus);
   }
 }
 

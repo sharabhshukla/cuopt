@@ -1493,8 +1493,13 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       }
       root_crossover_settings.max_cut_passes = 3;
       // Populate the basis_update from the crossover vstatus
-      basis_update.refactor_basis(
-        original_lp_.A, root_crossover_settings, basic_list, nonbasic_list, crossover_vstatus_);
+      basis_update.refactor_basis(original_lp_.A,
+                                  root_crossover_settings,
+                                  original_lp_.lower,
+                                  original_lp_.upper,
+                                  basic_list,
+                                  nonbasic_list,
+                                  crossover_vstatus_);
 
       // Set the edge norms to a default value
       edge_norms.resize(original_lp_.num_cols, -1.0);
