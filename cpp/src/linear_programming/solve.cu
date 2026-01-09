@@ -648,6 +648,7 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
   std::vector<pdlp_termination_status_t> full_status;
 
   pdlp_solver_settings_t<i_t, f_t> batch_settings = settings;
+  const auto original_new_bounds = batch_settings.new_bounds;
   batch_settings.method = cuopt::linear_programming::method_t::PDLP;
   batch_settings.detect_infeasibility = true;
   batch_settings.presolve = false;
@@ -656,7 +657,9 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
   for (int i = 0; i < max_batch_size; i += optimal_batch_size)
   {
     const int current_batch_size = std::min(optimal_batch_size, max_batch_size - i);
-
+    // Only take the new bounds from [i, i + current_batch_size)
+    batch_settings.new_bounds = std::vector<std::tuple<i_t, f_t, f_t>>(original_new_bounds.begin() + i, original_new_bounds.begin() + i + current_batch_size);
+    
     auto sol = solve_lp(problem, batch_settings);
 
     // Copy results
