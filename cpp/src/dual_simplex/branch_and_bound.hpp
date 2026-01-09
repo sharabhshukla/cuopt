@@ -167,7 +167,7 @@ class branch_and_bound_t {
   omp_atomic_t<i_t> nodes_since_last_log_;
 
   // Minimum number of node in the queue. When the queue size is less than
-  // than this variable, the nodes are added directly to the queue instead of
+  // this variable, the nodes are added directly to the queue instead of
   // the local stack. This also determines the end of the ramp-up phase.
   i_t min_node_queue_size_;
 

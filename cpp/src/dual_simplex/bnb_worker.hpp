@@ -12,7 +12,9 @@
 #include <dual_simplex/mip_node.hpp>
 #include <dual_simplex/phase2.hpp>
 
+#include <array>
 #include <deque>
+#include <mutex>
 #include <vector>
 
 namespace cuopt::linear_programming::dual_simplex {
@@ -214,10 +216,11 @@ std::array<i_t, bnb_num_worker_types> bnb_get_num_workers_round_robin(
 
   i_t diving_workers = 2 * settings.num_diving_workers;
   i_t m              = worker_types.size() - 1;
-  for (size_t i = 1, k = 0; i < bnb_num_worker_types; ++i) {
-    i_t start          = (double)k * diving_workers / m;
-    i_t end            = (double)(k + 1) * diving_workers / m;
-    max_num_workers[i] = end - start;
+
+  for (size_t i = 1, k = 0; i < worker_types.size(); ++i) {
+    i_t start                        = (double)k * diving_workers / m;
+    i_t end                          = (double)(k + 1) * diving_workers / m;
+    max_num_workers[worker_types[i]] = end - start;
     ++k;
   }
 
