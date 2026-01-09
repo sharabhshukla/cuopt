@@ -163,7 +163,12 @@ class branch_and_bound_t {
   // Global status of the solver.
   omp_atomic_t<mip_exploration_status_t> solver_status_;
 
+  // Count the number of nodes since the last report.
   omp_atomic_t<i_t> nodes_since_last_log_;
+
+  // Minimum number of node in the queue. When the queue size is less than
+  // than this variable, the nodes are added directly to the queue instead of
+  // the local stack. This also determines the end of the ramp-up phase.
   i_t min_node_queue_size_;
 
   // In case, a best-first thread encounters a numerical issue when solving a node,
@@ -186,11 +191,11 @@ class branch_and_bound_t {
   // Repairs low-quality solutions from the heuristics, if it is applicable.
   void repair_heuristic_solutions();
 
+  // Perform a plunge over a subtree using a given worker.
   void plunge_with(bnb_worker_t<i_t, f_t>* worker);
 
+  // Perform a deep dive over a subtree using a given worker.
   void dive_with(bnb_worker_t<i_t, f_t>* worker);
-
-  void master_loop();
 
   // Solve the LP relaxation of a leaf node and update the tree.
   node_solve_info_t solve_node(mip_node_t<i_t, f_t>* node_ptr,

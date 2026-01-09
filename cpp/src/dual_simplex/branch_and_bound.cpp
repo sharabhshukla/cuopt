@@ -1189,16 +1189,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                       root_vstatus_,
                       original_lp_,
                       log);
-
-  auto down_child = search_tree_.root.get_down_child();
-  auto up_child   = search_tree_.root.get_up_child();
-  node_queue.push(down_child);
-  node_queue.push(up_child);
-
-  settings_.log.printf("Exploring the B&B tree using %d threads (best-first = %d, diving = %d)\n",
-                       settings_.num_threads,
-                       settings_.num_bfs_workers,
-                       settings_.num_threads - settings_.num_bfs_workers);
+  node_queue.push(search_tree_.root.get_down_child());
+  node_queue.push(search_tree_.root.get_up_child());
 
   diving_heuristics_settings_t<i_t, f_t> diving_settings = settings_.diving_settings;
   bool is_ramp_up_finished                               = false;
@@ -1210,11 +1202,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   worker_pool_.init(2 * settings_.num_threads, original_lp_, Arow_, var_types_, settings_);
   active_workers_per_type.fill(0);
 
-  f_t lower_bound     = get_lower_bound();
-  f_t abs_gap         = upper_bound_ - lower_bound;
-  f_t rel_gap         = user_relative_gap(original_lp_, upper_bound_.load(), lower_bound);
-  i_t last_node_depth = 0;
-  f_t last_log        = 0.0;
+  settings_.log.printf("Exploring the B&B tree using %d threads (best-first = %d, diving = %d)\n",
+                       settings_.num_threads,
+                       settings_.num_bfs_workers,
+                       settings_.num_threads - settings_.num_bfs_workers);
 
   exploration_stats_.nodes_explored   = 1;
   exploration_stats_.nodes_unexplored = 2;
@@ -1230,6 +1221,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   {
 #pragma omp master
     {
+      f_t lower_bound     = get_lower_bound();
+      f_t abs_gap         = upper_bound_ - lower_bound;
+      f_t rel_gap         = user_relative_gap(original_lp_, upper_bound_.load(), lower_bound);
+      i_t last_node_depth = 0;
+      f_t last_log        = 0.0;
+
       while (solver_status_ == mip_exploration_status_t::RUNNING &&
              abs_gap > settings_.absolute_mip_gap_tol && rel_gap > settings_.relative_mip_gap_tol &&
              (active_workers_per_type[0] > 0 || node_queue.best_first_queue_size() > 0)) {
@@ -1241,8 +1238,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         repair_heuristic_solutions();
 
         if (!is_ramp_up_finished) {
-          if (node_queue.best_first_queue_size() >= min_node_queue_size_ &&
-              node_queue.bfs_top()->depth >= diving_settings.min_node_depth) {
+          if (node_queue.best_first_queue_size() >= min_node_queue_size_) {
             if (!std::isfinite(upper_bound_)) { diving_settings.disable_guided_diving = true; }
             max_num_workers_per_type =
               bnb_get_num_workers_round_robin(settings_.num_threads, diving_settings);
@@ -1338,7 +1334,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
             std::optional<mip_node_t<i_t, f_t>*> start_node = node_queue.pop_diving();
 
             if (!start_node.has_value()) { continue; }
-            if (upper_bound_ < start_node.value()->lower_bound) { continue; }
+            if (upper_bound_ < start_node.value()->lower_bound ||
+                start_node.value()->depth < diving_settings.min_node_depth) {
+              continue;
+            }
 
             bool is_feasible =
               worker->init_diving(start_node.value(), type, original_lp_, settings_);
@@ -1366,8 +1365,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     solver_status_ = mip_exploration_status_t::COMPLETED;
   }
 
-  lower_bound = node_queue.best_first_queue_size() > 0 ? node_queue.get_lower_bound()
-                                                       : search_tree_.root.lower_bound;
+  f_t lower_bound = node_queue.best_first_queue_size() > 0 ? node_queue.get_lower_bound()
+                                                           : search_tree_.root.lower_bound;
   return set_final_solution(solution, lower_bound);
 }
 
