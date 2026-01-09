@@ -141,7 +141,8 @@ f_t trial_branching(const lp_problem_t<i_t, f_t>& original_lp,
                     const std::vector<f_t>& edge_norms,
                     i_t branch_var,
                     f_t branch_var_lower,
-                    f_t branch_var_upper)
+                    f_t branch_var_upper,
+                    i_t& iter)
 {
   lp_problem_t child_problem      = original_lp;
   child_problem.lower[branch_var] = branch_var_lower;
@@ -152,12 +153,11 @@ f_t trial_branching(const lp_problem_t<i_t, f_t>& original_lp,
   f_t lp_start_time              = tic();
   child_settings.iteration_limit = 200;
   lp_solution_t<i_t, f_t> solution(original_lp.num_rows, original_lp.num_cols);
-  i_t iter                               = 0;
   std::vector<variable_status_t> vstatus = root_vstatus;
   std::vector<f_t> child_edge_norms      = edge_norms;
   dual::status_t status                  = dual_phase2(
     2, 0, lp_start_time, child_problem, child_settings, vstatus, solution, iter, child_edge_norms);
-  printf("Trial branching on variable %d. Lo: %e Up: %e. Iter %d. Status %d. Obj %e\n", branch_var, child_problem.lower[branch_var], child_problem.upper[branch_var], iter, status, compute_objective(child_problem, solution.x));
+  //printf("Trial branching on variable %d. Lo: %e Up: %e. Iter %d. Status %d. Obj %e\n", branch_var, child_problem.lower[branch_var], child_problem.upper[branch_var], iter, status, compute_objective(child_problem, solution.x));
 
   if (status == dual::status_t::OPTIMAL || status == dual::status_t::ITERATION_LIMIT || status == dual::status_t::CUTOFF) {
     return compute_objective(child_problem, solution.x);
@@ -373,6 +373,9 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
   f_t pseudo_cost_down_avg;
   f_t pseudo_cost_up_avg;
 
+  i_t iter = 0;
+  i_t trial_branches = 0;
+
   initialized(num_initialized_down, num_initialized_up, pseudo_cost_down_avg, pseudo_cost_up_avg);
 
   mutex.unlock();
@@ -397,7 +400,10 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
       mutex.unlock();
     } else {
       // Do trial branching on the down branch
-      f_t obj = trial_branching(lp, settings, var_types, vstatus, edge_norms, j, lp.lower[j], std::floor(solution[j]));
+      i_t trial_iter = 0;
+      f_t obj = trial_branching(lp, settings, var_types, vstatus, edge_norms, j, lp.lower[j], std::floor(solution[j]), trial_iter);
+      trial_branches++;
+      iter += trial_iter;
       if (!std::isnan(obj)) {
         f_t change_in_obj = obj - current_obj;
         f_t change_in_x = solution[j] - std::floor(solution[j]);
@@ -418,7 +424,10 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
       mutex.unlock();
     } else {
       // Do trial branching on the up branch
-      f_t obj = trial_branching(lp, settings, var_types, vstatus, edge_norms, j, std::ceil(solution[j]), lp.upper[j]);
+      i_t trial_iter = 0;
+      f_t obj = trial_branching(lp, settings, var_types, vstatus, edge_norms, j, std::ceil(solution[j]), lp.upper[j], trial_iter);
+      trial_branches++;
+      iter += trial_iter;
       if (!std::isnan(obj)) {
         f_t change_in_obj = obj - current_obj;
         f_t change_in_x = std::ceil(solution[j]) - solution[j];
@@ -447,8 +456,8 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(const lp_problem_t<i_t
     }
   }
 
-  log.printf(
-    "pc branching on %d. Value %e. Score %e\n", branch_var, solution[branch_var], score[select]);
+  printf(
+    "pc reliability branching on %d. Value %e. Score %e. Iter %d. Trial branches %d\n", branch_var, solution[branch_var], score[select], iter, trial_branches);
 
 
   return branch_var;

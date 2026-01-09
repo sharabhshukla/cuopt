@@ -945,7 +945,7 @@ void mixed_integer_rounding_cut_t<i_t, f_t>::initialize(const lp_problem_t<i_t, 
   for (i_t j = 0; j < lp.num_cols; j++) {
     if (lp.lower[j] < 0) {
       settings_.log.printf("Variable %d has negative lower bound %e\n", j, lp.lower[j]);
-      exit(1);
+      //exit(1);
     }
     const f_t uj = lp.upper[j];
     const f_t lj = lp.lower[j];
@@ -1444,7 +1444,9 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
       return -1;
     }
     in_basis[j] = k;
-    if (j < cuts.n) { C_B_nz += C_col_degree[j]; } else { printf("j >= cuts.n %d %d\n", j, cuts.n); }
+    // The cuts are on the original variables. So it is possible that
+    // a slack will be basic and thus not part of the cuts matrix
+    if (j < cuts.n) { C_B_nz += C_col_degree[j]; }
   }
   settings.log.debug("Done estimating C_B_nz\n");
 

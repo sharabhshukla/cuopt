@@ -1501,7 +1501,7 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       set_uninitialized_steepest_edge_norms<i_t, f_t>(edge_norms);
       printf("Using crossover solution\n");
     } else {
-      printf("Using dual simplex solution 1\n");
+      printf("Using dual simplex solution 1: crossover status %d\n", crossover_status);
       root_status = root_status_future.get();
     }
   } else {
