@@ -227,6 +227,7 @@ void bench(
     settings_local.set_initial_primal_weight(initial_primal_weight);
   }
 
+  auto start_batch = std::chrono::steady_clock::now();
   cuopt::linear_programming::optimization_problem_solution_t<int, double> batch_solution(cuopt::linear_programming::pdlp_termination_status_t::NumericalError, handle.get_stream());
   if (use_optimal_batch_size)
   {
@@ -248,9 +249,11 @@ void bench(
         settings_local.new_bounds.push_back({pairs[i].first, std::ceil(pairs[i].second), problems[i].get_variable_upper_bounds()[pairs[i].first]});
     batch_solution = cuopt::linear_programming::solve_lp(&handle, batch_problem, settings_local);
   }
-  std::cout << "Batch problem solved in " << batch_solution.get_additional_termination_information().solve_time << " using " << batch_solution.get_additional_termination_information().number_of_steps_taken << std::endl;
+  cudaDeviceSynchronize();
+  auto end_batch = std::chrono::steady_clock::now();
+  std::cout << "Batch problem solved in " << std::chrono::duration_cast<std::chrono::milliseconds>(end_batch - start_batch).count() / 1000.0 << " seconds" << std::endl;
   if (needs_warm_start_solution) {
-    std::cout << "Total (including warm start original PDLP solve) batch solve time: " << batch_solution.get_additional_termination_information().solve_time + warm_start_time << " seconds" << std::endl;
+    std::cout << "Total (including warm start original PDLP solve) batch solve time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_batch - start).count() / 1000.0 << " seconds" << std::endl;
   }
 
   if (compare_with_baseline)
@@ -302,10 +305,10 @@ int main(int argc, char* argv[])
     std::cout << "Original problem solved in " << solution.get_additional_termination_information().solve_time << " and " << solution.get_additional_termination_information().number_of_steps_taken << " steps" << std::endl;
 
     // Create a list of problems for each variante and update op_problem to batchify it
-    auto [batch_problem, problems, pairs] = create_batch_problem(op_problem, solution, true);
+    auto [batch_problem, problems, pairs] = create_batch_problem(op_problem, solution, false);
 
-    //bench(handle_, op_problem, batch_problem, problems, pairs, compare_with_baseline, false /*deterministic*/, true /*primal dual*/, true /*step size*/, false /*primal weight*/, false /*use optimal batch size*/);
     bench(handle_, op_problem, batch_problem, problems, pairs, compare_with_baseline, false /*deterministic*/, true /*primal dual*/, true /*step size*/, false /*primal weight*/, true /*use optimal batch size*/);
+    //bench(handle_, op_problem, batch_problem, problems, pairs, compare_with_baseline, false /*deterministic*/, true /*primal dual*/, true /*step size*/, false /*primal weight*/, true /*use optimal batch size*/);
   }
 
   return 0;
