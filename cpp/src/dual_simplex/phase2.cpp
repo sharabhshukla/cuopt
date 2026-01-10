@@ -2466,6 +2466,11 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   manifold.add("A_transpose.i", A_transpose.i);
   manifold.add("A_transpose.x", A_transpose.x);
 
+  // Add A matrix for entering column access during basis update
+  manifold.add("A.col_start", lp.A.col_start);
+  manifold.add("A.i", lp.A.i);
+  manifold.add("A.x", lp.A.x);
+
   // Track iteration interval start time for runtime measurement
   f_t interval_start_time   = toc(start_time);
   i_t last_feature_log_iter = iter;

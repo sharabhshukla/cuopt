@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -8,6 +8,7 @@
 #pragma once
 
 #include <dual_simplex/presolve.hpp>
+#include <utilities/memory_instrumentation.hpp>
 
 namespace cuopt::linear_programming::dual_simplex {
 
@@ -31,12 +32,12 @@ class bounds_strengthening_t {
   const csr_matrix_t<i_t, f_t>& Arow;
   const std::vector<variable_type_t>& var_types;
 
-  std::vector<f_t> lower;
-  std::vector<f_t> upper;
-
-  std::vector<f_t> delta_min_activity;
-  std::vector<f_t> delta_max_activity;
-  std::vector<f_t> constraint_lb;
-  std::vector<f_t> constraint_ub;
+  // Instrumented vectors for memory tracking
+  cuopt::ins_vector<f_t> lower;
+  cuopt::ins_vector<f_t> upper;
+  cuopt::ins_vector<f_t> delta_min_activity;
+  cuopt::ins_vector<f_t> delta_max_activity;
+  cuopt::ins_vector<f_t> constraint_lb;
+  cuopt::ins_vector<f_t> constraint_ub;
 };
 }  // namespace cuopt::linear_programming::dual_simplex

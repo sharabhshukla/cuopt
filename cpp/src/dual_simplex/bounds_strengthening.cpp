@@ -6,6 +6,9 @@
 /* clang-format on */
 
 #include <dual_simplex/bounds_strengthening.hpp>
+#include <dual_simplex/dual_simplex_features.hpp>
+#include <dual_simplex/tic_toc.hpp>
+#include <utilities/memory_instrumentation.hpp>
 
 #include <raft/common/nvtx.hpp>
 
@@ -97,24 +100,48 @@ bool bounds_strengthening_t<i_t, f_t>::bounds_strengthening(
   std::vector<f_t>& upper_bounds,
   const simplex_solver_settings_t<i_t, f_t>& settings)
 {
-  const i_t m = A.m;
-  const i_t n = A.n;
+  const i_t m   = A.m;
+  const i_t n   = A.n;
+  const i_t nnz = A.col_start[n];
 
   raft::common::nvtx::range fun_scope("bounds_strengthening");
+  f_t start_time = tic();
 
-  std::vector<bool> constraint_changed(m, true);
-  std::vector<bool> variable_changed(n, false);
-  std::vector<bool> constraint_changed_next(m, false);
+  // Instrumented vectors for memory tracking (use uint8_t since std::vector<bool> is specialized)
+  cuopt::ins_vector<uint8_t> constraint_changed(m, 1);
+  cuopt::ins_vector<uint8_t> variable_changed(n, 0);
+  cuopt::ins_vector<uint8_t> constraint_changed_next(m, 0);
+
+  // Instrumentation manifold for this operation - includes A matrix (CSC and CSR)
+  cuopt::instrumentation_manifold_t manifold;
+  manifold.add("constraint_changed", constraint_changed);
+  manifold.add("variable_changed", variable_changed);
+  manifold.add("constraint_changed_next", constraint_changed_next);
+  // A matrix in CSC format (for column access)
+  manifold.add("A.col_start", A.col_start);
+  manifold.add("A.i", A.i);
+  manifold.add("A.x", A.x);
+  // A matrix in CSR format (for row access)
+  manifold.add("Arow.row_start", Arow.row_start);
+  manifold.add("Arow.j", Arow.j);
+  manifold.add("Arow.x", Arow.x);
+  // Member vectors for bounds and activity tracking
+  manifold.add("lower", lower);
+  manifold.add("upper", upper);
+  manifold.add("delta_min_activity", delta_min_activity);
+  manifold.add("delta_max_activity", delta_max_activity);
+  manifold.add("constraint_lb", constraint_lb);
+  manifold.add("constraint_ub", constraint_ub);
 
   if (!bounds_changed.empty()) {
-    std::fill(constraint_changed.begin(), constraint_changed.end(), false);
+    std::fill(constraint_changed.begin(), constraint_changed.end(), static_cast<uint8_t>(0));
     for (i_t i = 0; i < n; ++i) {
       if (bounds_changed[i]) {
         const i_t row_start = A.col_start[i];
         const i_t row_end   = A.col_start[i + 1];
         for (i_t p = row_start; p < row_end; ++p) {
           const i_t j           = A.i[p];
-          constraint_changed[j] = true;
+          constraint_changed[j] = 1;
         }
       }
     }
@@ -122,10 +149,11 @@ bool bounds_strengthening_t<i_t, f_t>::bounds_strengthening(
 
   lower = lower_bounds;
   upper = upper_bounds;
-  print_bounds_stats(lower, upper, settings, "Initial bounds");
+  print_bounds_stats(lower.underlying(), upper.underlying(), settings, "Initial bounds");
 
-  i_t iter             = 0;
-  const i_t iter_limit = 10;
+  i_t iter                 = 0;
+  const i_t iter_limit     = 10;
+  i_t total_bounds_changed = 0;
   while (iter < iter_limit) {
     for (i_t i = 0; i < m; ++i) {
       if (!constraint_changed[i]) { continue; }
@@ -138,7 +166,7 @@ bool bounds_strengthening_t<i_t, f_t>::bounds_strengthening(
         const i_t j    = Arow.j[p];
         const f_t a_ij = Arow.x[p];
 
-        variable_changed[j] = true;
+        variable_changed[j] = 1;
         if (a_ij > 0) {
           min_a += a_ij * lower[j];
           max_a += a_ij * upper[j];
@@ -222,27 +250,44 @@ bool bounds_strengthening_t<i_t, f_t>::bounds_strengthening(
       if (new_lb != old_lb || new_ub != old_ub) {
         for (i_t p = row_start; p < row_end; ++p) {
           const i_t i                = A.i[p];
-          constraint_changed_next[i] = true;
+          constraint_changed_next[i] = 1;
         }
       }
 
       lower[k] = std::min(new_lb, new_ub);
       upper[k] = std::max(new_lb, new_ub);
 
-      bool bounds_changed = lb_updated || ub_updated;
-      if (bounds_changed) { num_bounds_changed++; }
+      bool bounds_tightened = lb_updated || ub_updated;
+      if (bounds_tightened) { num_bounds_changed++; }
     }
 
+    total_bounds_changed += num_bounds_changed;
     if (num_bounds_changed == 0) { break; }
 
     std::swap(constraint_changed, constraint_changed_next);
-    std::fill(constraint_changed_next.begin(), constraint_changed_next.end(), false);
-    std::fill(variable_changed.begin(), variable_changed.end(), false);
+    std::fill(
+      constraint_changed_next.begin(), constraint_changed_next.end(), static_cast<uint8_t>(0));
+    std::fill(variable_changed.begin(), variable_changed.end(), static_cast<uint8_t>(0));
 
     iter++;
   }
 
   // settings.log.printf("Total strengthened variables %d\n", total_strengthened_variables);
+
+  // Log bounds strengthening features
+  {
+    auto [loads, stores] = manifold.collect_and_flush();
+    bounds_strengthening_features_t<i_t, f_t> bs_features;
+    bs_features.m                  = m;
+    bs_features.n                  = n;
+    bs_features.nnz                = nnz;
+    bs_features.num_iterations     = iter;
+    bs_features.num_bounds_changed = total_bounds_changed;
+    bs_features.byte_loads         = loads;
+    bs_features.byte_stores        = stores;
+    bs_features.runtime            = toc(start_time);
+    bs_features.log_single(m, n, nnz);
+  }
 
 #if DEBUG_BOUND_STRENGTHENING
   f_t lb_change      = 0.0;
@@ -278,7 +323,7 @@ bool bounds_strengthening_t<i_t, f_t>::bounds_strengthening(
       num_ub_changed,
       iter);
   }
-  print_bounds_stats(lower, upper, settings, "Final bounds");
+  print_bounds_stats(lower.underlying(), upper.underlying(), settings, "Final bounds");
 #endif
 
   lower_bounds = lower;

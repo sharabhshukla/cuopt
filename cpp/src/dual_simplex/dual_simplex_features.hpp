@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -154,5 +154,62 @@ struct dual_simplex_features_t {
 
 // Feature logging interval (every N iterations)
 constexpr int FEATURE_LOG_INTERVAL = 100;
+
+// Node bounds strengthening features (for B&B)
+template <typename i_t, typename f_t>
+struct bounds_strengthening_features_t {
+  i_t m{0};                   // number of constraints
+  i_t n{0};                   // number of variables
+  i_t nnz{0};                 // number of nonzeros in constraint matrix
+  i_t num_iterations{0};      // propagation iterations until fixpoint
+  i_t num_bounds_changed{0};  // total bounds tightened
+  size_t byte_loads{0};
+  size_t byte_stores{0};
+  f_t runtime{0.0};
+
+  // Interval aggregates (for when bounds strengthening is called multiple times)
+  i_t call_count{0};
+  i_t total_iterations{0};
+  i_t total_bounds_changed{0};
+  size_t total_byte_loads{0};
+  size_t total_byte_stores{0};
+  f_t total_runtime{0.0};
+
+  void accumulate()
+  {
+    call_count++;
+    total_iterations += num_iterations;
+    total_bounds_changed += num_bounds_changed;
+    total_byte_loads += byte_loads;
+    total_byte_stores += byte_stores;
+    total_runtime += runtime;
+  }
+
+  void log_single(i_t m_val, i_t n_val, i_t nnz_val) const
+  {
+    printf(
+      "BOUNDS_STRENGTH_FEATURES: m=%d n=%d nnz=%d "
+      "iterations=%d bounds_changed=%d "
+      "byte_loads=%zu byte_stores=%zu runtime=%.6f\n",
+      m_val,
+      n_val,
+      nnz_val,
+      num_iterations,
+      num_bounds_changed,
+      byte_loads,
+      byte_stores,
+      runtime);
+  }
+
+  void reset()
+  {
+    call_count           = 0;
+    total_iterations     = 0;
+    total_bounds_changed = 0;
+    total_byte_loads     = 0;
+    total_byte_stores    = 0;
+    total_runtime        = 0.0;
+  }
+};
 
 }  // namespace cuopt::linear_programming::dual_simplex

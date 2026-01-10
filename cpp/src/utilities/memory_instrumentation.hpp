@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -102,7 +102,8 @@ class instrumentation_manifold_t {
   // Construct with initializer list of (description, instrumented object) pairs
   instrumentation_manifold_t(
     std::initializer_list<
-      std::pair<std::string, std::reference_wrapper<memory_instrumentation_base_t>>> instrumented)
+      std::pair<std::string, std::reference_wrapper<const memory_instrumentation_base_t>>>
+      instrumented)
   {
     for (const auto& [name, instr] : instrumented) {
       instrumented_.insert_or_assign(name, instr);
@@ -110,9 +111,9 @@ class instrumentation_manifold_t {
   }
 
   // Add an instrumented object to track with a description
-  void add(const std::string& description, memory_instrumentation_base_t& instrumented)
+  void add(const std::string& description, const memory_instrumentation_base_t& instrumented)
   {
-    instrumented_.insert_or_assign(description, std::ref(instrumented));
+    instrumented_.insert_or_assign(description, std::cref(instrumented));
   }
 
   // Collect total loads and stores across all instrumented objects
@@ -158,7 +159,7 @@ class instrumentation_manifold_t {
   }
 
  private:
-  std::unordered_map<std::string, std::reference_wrapper<memory_instrumentation_base_t>>
+  std::unordered_map<std::string, std::reference_wrapper<const memory_instrumentation_base_t>>
     instrumented_;
 };
 
@@ -170,10 +171,10 @@ class instrumentation_manifold_t {
   instrumentation_manifold_t() = default;
   instrumentation_manifold_t(
     std::initializer_list<
-      std::pair<std::string, std::reference_wrapper<memory_instrumentation_base_t>>>)
+      std::pair<std::string, std::reference_wrapper<const memory_instrumentation_base_t>>>)
   {
   }
-  void add(const std::string&, memory_instrumentation_base_t&) {}
+  void add(const std::string&, const memory_instrumentation_base_t&) {}
   std::pair<size_t, size_t> collect() { return {0, 0}; }
   std::vector<std::tuple<std::string, size_t, size_t>> collect_per_wrapper() { return {}; }
   std::pair<size_t, size_t> collect_and_flush() { return {0, 0}; }
