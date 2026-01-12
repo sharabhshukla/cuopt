@@ -366,6 +366,9 @@ class branch_and_bound_t {
                                    search_tree_t<i_t, f_t>& search_tree,
                                    double current_horizon);
 
+  // Compute accurate lower bound from all BSP sources (called during sync phase)
+  f_t compute_bsp_lower_bound();
+
  private:
   // BSP state
   std::unique_ptr<bb_worker_pool_t<i_t, f_t>> bsp_workers_;

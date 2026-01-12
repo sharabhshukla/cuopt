@@ -2072,8 +2072,9 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
       state_data.push_back(static_cast<uint64_t>(exploration_stats_.nodes_unexplored));
 
       // Upper/lower bounds (convert to fixed-point for exact comparison)
+      // Use compute_bsp_lower_bound() for accurate LB from all worker queues
       f_t ub = get_upper_bound();
-      f_t lb = get_lower_bound();
+      f_t lb = compute_bsp_lower_bound();
       state_data.push_back(static_cast<uint64_t>(ub * 1000000));  // 6 decimal places
       state_data.push_back(static_cast<uint64_t>(lb * 1000000));
 
@@ -2149,7 +2150,7 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
                               horizon_end,
                               0,  // No longer tracking next_final_id with BSP identity tuples
                               get_upper_bound(),
-                              get_lower_bound(),
+                              compute_bsp_lower_bound(),
                               exploration_stats_.nodes_explored,
                               exploration_stats_.nodes_unexplored,
                               *bsp_workers_,
@@ -2159,8 +2160,8 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
     // Advance the horizon
     bsp_current_horizon_ += bsp_horizon_step_;
 
-    // Update gap info
-    lower_bound = get_lower_bound();
+    // Update gap info using accurate BSP lower bound from all worker queues
+    lower_bound = compute_bsp_lower_bound();
     upper_bound = get_upper_bound();
     abs_gap     = upper_bound - lower_bound;
     rel_gap     = user_relative_gap(original_lp_, upper_bound, lower_bound);
@@ -2303,11 +2304,24 @@ void branch_and_bound_t<i_t, f_t>::run_worker_until_horizon(bb_worker_state_t<i_
       worker.track_node_pruned();
       search_tree.update(node, node_status_t::FATHOMED);
       --exploration_stats_.nodes_unexplored;
+      // Don't update last_solved_node - pruning doesn't change the basis
       continue;
     }
 
+    // Check if we can warm-start from the previous solve's basis.
+    // Two cases where we can reuse the basis:
+    // 1. Resumed node: continuing the same solve (basis already set up)
+    // 2. Child of last solved: child vstatus is a copy of parent's final vstatus
+    bool is_resumed                   = (node->bsp_state == bsp_node_state_t::PAUSED);
+    bool is_child                     = (node->parent == worker.last_solved_node);
+    bool can_warm_start               = is_resumed || is_child;
+    worker.recompute_bounds_and_basis = !can_warm_start;
+
     // Solve the node (this records events)
     node_solve_info_t status = solve_node_bsp(worker, node, search_tree, current_horizon);
+
+    // Track last solved node for warm-start detection
+    worker.last_solved_node = node;
 
     // Handle result
     if (status == node_solve_info_t::TIME_LIMIT) {
@@ -2638,22 +2652,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
       if (leaf_objective < worker.local_upper_bound) {
         worker.local_upper_bound = leaf_objective;
         worker.integer_solutions.push_back({leaf_objective, leaf_solution.x, node_ptr->depth});
-        // Log immediately for visibility (global incumbent updated at sync)
-        i_t nodes_explored   = exploration_stats_.nodes_explored.load();
-        i_t nodes_unexplored = exploration_stats_.nodes_unexplored.load();
-        f_t user_obj         = compute_user_objective(original_lp_, leaf_objective);
-        f_t user_lower       = compute_user_objective(original_lp_, get_lower_bound());
-        settings_.log.printf(
-          "%s%10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
-          feasible_solution_symbol(thread_type_t::EXPLORATION),
-          nodes_explored,
-          nodes_unexplored,
-          user_obj,
-          user_lower,
-          node_ptr->depth,
-          nodes_explored > 0 ? exploration_stats_.total_lp_iters / nodes_explored : 0.0,
-          user_mip_gap<f_t>(user_obj, user_lower).c_str(),
-          toc(exploration_stats_.start_time));
+        // Note: Logging deferred to sync phase for deterministic output
       }
       search_tree.update(node_ptr, node_status_t::INTEGER_FEASIBLE);
       worker.record_integer_solution(node_ptr, leaf_objective);
@@ -2718,15 +2717,9 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
 
       exploration_stats_.nodes_unexplored += 2;
 
-      // In BSP mode, always recompute basis to ensure basic_list matches the node's vstatus.
-      // When recompute_bounds_and_basis = false, the simplex reuses basic_list from the previous
-      // solve, but each node has its own vstatus (copied at branch time). If basic_list and vstatus
-      // diverge, pivoting corrupts vstatus by adding BASIC entries without properly removing
-      // others. This is safe because the child's vstatus is a copy of the parent's final vstatus.
-      worker.recompute_bounds_and_basis = true;
-
-      // Add children directly to local queue - they get BSP identity on enqueue
-      // No need to defer to next horizon since identity is assigned immediately
+      // Add children to local queue - they get BSP identity on enqueue
+      // Note: recompute_bounds_and_basis is set in run_worker_until_horizon based on
+      // whether we branched (has_children), matching opportunistic mode behavior.
       worker.enqueue_node(node_ptr->get_down_child());
       worker.enqueue_node(node_ptr->get_up_child());
 
@@ -2779,7 +2772,37 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
   // final_ids during sync. Each node gets its identity when created, and it never changes.
   // This function now only processes heuristic solutions to update the incumbent.
 
-  // Collect queued heuristic solutions
+  // Process repair queue first (for BSP mode)
+  // Infeasible solutions from GPU heuristics are queued for repair; process them now
+  {
+    std::vector<std::vector<f_t>> to_repair;
+    mutex_repair_.lock();
+    if (repair_queue_.size() > 0) {
+      to_repair = repair_queue_;
+      repair_queue_.clear();
+    }
+    mutex_repair_.unlock();
+
+    if (to_repair.size() > 0) {
+      settings_.log.debug("BSP sync: Attempting to repair %ld injected solutions\n",
+                          to_repair.size());
+      for (const std::vector<f_t>& potential_solution : to_repair) {
+        std::vector<f_t> repaired_solution;
+        f_t repaired_obj;
+        bool success =
+          repair_solution(edge_norms_, potential_solution, repaired_obj, repaired_solution);
+        if (success) {
+          // Queue repaired solution with VT = current horizon for deterministic processing
+          mutex_heuristic_queue_.lock();
+          heuristic_solution_queue_.push_back(
+            {std::move(repaired_solution), repaired_obj, bsp_current_horizon_});
+          mutex_heuristic_queue_.unlock();
+        }
+      }
+    }
+  }
+
+  // Collect queued heuristic solutions (including any newly repaired ones)
   std::vector<queued_heuristic_solution_t> heuristic_solutions;
   mutex_heuristic_queue_.lock();
   heuristic_solutions = std::move(heuristic_solution_queue_);
@@ -2904,15 +2927,39 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
               return a.worker_id < b.worker_id;
             });
 
-  // Apply the best solution to global incumbent
-  if (!all_integer_solutions.empty()) {
-    const auto& best = all_integer_solutions[0];
-    mutex_upper_.lock();
-    if (best.objective < upper_bound_) {
-      upper_bound_ = best.objective;
-      incumbent_.set_incumbent_solution(best.objective, *best.solution);
+  // Apply the best solution to global incumbent and log all improving solutions
+  // Use compute_bsp_lower_bound() for accurate lower bound in logs
+  f_t bsp_lower     = compute_bsp_lower_bound();
+  f_t current_upper = get_upper_bound();
+
+  for (const auto& sol : all_integer_solutions) {
+    if (sol.objective < current_upper) {
+      // Log this improving solution (deterministic: sorted order)
+      f_t user_obj         = compute_user_objective(original_lp_, sol.objective);
+      f_t user_lower       = compute_user_objective(original_lp_, bsp_lower);
+      i_t nodes_explored   = exploration_stats_.nodes_explored.load();
+      i_t nodes_unexplored = exploration_stats_.nodes_unexplored.load();
+      settings_.log.printf(
+        "%s%10d   %10lu    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+        feasible_solution_symbol(thread_type_t::EXPLORATION),
+        nodes_explored,
+        nodes_unexplored,
+        user_obj,
+        user_lower,
+        sol.depth,
+        nodes_explored > 0 ? exploration_stats_.total_lp_iters.load() / nodes_explored : 0.0,
+        user_mip_gap<f_t>(user_obj, user_lower).c_str(),
+        toc(exploration_stats_.start_time));
+
+      // Update incumbent
+      mutex_upper_.lock();
+      if (sol.objective < upper_bound_) {
+        upper_bound_ = sol.objective;
+        incumbent_.set_incumbent_solution(sol.objective, *sol.solution);
+        current_upper = sol.objective;
+      }
+      mutex_upper_.unlock();
     }
-    mutex_upper_.unlock();
   }
 
   // Merge and apply pseudo-cost updates from all workers in deterministic order
@@ -3073,6 +3120,35 @@ void branch_and_bound_t<i_t, f_t>::balance_worker_loads()
                                 all_nodes[i]->origin_worker_id,
                                 all_nodes[i]->lower_bound);
   }
+}
+
+template <typename i_t, typename f_t>
+f_t branch_and_bound_t<i_t, f_t>::compute_bsp_lower_bound()
+{
+  // Compute accurate lower bound from all BSP sources
+  // Called during sync phase (single-threaded), so no locking needed for worker queues
+  const f_t inf   = std::numeric_limits<f_t>::infinity();
+  f_t lower_bound = inf;
+
+  // Check global heap (may have nodes not yet distributed)
+  mutex_heap_.lock();
+  if (heap_.size() > 0) { lower_bound = std::min(heap_.top()->lower_bound, lower_bound); }
+  mutex_heap_.unlock();
+
+  // Check all worker queues
+  for (const auto& worker : *bsp_workers_) {
+    // Check paused node (current_node)
+    if (worker.current_node != nullptr) {
+      lower_bound = std::min(worker.current_node->lower_bound, lower_bound);
+    }
+
+    // Check queue top (min lower bound due to priority queue ordering)
+    if (!worker.local_queue.empty()) {
+      lower_bound = std::min(worker.local_queue.top()->lower_bound, lower_bound);
+    }
+  }
+
+  return lower_bound;
 }
 
 #ifdef DUAL_SIMPLEX_INSTANTIATE_DOUBLE

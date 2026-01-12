@@ -51,6 +51,10 @@ struct bb_worker_state_t {
   // Current node being processed (may be paused at horizon boundary)
   mip_node_t<i_t, f_t>* current_node{nullptr};
 
+  // Last node that was solved (for basis warm-start detection)
+  // If next node's parent == last_solved_node, we can reuse basis
+  mip_node_t<i_t, f_t>* last_solved_node{nullptr};
+
   // Worker's virtual time clock (cumulative work units)
   double clock{0.0};
 
@@ -113,11 +117,15 @@ struct bb_worker_state_t {
   };
   std::vector<queued_integer_solution_t> integer_solutions;
 
-  // Queued pseudo-cost updates (applied in deterministic order at sync)
+  // Queued pseudo-cost updates (applied to global pseudo-costs at sync)
   std::vector<pseudo_cost_update_t<i_t, f_t>> pseudo_cost_updates;
 
   // Pseudo-cost snapshot for deterministic variable selection
-  // These are copied from global pseudo-costs at horizon start
+  // Initialized from global pseudo-costs at horizon start, then updated locally
+  // during the horizon as the worker processes nodes. This allows within-horizon
+  // learning while maintaining determinism (each worker's updates are sequential).
+  // At sync, all workers' updates are merged into global pseudo-costs, and new
+  // snapshots are taken at the next horizon start.
   std::vector<f_t> pc_sum_up_snapshot;
   std::vector<f_t> pc_sum_down_snapshot;
   std::vector<i_t> pc_num_up_snapshot;
@@ -179,10 +187,23 @@ struct bb_worker_state_t {
     pseudo_cost_updates.clear();
   }
 
-  // Queue a pseudo-cost update (to be applied at sync in deterministic order)
+  // Queue a pseudo-cost update for global sync AND apply it to local snapshot immediately
+  // This allows within-horizon learning while maintaining determinism:
+  // - Local snapshot updates are sequential within each worker (deterministic)
+  // - Global updates are merged at sync in sorted (VT, worker_id) order (deterministic)
   void queue_pseudo_cost_update(i_t variable, rounding_direction_t direction, f_t delta)
   {
+    // Queue for global sync at horizon end
     pseudo_cost_updates.push_back({variable, direction, delta, clock, worker_id});
+
+    // Also apply to local snapshot immediately for better variable selection
+    if (direction == rounding_direction_t::DOWN) {
+      pc_sum_down_snapshot[variable] += delta;
+      pc_num_down_snapshot[variable]++;
+    } else {
+      pc_sum_up_snapshot[variable] += delta;
+      pc_num_up_snapshot[variable]++;
+    }
   }
 
   // Variable selection using snapshot (for BSP determinism)
