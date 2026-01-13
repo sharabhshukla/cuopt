@@ -632,7 +632,7 @@ size_t csc_matrix_t<i_t, f_t>::hash() const
 }
 
 template <typename i_t, typename f_t>
-void csr_matrix_t<i_t, f_t>::check_matrix(std::string matrix_name) const
+i_t csr_matrix_t<i_t, f_t>::check_matrix(std::string matrix_name) const
 {
   std::vector<i_t> col_marker(this->n, -1);
   for (i_t i = 0; i < this->m; ++i) {
@@ -640,13 +640,15 @@ void csr_matrix_t<i_t, f_t>::check_matrix(std::string matrix_name) const
     const i_t row_end   = this->row_start[i + 1];
     for (i_t p = row_start; p < row_end; ++p) {
       const i_t j = this->j[p];
-      if (j < 0 || j >= this->n) { printf("CSR Error: column index %d not in range [0, %d)\n", j, this->n); }
+      if (j < 0 || j >= this->n) { printf("CSR Error: column index %d not in range [0, %d)\n", j, this->n); return -1;}
       if (col_marker[j] == i) {
         printf("CSR Error (%s) : repeated column index %d in row %d\n", matrix_name.c_str(), j, i);
+        return -1;
       }
       col_marker[j] = i;
     }
   }
+  return 0;
 }
 
 // x <- x + alpha * A(:, j)

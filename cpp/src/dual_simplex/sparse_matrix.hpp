@@ -158,7 +158,7 @@ class csr_matrix_t {
   i_t append_row(const sparse_vector_t<i_t, f_t>& c);
 
   // Ensures no repeated column indices within a row
-  void check_matrix(std::string matrix_name = "") const;
+  i_t check_matrix(std::string matrix_name = "") const;
 
   bool is_diagonal() const
   {

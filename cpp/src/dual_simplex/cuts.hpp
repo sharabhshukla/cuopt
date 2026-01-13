@@ -137,10 +137,13 @@ class knapsack_generation_t {
   const std::vector<i_t>& get_knapsack_constraints() const { return knapsack_constraints_; }
 
  private:
+  // Generate a heuristic solution to the 0-1 knapsack problem
   f_t greedy_knapsack_problem(const std::vector<f_t>& values,
                               const std::vector<f_t>& weights,
                               f_t rhs,
                               std::vector<f_t>& solution);
+
+  // Solve a 0-1 knapsack problem using dynamic programming
   f_t solve_knapsack_problem(const std::vector<f_t>& values,
                              const std::vector<f_t>& weights,
                              f_t rhs,
@@ -149,6 +152,10 @@ class knapsack_generation_t {
   std::vector<i_t> is_slack_;
   std::vector<i_t> knapsack_constraints_;
 };
+
+// Forward declaration
+template <typename i_t, typename f_t>
+class mixed_integer_rounding_cut_t;
 
 template <typename i_t, typename f_t>
 class cut_generation_t {
@@ -174,6 +181,7 @@ class cut_generation_t {
                      const std::vector<i_t>& nonbasic_list);
  private:
 
+  // Generate all mixed integer gomory cuts
   void generate_gomory_cuts(const lp_problem_t<i_t, f_t>& lp,
                             const simplex_solver_settings_t<i_t, f_t>& settings,
                             csr_matrix_t<i_t, f_t>& Arow,
@@ -184,6 +192,7 @@ class cut_generation_t {
                             const std::vector<i_t>& basic_list,
                             const std::vector<i_t>& nonbasic_list);
 
+  // Generate all mixed integer rounding cuts
   void generate_mir_cuts(const lp_problem_t<i_t, f_t>& lp,
                          const simplex_solver_settings_t<i_t, f_t>& settings,
                          csr_matrix_t<i_t, f_t>& Arow,
@@ -191,12 +200,29 @@ class cut_generation_t {
                          const std::vector<variable_type_t>& var_types,
                          const std::vector<f_t>& xstar);
 
+  // Generate all knapsack cuts
   void generate_knapsack_cuts(const lp_problem_t<i_t, f_t>& lp,
                               const simplex_solver_settings_t<i_t, f_t>& settings,
                               csr_matrix_t<i_t, f_t>& Arow,
                               const std::vector<i_t>& new_slacks,
                               const std::vector<variable_type_t>& var_types,
                               const std::vector<f_t>& xstar);
+
+
+  // Generate a single MIR cut
+  bool generate_single_mir_cut(const lp_problem_t<i_t, f_t>& lp,
+                               const simplex_solver_settings_t<i_t, f_t>& settings,
+                               csr_matrix_t<i_t, f_t>& Arow,
+                               const std::vector<variable_type_t>& var_types,
+                               const std::vector<f_t>& xstar,
+                               const sparse_vector_t<i_t, f_t>& inequality,
+                               f_t inequality_rhs,
+                               mixed_integer_rounding_cut_t<i_t, f_t>& mir,
+                               sparse_vector_t<i_t, f_t>& cut,
+                              f_t& cut_rhs);
+
+
+
   cut_pool_t<i_t, f_t>& cut_pool_;
   knapsack_generation_t<i_t, f_t> knapsack_generation_;
 };
@@ -252,9 +278,58 @@ class mixed_integer_rounding_cut_t {
   {
   }
 
+  // We call initalize each cut pass
+  // it resizes the arrays
   void initialize(const lp_problem_t<i_t, f_t>& lp,
                   const std::vector<i_t>& new_slacks,
                   const std::vector<f_t>& xstar);
+
+
+  // Convert an inequality of the form: sum_j a_j x_j >= beta
+  // with l_j <= x_j <= u_j into the form:
+  // sum_{j not in L union U} d_j x_j + sum_{j in L} d_j v_j
+  // + sum_{j in U} d_j w_j >= delta,
+  // where v_j = x_j - l_j for j in L
+  // and   w_j = u_j - x_j for j in Us
+  void to_nonnegative(const lp_problem_t<i_t, f_t>& lp,
+                      sparse_vector_t<i_t, f_t>& inequality,
+                      f_t& rhs);
+
+  void relaxation_to_nonnegative(const lp_problem_t<i_t, f_t>& lp,
+                                 const std::vector<f_t>& xstar,
+                                 std::vector<f_t>& xstar_nonnegative);
+
+  // Convert an inequality of the form:
+  // sum_{j not in L union U} d_j x_j + sum_{j in L} d_j v_j
+  // + sum_{j in U} d_j w_j >= delta
+  // where v_j = x_j - l_j for j in L
+  // and   w_j = u_j - x_j for j in U
+  // back to an inequality on the original variables
+  // sum_j a_j x_j >= beta
+  void to_original(const lp_problem_t<i_t, f_t>&lp,
+                   sparse_vector_t<i_t, f_t>& inequality,
+                   f_t& rhs);
+
+  // Given a cut of the form sum_j d_j x_j >= beta
+  // with l_j <= x_j <= u_j, try to remove coefficients d_j
+  // with | d_j | < epsilon
+  void remove_small_coefficients(const std::vector<f_t>& lower_bounds,
+                                 const std::vector<f_t>& upper_bounds,
+                                 sparse_vector_t<i_t, f_t>& cut,
+                                 f_t& cut_rhs);
+
+
+  // Given an inequality sum_j a_j x_j >= beta, x_j >= 0, x_j in Z, j in I
+  // generate an MIR cut of the form sum_j d_j x_j >= delta
+  i_t generate_cut_nonnegative(const sparse_vector_t<i_t, f_t>& a,
+                               f_t beta,
+                               const std::vector<variable_type_t>& var_types,
+                               sparse_vector_t<i_t, f_t>& cut,
+                               f_t& cut_rhs);
+
+  f_t compute_violation(const sparse_vector_t<i_t, f_t>& cut,
+                        f_t cut_rhs,
+                        const std::vector<f_t>& xstar);
 
   i_t generate_cut(const sparse_vector_t<i_t, f_t>& a,
                    f_t beta,
@@ -269,6 +344,16 @@ class mixed_integer_rounding_cut_t {
                          sparse_vector_t<i_t, f_t>& cut,
                          f_t& cut_rhs);
 
+  // Combine the pivot row with the inequality to eliminate the variable j
+  // The new inequality is returned in inequality and inequality_rhs
+  void combine_rows(const lp_problem_t<i_t, f_t>& lp,
+                    csr_matrix_t<i_t, f_t>& Arow,
+                    i_t j,
+                    const sparse_vector_t<i_t, f_t>& pivot_row,
+                    f_t pivot_row_rhs,
+                    sparse_vector_t<i_t, f_t>& inequality,
+                    f_t& inequality_rhs);
+
  private:
   i_t num_vars_;
   const simplex_solver_settings_t<i_t, f_t>& settings_;
@@ -278,6 +363,8 @@ class mixed_integer_rounding_cut_t {
   std::vector<i_t> has_upper_;
   std::vector<i_t> is_slack_;
   std::vector<i_t> slack_rows_;
+  std::vector<i_t> indices_;
+  std::vector<i_t> bound_info_;
   bool needs_complement_;
 };
 

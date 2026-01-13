@@ -1799,9 +1799,19 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           num_knapsack_cuts++;
         }
       }
+      print_cut_types(cut_types, settings_);
+      printf("Cut pool size: %d\n", cut_pool.pool_size());
 
-      cuts_to_add.check_matrix();
 
+      if (cuts_to_add.check_matrix() != 0) {
+        printf("Bad cuts matrix\n");
+        for (i_t i = 0; i < static_cast<i_t>(cut_types.size()); ++i)
+        {
+          printf("row %d cut type %d\n", i, cut_types[i]);
+        }
+        exit(-1);
+      }
+      
 #ifdef PRINT_CUTS
       csc_matrix_t<i_t, f_t> cuts_to_add_col(cuts_to_add.m, cuts_to_add.n, cuts_to_add.row_start[cuts_to_add.m]);
       cuts_to_add.to_compressed_col(cuts_to_add_col);
