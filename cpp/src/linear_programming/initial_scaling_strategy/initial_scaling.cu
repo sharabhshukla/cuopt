@@ -548,9 +548,22 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
 #ifdef CUPDLP_DEBUG_MODE
   print("constraint_lower_bound", op_problem_scaled_.constraint_lower_bounds);
   print("constraint_upper_bound", op_problem_scaled_.constraint_upper_bounds);
-  // print("variable_lower_bound", op_problem_scaled_.variable_lower_bounds);
-  // print("variable_upper_bound", op_problem_scaled_.variable_upper_bounds);
+  std::vector<f_t2> variable_bounds = host_copy(op_problem_scaled_.variable_bounds);
+  std::vector<f_t> lower_bounds;
+  std::vector<f_t> upper_bounds;
+  for (const auto& variable_bound : variable_bounds) {
+    lower_bounds.push_back(variable_bound.x);
+    upper_bounds.push_back(variable_bound.y);
+  }
+  print("variable_lower_bound", lower_bounds);
+  print("variable_upper_bound", upper_bounds);
   print("objective_vector", op_problem_scaled_.objective_coefficients);
+  if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0)
+  {
+    print("New bounds idx", pdhg_solver_ptr_->get_new_bounds_idx());
+    print("New bounds lower", pdhg_solver_ptr_->get_new_bounds_lower());
+    print("New bounds upper", pdhg_solver_ptr_->get_new_bounds_upper());
+  }
 #endif
   op_problem_scaled_.is_scaled_ = true;
   if (!running_mip_) {

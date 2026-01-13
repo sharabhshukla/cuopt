@@ -275,6 +275,7 @@ template <typename i_t, typename f_t>
 void pdlp_solver_t<i_t, f_t>::set_initial_primal_solution(
   const rmm::device_uvector<f_t>& initial_primal_solution)
 {
+  cuopt_assert(initial_primal_solution.size() % primal_size_h_ == 0, "Initial primal solution size must be divisible by primal_size_h_");
   initial_primal_.resize(primal_size_h_ * climber_strategies_.size() , stream_view_);
   // In batch case initial_primal_ can be larger than the given initial_primal_solution 
   cub::DeviceTransform::Transform(
@@ -289,6 +290,7 @@ template <typename i_t, typename f_t>
 void pdlp_solver_t<i_t, f_t>::set_initial_dual_solution(
   const rmm::device_uvector<f_t>& initial_dual_solution)
 {
+  cuopt_assert(initial_dual_solution.size() % dual_size_h_ == 0, "Initial dual solution size must be divisible by dual_size_h_");
   initial_dual_.resize(dual_size_h_ * climber_strategies_.size(), stream_view_);
   cub::DeviceTransform::Transform(
   problem_wrap_container(initial_dual_solution),
@@ -1509,6 +1511,18 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
   // computing/setting the initial primal weight and step size and if they are not recomputed later.
   step_size_strategy_.get_primal_and_dual_stepsizes(primal_step_size_, dual_step_size_);
 
+#ifdef CUPDLP_DEBUG_MODE
+ if (initial_primal_.size() != 0 || initial_dual_.size() != 0) {
+  std::cout << "Initial primal and dual solution before scaling" << std::endl;
+  if (initial_primal_.size() != 0) {
+    print("initial_primal_", initial_primal_);
+  }
+  if (initial_dual_.size() != 0) {
+    print("initial_dual_", initial_dual_);
+  }
+ }
+#endif
+
   // If there is an initial primal or dual we should update the restart info as if there was a step
   // that has happend
   if (initial_primal_.size() != 0 || initial_dual_.size() != 0) {
@@ -1547,6 +1561,11 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
     }
   }
 
+#ifdef CUPDLP_DEBUG_MODE
+  std::cout << "Primal solution after projection" << std::endl;
+  print("pdhg_solver_.get_primal_solution()", pdhg_solver_.get_primal_solution());
+#endif
+
   // Need to to tranpose primal solution to row format as there might be initial values or clamping
   // Value may not be all 0
   if (batch_mode_) {
@@ -1554,10 +1573,6 @@ optimization_problem_solution_t<i_t, f_t> pdlp_solver_t<i_t, f_t>::run_solver(co
     transpose_primal_dual_to_row(pdhg_solver_.get_primal_solution(), pdhg_solver_.get_dual_solution(), dummy);
   }
 
-#ifdef CUPDLP_DEBUG_MODE
-  std::cout << "Primal solution after projection" << std::endl;
-  print("pdhg_solver_.get_primal_solution()", pdhg_solver_.get_primal_solution());
-#endif
 
   if (verbose) {
     std::cout << "primal_size_h_ " << primal_size_h_ << " dual_size_h_ " << dual_size_h_ << " nnz "
