@@ -279,6 +279,9 @@ class branch_and_bound_t {
   // Helper to flush any pending features at end of solve
   void flush_pending_features();
 
+  void report_heuristic(f_t obj);
+  void report(std::string symbol, f_t obj, f_t lower_bound, i_t node_depth);
+
   // Set the final solution.
   mip_status_t set_final_solution(mip_solution_t<i_t, f_t>& solution, f_t lower_bound);
 

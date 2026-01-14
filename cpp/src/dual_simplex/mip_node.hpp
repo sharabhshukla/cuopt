@@ -352,7 +352,8 @@ class node_compare_t {
   // Deterministic comparison using BSP identity tuple or path_hash fallback
   bool deterministic_compare(const mip_node_t<i_t, f_t>& a, const mip_node_t<i_t, f_t>& b) const
   {
-    assert(a.has_bsp_identity() && b.has_bsp_identity());
+    // non-BSP case
+    if (!a.has_bsp_identity() && !b.has_bsp_identity()) { return a.depth > b.depth; }
     // If both have BSP identity, use lexicographic comparison of (origin_worker_id, creation_seq)
     if (a.has_bsp_identity() && b.has_bsp_identity()) {
       if (a.origin_worker_id != b.origin_worker_id) {
