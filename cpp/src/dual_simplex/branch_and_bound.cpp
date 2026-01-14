@@ -1750,6 +1750,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
       upper_bound_ = root_objective_;
       mutex_upper_.unlock();
+      if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts > 0) {
+        settings_.log.printf("Gomory cuts   : %d\n", num_gomory_cuts);
+        settings_.log.printf("MIR cuts      : %d\n", num_mir_cuts);
+        settings_.log.printf("Knapsack cuts : %d\n", num_knapsack_cuts);
+        settings_.log.printf("Cut pool size : %d\n", cut_pool_size);
+        settings_.log.printf("Size with cuts: %d constraints, %d variables, %d nonzeros\n", original_lp_.num_rows, original_lp_.num_cols, original_lp_.A.col_start[original_lp_.A.n]);
+      }
       // We should be done here
       uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
       solution.objective          = incumbent_.objective;
@@ -1811,7 +1818,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         }
         exit(-1);
       }
-      
+
 #ifdef PRINT_CUTS
       csc_matrix_t<i_t, f_t> cuts_to_add_col(cuts_to_add.m, cuts_to_add.n, cuts_to_add.row_start[cuts_to_add.m]);
       cuts_to_add.to_compressed_col(cuts_to_add_col);

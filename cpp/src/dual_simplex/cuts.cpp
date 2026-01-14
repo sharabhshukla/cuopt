@@ -228,7 +228,8 @@ knapsack_generation_t<i_t, f_t>::knapsack_generation_t(
   for (i_t i = 0; i < lp.num_rows; i++) {
     const i_t row_start = Arow.row_start[i];
     const i_t row_end   = Arow.row_start[i + 1];
-    if (row_end - row_start < 3) { continue; }
+    const i_t row_len   = row_end - row_start;
+    if (row_len < 3) { continue; }
     bool is_knapsack    = true;
     f_t sum_pos         = 0.0;
     //printf("i %d ", i);
@@ -255,9 +256,14 @@ knapsack_generation_t<i_t, f_t>::knapsack_generation_t(
 
     if (is_knapsack) {
       const f_t beta = lp.rhs[i];
-      printf("Knapsack constraint %d beta %e sum_pos %e\n", i, beta, sum_pos);
       if (std::abs(beta - std::round(beta)) <= settings.integer_tol) {
-        if (beta >= 0.0 && beta <= sum_pos) {
+        if (beta > 0.0 && beta <= sum_pos && std::abs(sum_pos / (row_len - 1) - beta) > 1e-3) {
+          printf("Knapsack constraint %d row len %d beta %e sum_pos %e sum_pos / (row_len - 1) %e\n",
+            i,
+            row_len,
+            beta,
+            sum_pos,
+            sum_pos / (row_len - 1));
           knapsack_constraints_.push_back(i);
         }
       }
@@ -322,7 +328,7 @@ i_t knapsack_generation_t<i_t, f_t>::generate_knapsack_cuts(
   for (i_t k = 0; k < knapsack_inequality.i.size(); k++) {
     const i_t j = knapsack_inequality.i[k];
     if (!is_slack_[j]) {
-      const f_t vj = 1.0 - xstar[j];
+      const f_t vj = std::min(1.0, std::max(0.0,1.0 - xstar[j]));
       objective_constant += vj;
       values[h]  = vj;
       weights[h] = knapsack_inequality.x[k];
@@ -357,6 +363,7 @@ i_t knapsack_generation_t<i_t, f_t>::generate_knapsack_cuts(
     const i_t j = knapsack_inequality.i[k];
     if (!is_slack_[j]) {
       if (solution[h] == 0.0) {
+        //printf("x%d in cover. relaxation %e\n", j, xstar[j]);
         cut.i.push_back(j);
         cut.x.push_back(-1.0);
       }
@@ -374,7 +381,15 @@ i_t knapsack_generation_t<i_t, f_t>::generate_knapsack_cuts(
   f_t violation = dot - cut_rhs;
   printf("Knapsack cut %d violation %e < 0\n", knapsack_row, violation);
 
-  if (violation <= tol) { return -1; }
+  if (violation >= -tol) { return -1; }
+
+#ifdef PRINT_KNAPSACK_CUT
+  printf("knapsack cut (cover %d): \n", cover_size);
+  for (i_t k = 0; k < cut.i.size(); k++) {
+    printf("x%d coeff %g value %g\n", cut.i[k], -cut.x[k], xstar[cut.i[k]]);
+  }
+  printf("cut_rhs %g\n", -cut_rhs);
+#endif
   return 0;
 }
 
@@ -1035,7 +1050,7 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
           f_t dot      = cut_A.dot(xstar);
           f_t cut_norm = cut_A.norm2_squared();
           if (dot >= cut_A_rhs) {
-            settings.log.printf("Cut %d is not violated. Skipping\n", i);
+            //settings.log.printf("Cut %d is not violated. Skipping\n", i);
             continue;
           }
           cut_A_distance = (cut_A_rhs - dot) / std::sqrt(cut_norm);
@@ -1069,7 +1084,7 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
           f_t dot      = cut_B.dot(xstar);
           f_t cut_norm = cut_B.norm2_squared();
           if (dot >= cut_B_rhs) {
-            settings.log.printf("Cut %d is not violated. Skipping\n", i);
+            //settings.log.printf("Cut %d is not violated. Skipping\n", i);
             continue;
           }
           cut_B_distance = (cut_B_rhs - dot) / std::sqrt(cut_norm);
