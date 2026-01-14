@@ -7,6 +7,7 @@ from enum import Enum
 
 import cuopt_mps_parser
 import numpy as np
+from scipy.sparse import coo_matrix
 
 import cuopt.linear_programming.data_model as data_model
 import cuopt.linear_programming.solver as solver
@@ -326,7 +327,7 @@ class QuadraticExpression:
     """
 
     def __init__(
-        self, qvars1, qvars2, qcoefficients, vars, coefficients, constant
+        self, qvars1, qvars2, qcoefficients, vars=[], coefficients=[], constant=0.0
     ):
         self.qvars1 = qvars1
         self.qvars2 = qvars2
@@ -679,6 +680,80 @@ class QuadraticExpression:
 
     def __eq__(self, other):
         raise Exception("Quadratic constraints not supported")
+
+
+class MQuadraticExpression:
+    """
+    MQuadraticExpressions contain quadratic terms, linear terms, and a constant.
+    MQuadraticExpressions can be used to create quadratic objectives in
+    the Problem.
+
+    Parameters
+    ----------
+    qmatrix : List[List[float]]
+        2D List or np.array containing quadratic coefficient matrix terms.
+    qvars : List[Variable]
+        List of variables for quadratic matrix.
+        Should be in the same order of variables added.
+    vars : List[Variable]
+        List of Variables for linear terms.
+    coefficients : List[float]
+        List of coefficients for linear terms.
+    constant : float
+        Constant of the quadratic expression.
+
+    Examples
+    --------
+    >>> x = problem.addVariable()
+    >>> y = problem.addVariable()
+    >>> # Create x^2 + 2*x*y + 3*x + 4
+    >>> quad_expr = QuadraticExpression(
+    ...     [[1.0, 2.0], [0.0, 0.0]], [x, y],
+    ...     [x], [3.0], 4.0
+    ... )
+    """
+
+    def __init__(
+        self, qmatrix, qvars=[], vars=[], coefficients=[], constant=0.0
+    ):
+        self.qmatrix = qmatrix
+        self.qvars = qvars
+        self.vars = vars
+        self.coefficients = coefficients
+        self.constant = constant
+
+
+    def shape(self):
+        return np.shape(self.qmatrix)
+
+    def getValue(self):
+        """
+        Returns the value of the expression computed with the
+        current solution.
+        """
+        value = 0.0
+        for i, var in enumerate(self.vars):
+            value += var.Value * self.coefficients[i]
+        for i, var1 in enumerate(self.qvars):
+            for j, var2 in enumerate(self.qvars):
+                value += var1.Value * var2.Value * int(self.qmatrix[i,j])
+        return value + self.constant
+
+    def __size__(self):
+        return np.size(self.qmatrix)
+
+    ## TODO: Add matrix multiplication
+    #def __matmul__(self, qcols):
+    #    if not self.qcols:
+    #        self.qcols = qcols
+    #    else:
+    #        raise Exception("")
+
+    #def __rmatmul__(self, qcols):
+    #    if not self.qrows:
+    #        self.qrows = qrows
+    #    else:
+    #        raise Exception("")
 
 
 class LinearExpression:
@@ -1140,7 +1215,6 @@ class Problem:
         self.ObjSense = MINIMIZE
         self.ObjConstant = 0.0
         self.Status = -1
-        self.ObjValue = float("nan")
         self.warmstart_data = None
 
         self.model = None
@@ -1149,7 +1223,7 @@ class Problem:
         self.row_sense = None
         self.constraint_csr_matrix = None
         self.objective_qcsr_matrix = None
-        self.objective_qcoo_matrix = [], [], []
+        self.objective_qcoo_matrix = None
         self.lower_bound = None
         self.upper_bound = None
         self.var_type = None
@@ -1277,9 +1351,9 @@ class Problem:
         dm.set_objective_offset(self.ObjConstant)
         if self.getQcsr():
             dm.set_quadratic_objective_matrix(
-                np.array(self.objective_qcsr_matrix["values"]),
-                np.array(self.objective_qcsr_matrix["column_indices"]),
-                np.array(self.objective_qcsr_matrix["row_pointers"]),
+                self.objective_qcsr_matrix["values"],
+                self.objective_qcsr_matrix["column_indices"],
+                self.objective_qcsr_matrix["row_pointers"],
             )
         dm.set_variable_lower_bounds(self.lower_bound)
         dm.set_variable_upper_bounds(self.upper_bound)
@@ -1310,7 +1384,7 @@ class Problem:
 
         self.model = None
         self.constraint_csr_matrix = None
-        self.objective_qcoo_matrix = [], [], []
+        self.objective_qcoo_matrix = None
         self.objective_qcsr_matrix = None
         self.ObjValue = float("nan")
         self.warmstart_data = None
@@ -1480,11 +1554,25 @@ class Problem:
                         sum_coeff
                     )
                 self.ObjConstant = expr.constant
-                self.objective_qcoo_matrix = (
-                    expr.qvars1,
-                    expr.qvars2,
-                    expr.qcoefficients,
+                qrows = [var.getIndex() for var in expr.qvars1]
+                qcols = [var.getIndex() for var in expr.qvars2]
+                self.objective_qcoo_matrix = coo_matrix(
+                    (np.array(expr.qcoefficients),
+                    (np.array(qrows), np.array(qcols))),
+                    shape=(self.NumVariables, self.NumVariables)
                 )
+            case MQuadraticExpression():
+                for var in self.vars:
+                    var.setObjectiveCoefficient(0.0)
+                for var, coeff in zip(expr.vars, expr.coefficients):
+                    c_val = self.vars[var.getIndex()].getObjectiveCoefficient()
+                    sum_coeff = coeff + c_val
+                    self.vars[var.getIndex()].setObjectiveCoefficient(
+                        sum_coeff
+                    )
+                self.ObjConstant = expr.constant
+                self.objective_qcoo_matrix = coo_matrix(
+                    expr.qmatrix)
             case _:
                 raise ValueError(
                     "Objective must be a LinearExpression or a constant"
@@ -1643,15 +1731,20 @@ class Problem:
         coeffs = []
         for var in self.vars:
             coeffs.append(var.getObjectiveCoefficient())
-        if not self.objective_qcoo_matrix:
+        if self.objective_qcoo_matrix is None:
             return LinearExpression(self.vars, coeffs, self.ObjConstant)
         else:
-            return QuadraticExpression(
-                *self.objective_qcoo_matrix,
+            return MQuadraticExpression(
+                self.objective_qcoo_matrix.todense(),
+                self.vars,
                 self.vars,
                 coeffs,
                 self.ObjConstant,
             )
+
+    @property
+    def ObjValue(self):
+        self.Obj.getValue()
 
     def getCSR(self):
         """
@@ -1673,29 +1766,14 @@ class Problem:
     def getQcsr(self):
         if self.objective_qcsr_matrix is not None:
             return self.dict_to_object(self.objective_qcsr_matrix)
-        vars1, vars2, coeffs = self.objective_qcoo_matrix
-        if not vars1:
+        if self.objective_qcoo_matrix is None:
             return None
-        Qdict = {}
-        Qcsr_dict = {"row_pointers": [0], "column_indices": [], "values": []}
-        for i, var1 in enumerate(vars1):
-            if var1.index not in Qdict:
-                Qdict[var1.index] = {}
-            row_dict = Qdict[var1.index]
-            var2 = vars2[i]
-            coeff = coeffs[i]
-            row_dict[var2.index] = (
-                row_dict[var2.index] + coeff
-                if var2.index in row_dict
-                else coeff
-            )
-        for i in range(0, self.NumVariables):
-            if i in Qdict:
-                Qcsr_dict["column_indices"].extend(list(Qdict[i].keys()))
-                Qcsr_dict["values"].extend(list(Qdict[i].values()))
-            Qcsr_dict["row_pointers"].append(len(Qcsr_dict["column_indices"]))
-        self.objective_qcsr_matrix = Qcsr_dict
-        return self.dict_to_object(Qcsr_dict)
+        qcsr_matrix = self.objective_qcoo_matrix.tocsr()
+        self.objective_qcsr_matrix = {"row_pointers": qcsr_matrix.indptr,
+                                      "column_indices": qcsr_matrix.indices,
+                                      "values": qcsr_matrix.data}
+        return self.dict_to_object(self.objective_qcsr_matrix)
+
 
     def relax(self):
         """
@@ -1725,7 +1803,6 @@ class Problem:
         else:
             IsMIP = True
             self.SolutionStats = self.dict_to_object(solution.get_milp_stats())
-
         primal_sol = solution.get_primal_solution()
         reduced_cost = solution.get_reduced_cost()
         if len(primal_sol) > 0:
@@ -1744,7 +1821,6 @@ class Problem:
             if dual_sol is not None and len(dual_sol) > 0:
                 constr.DualValue = dual_sol[i]
             constr.Slack = constr.compute_slack()
-        self.ObjValue = self.Obj.getValue()
         self.solved = True
 
     def solve(self, settings=solver_settings.SolverSettings()):
@@ -1765,9 +1841,7 @@ class Problem:
         """
         if self.model is None:
             self._to_data_model()
-
         # Call Solver
         solution = solver.Solve(self.model, settings)
-
         # Post Solve
         self.populate_solution(solution)
