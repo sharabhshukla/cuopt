@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -680,6 +680,46 @@ cuopt_int_t cuOptSetFloatParameter(cuOptSolverSettings settings,
 cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
                                    const char* parameter_name,
                                    cuopt_float_t* parameter_value);
+
+/**
+ * @brief Callback for receiving incumbent MIP solutions.
+ *
+ * @param[in] solution - Device pointer to incumbent solution values.
+ * @param[in] objective_value - Device pointer to incumbent objective value.
+ */
+typedef void (*cuOptMipGetSolutionCallback)(const cuopt_float_t* solution,
+                                            const cuopt_float_t* objective_value);
+
+/**
+ * @brief Callback for injecting MIP solutions.
+ *
+ * @param[out] solution - Device pointer to solution values to set.
+ * @param[out] objective_value - Device pointer to objective value to set.
+ */
+typedef void (*cuOptMipSetSolutionCallback)(cuopt_float_t* solution,
+                                            cuopt_float_t* objective_value);
+
+/**
+ * @brief Register a callback to receive incumbent MIP solutions.
+ *
+ * @param[in] settings - The solver settings object.
+ * @param[in] callback - Callback function to receive incumbent solutions.
+ *
+ * @return A status code indicating success or failure.
+ */
+cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
+                                           cuOptMipGetSolutionCallback callback);
+
+/**
+ * @brief Register a callback to inject MIP solutions.
+ *
+ * @param[in] settings - The solver settings object.
+ * @param[in] callback - Callback function to inject solutions.
+ *
+ * @return A status code indicating success or failure.
+ */
+cuopt_int_t cuOptSetMipSetSolutionCallback(cuOptSolverSettings settings,
+                                           cuOptMipSetSolutionCallback callback);
 
 /** @brief Check if an optimization problem is a mixed integer programming problem.
  *

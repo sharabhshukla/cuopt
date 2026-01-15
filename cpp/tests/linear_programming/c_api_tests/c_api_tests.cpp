@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -87,6 +87,8 @@ TEST(c_api, solve_time_bb_preemption)
 }
 
 TEST(c_api, bad_parameter_name) { EXPECT_EQ(test_bad_parameter_name(), CUOPT_INVALID_ARGUMENT); }
+
+TEST(c_api, mip_callbacks) { EXPECT_EQ(test_mip_callbacks(), CUOPT_SUCCESS); }
 
 TEST(c_api, burglar) { EXPECT_EQ(burglar_problem(), CUOPT_SUCCESS); }
 

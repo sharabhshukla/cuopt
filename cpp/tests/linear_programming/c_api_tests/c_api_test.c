@@ -9,6 +9,7 @@
 
 #include <cuopt/linear_programming/cuopt_c.h>
 
+#include <cuda_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -128,6 +129,172 @@ cuopt_int_t test_bad_parameter_name() {
 
 DONE:
   cuOptDestroySolverSettings(&settings);
+  return status;
+}
+
+typedef struct mip_callback_context_t {
+  cuopt_int_t n_variables;
+  int get_calls;
+  int set_calls;
+  int error;
+  cuopt_float_t last_objective;
+  cuopt_float_t* last_solution;
+} mip_callback_context_t;
+
+static mip_callback_context_t* callback_context = NULL;
+
+static void mip_get_solution_callback(const cuopt_float_t* solution,
+                                      const cuopt_float_t* objective_value)
+{
+  mip_callback_context_t* context = callback_context;
+  if (context == NULL) { return; }
+  context->get_calls += 1;
+  if (context->last_solution == NULL) {
+    context->last_solution =
+      (cuopt_float_t*)malloc(context->n_variables * sizeof(cuopt_float_t));
+    if (context->last_solution == NULL) {
+      context->error = 1;
+      return;
+    }
+  }
+  if (cudaMemcpy(context->last_solution,
+                 solution,
+                 context->n_variables * sizeof(cuopt_float_t),
+                 cudaMemcpyDeviceToHost) != cudaSuccess) {
+    context->error = 1;
+    return;
+  }
+  if (cudaMemcpy(&context->last_objective,
+                 objective_value,
+                 sizeof(cuopt_float_t),
+                 cudaMemcpyDeviceToHost) != cudaSuccess) {
+    context->error = 1;
+  }
+}
+
+static void mip_set_solution_callback(cuopt_float_t* solution,
+                                      cuopt_float_t* objective_value)
+{
+  mip_callback_context_t* context = callback_context;
+  if (context == NULL) { return; }
+  context->set_calls += 1;
+  if (context->last_solution == NULL) { return; }
+  if (cudaMemcpy(solution,
+                 context->last_solution,
+                 context->n_variables * sizeof(cuopt_float_t),
+                 cudaMemcpyHostToDevice) != cudaSuccess) {
+    context->error = 1;
+    return;
+  }
+  if (cudaMemcpy(objective_value,
+                 &context->last_objective,
+                 sizeof(cuopt_float_t),
+                 cudaMemcpyHostToDevice) != cudaSuccess) {
+    context->error = 1;
+  }
+}
+
+cuopt_int_t test_mip_callbacks()
+{
+  cuOptOptimizationProblem problem = NULL;
+  cuOptSolverSettings settings = NULL;
+  cuOptSolution solution = NULL;
+  mip_callback_context_t context = {0};
+
+#define NUM_ITEMS       8
+#define NUM_CONSTRAINTS 1
+  cuopt_int_t num_items    = NUM_ITEMS;
+  cuopt_float_t max_weight = 102;
+  cuopt_float_t value[]    = {15, 100, 90, 60, 40, 15, 10, 1};
+  cuopt_float_t weight[]   = {2, 20, 20, 30, 40, 30, 60, 10};
+
+  cuopt_int_t num_variables   = NUM_ITEMS;
+  cuopt_int_t num_constraints = NUM_CONSTRAINTS;
+
+  cuopt_int_t row_offsets[] = {0, NUM_ITEMS};
+  cuopt_int_t column_indices[NUM_ITEMS];
+
+  cuopt_float_t rhs[]         = {max_weight};
+  char constraint_sense[] = {CUOPT_LESS_THAN};
+  cuopt_float_t lower_bounds[NUM_ITEMS];
+  cuopt_float_t upper_bounds[NUM_ITEMS];
+  char variable_types[NUM_ITEMS];
+  cuopt_int_t status;
+
+  for (cuopt_int_t j = 0; j < NUM_ITEMS; j++) {
+    column_indices[j] = j;
+  }
+
+  for (cuopt_int_t j = 0; j < NUM_ITEMS; j++) {
+    variable_types[j] = CUOPT_INTEGER;
+    lower_bounds[j]   = 0;
+    upper_bounds[j]   = 1;
+  }
+
+  status = cuOptCreateProblem(num_constraints,
+                              num_variables,
+                              CUOPT_MAXIMIZE,
+                              0,
+                              value,
+                              row_offsets,
+                              column_indices,
+                              weight,
+                              constraint_sense,
+                              rhs,
+                              lower_bounds,
+                              upper_bounds,
+                              variable_types,
+                              &problem);
+  if (status != CUOPT_SUCCESS) {
+    printf("Error creating optimization problem\n");
+    goto DONE;
+  }
+
+  status = cuOptCreateSolverSettings(&settings);
+  if (status != CUOPT_SUCCESS) {
+    printf("Error creating solver settings\n");
+    goto DONE;
+  }
+
+  context.n_variables = num_variables;
+  callback_context    = &context;
+
+  status = cuOptSetMipGetSolutionCallback(settings, mip_get_solution_callback);
+  if (status != CUOPT_SUCCESS) {
+    printf("Error setting get-solution callback\n");
+    goto DONE;
+  }
+
+  status = cuOptSetMipSetSolutionCallback(settings, mip_set_solution_callback);
+  if (status != CUOPT_SUCCESS) {
+    printf("Error setting set-solution callback\n");
+    goto DONE;
+  }
+
+  status = cuOptSolve(problem, settings, &solution);
+  if (status != CUOPT_SUCCESS) {
+    printf("Error solving problem\n");
+    goto DONE;
+  }
+
+  if (context.error != 0) {
+    printf("Error in callback data transfer\n");
+    status = CUOPT_INVALID_ARGUMENT;
+    goto DONE;
+  }
+
+  if (context.get_calls < 1 || context.set_calls < 1) {
+    printf("Expected callbacks to be called at least once\n");
+    status = CUOPT_INVALID_ARGUMENT;
+    goto DONE;
+  }
+
+DONE:
+  callback_context = NULL;
+  if (context.last_solution != NULL) { free(context.last_solution); }
+  cuOptDestroyProblem(&problem);
+  cuOptDestroySolverSettings(&settings);
+  cuOptDestroySolution(&solution);
   return status;
 }
 
