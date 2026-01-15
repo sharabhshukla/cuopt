@@ -539,6 +539,7 @@ TEST(pdlp_class, initial_primal_weight_step_size_test)
   solver_settings.method          = cuopt::linear_programming::method_t::PDLP;
   // Select the default/legacy solver with no action upon the initial scaling on initial solution
   solver_settings.pdlp_solver_mode = cuopt::linear_programming::pdlp_solver_mode_t::Methodical1;
+  set_pdlp_solver_mode(solver_settings);
   EXPECT_FALSE(solver_settings.hyper_params.update_step_size_on_initial_solution);
   EXPECT_FALSE(
     solver_settings.hyper_params.update_primal_weight_on_initial_solution);
@@ -670,6 +671,8 @@ TEST(pdlp_class, per_constraint_test)
   solver_settings.tolerances.relative_dual_tolerance   = 0;  // Shoudln't matter
   solver_settings.tolerances.absolute_dual_tolerance   = 0.1;
   solver_settings.method                               = cuopt::linear_programming::method_t::PDLP;
+  solver_settings.pdlp_solver_mode                    = cuopt::linear_programming::pdlp_solver_mode_t::Stable2; // Not supported for the default Stable3 for now
+  set_pdlp_solver_mode(solver_settings);
 
   // First solve without the per constraint and it should break
   {
@@ -734,7 +737,7 @@ TEST(pdlp_class, best_primal_so_far_iteration)
   solver_settings.iteration_limit         = 3000;
   solver_settings.per_constraint_residual = true;
   solver_settings.method                  = cuopt::linear_programming::method_t::PDLP;
-
+  solver_settings.pdlp_solver_mode        = cuopt::linear_programming::pdlp_solver_mode_t::Stable2; // Not supported for the default Stable3 for now
   cuopt::mps_parser::mps_data_model_t<int, double> op_problem1 =
     cuopt::mps_parser::parse_mps<int, double>(path);
   cuopt::mps_parser::mps_data_model_t<int, double> op_problem2 =
@@ -1432,7 +1435,6 @@ TEST(pdlp_class, big_batch_afiro)
       EXPECT_EQ(ref_primal_solution[p], ref_primal_solution[p + i * primal_size]);
     for (size_t d = 0; d < dual_size; ++d)
       EXPECT_EQ(ref_dual_solution[d], ref_dual_solution[d + i * dual_size]);
-    break;
   }
 
   const auto primal_solution = extract_subvector(solution.get_primal_solution(), primal_size * (batch_size - 1), primal_size);
