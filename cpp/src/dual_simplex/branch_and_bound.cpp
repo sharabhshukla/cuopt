@@ -2096,16 +2096,14 @@ void branch_and_bound_t<i_t, f_t>::run_worker_loop(bb_worker_state_t<i_t, f_t>& 
       worker.last_solved_node = node;
 
       // Handle result
-      if (status == node_solve_info_t::TIME_LIMIT) {
+      if (status == node_solve_info_t::TIME_LIMIT || status == node_solve_info_t::WORK_LIMIT) {
         worker.current_node = nullptr;
-        solver_status_      = mip_exploration_status_t::TIME_LIMIT;
-        bsp_terminated_.store(true);
-        break;  // Exit loop - scheduler will stop all workers at next sync
-      } else if (status == node_solve_info_t::WORK_LIMIT) {
-        worker.current_node = nullptr;
-        solver_status_      = mip_exploration_status_t::WORK_LIMIT;
-        bsp_terminated_.store(true);
-        break;  // Exit loop - scheduler will stop all workers at next sync
+        // Don't set solver_status_ or bsp_terminated_ here - that would cause a race
+        // where other workers see the flag and exit before reaching the sync point.
+        // The sync callback will check the work/time limit and set termination flags
+        // when all workers are safely at the barrier.
+        bsp_scheduler_->wait_for_next_sync(worker.work_context);
+        break;
       } else {
         // Node completed successfully
         worker.current_node = nullptr;
