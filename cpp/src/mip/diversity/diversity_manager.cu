@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -446,7 +446,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     // in case the pdlp returned var boudns that are out of bounds
     clamp_within_var_bounds(lp_optimal_solution, problem_ptr, problem_ptr->handle_ptr);
   }
-  exit(0);
+
   if (ls.lp_optimal_exists) {
     solution_t<i_t, f_t> lp_rounded_sol(*problem_ptr);
     lp_rounded_sol.copy_new_assignment(lp_optimal_solution);

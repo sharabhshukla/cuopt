@@ -708,6 +708,8 @@ typedef void (*cuOptMipSetSolutionCallback)(cuopt_float_t* solution,
  *
  * @param[in] settings - The solver settings object.
  * @param[in] callback - Callback function to receive incumbent solutions.
+ * @param[in] user_data - User-defined pointer passed through to the callback.
+ *  It will be forwarded to ``cuOptMipGetSolutionCallback`` when invoked.
  *
  * @return A status code indicating success or failure.
  */
@@ -720,6 +722,8 @@ cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
  *
  * @param[in] settings - The solver settings object.
  * @param[in] callback - Callback function to inject solutions.
+ * @param[in] user_data - User-defined pointer passed through to the callback.
+ *  It will be forwarded to ``cuOptMipSetSolutionCallback`` when invoked.
  *
  * @return A status code indicating success or failure.
  */

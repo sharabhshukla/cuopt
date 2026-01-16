@@ -27,7 +27,8 @@ template <typename i_t, typename f_t>
 void mip_solver_settings_t<i_t, f_t>::set_mip_callback(
   internals::base_solution_callback_t* callback, void* user_data)
 {
-  if (callback != nullptr) { callback->set_user_data(user_data); }
+  if (callback == nullptr) { return; }
+  callback->set_user_data(user_data);
   mip_callbacks_.push_back(callback);
 }
 

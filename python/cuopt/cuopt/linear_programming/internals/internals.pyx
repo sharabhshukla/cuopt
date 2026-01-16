@@ -66,6 +66,7 @@ cdef class PyCallback:
 cdef class GetSolutionCallback(PyCallback):
 
     cdef default_get_solution_callback_t native_callback
+    cdef object _user_data
 
     def __init__(self):
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
@@ -81,6 +82,7 @@ cdef class GetSolutionCallback(PyCallback):
 cdef class SetSolutionCallback(PyCallback):
 
     cdef default_set_solution_callback_t native_callback
+    cdef object _user_data
 
     def __init__(self):
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
