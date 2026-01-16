@@ -141,12 +141,11 @@ typedef struct mip_callback_context_t {
   cuopt_float_t* last_solution;
 } mip_callback_context_t;
 
-static mip_callback_context_t* callback_context = NULL;
-
 static void mip_get_solution_callback(const cuopt_float_t* solution,
-                                      const cuopt_float_t* objective_value)
+                                      const cuopt_float_t* objective_value,
+                                      void* user_data)
 {
-  mip_callback_context_t* context = callback_context;
+  mip_callback_context_t* context = (mip_callback_context_t*)user_data;
   if (context == NULL) { return; }
   context->get_calls += 1;
   if (context->last_solution == NULL) {
@@ -173,9 +172,10 @@ static void mip_get_solution_callback(const cuopt_float_t* solution,
 }
 
 static void mip_set_solution_callback(cuopt_float_t* solution,
-                                      cuopt_float_t* objective_value)
+                                      cuopt_float_t* objective_value,
+                                      void* user_data)
 {
-  mip_callback_context_t* context = callback_context;
+  mip_callback_context_t* context = (mip_callback_context_t*)user_data;
   if (context == NULL) { return; }
   context->set_calls += 1;
   if (context->last_solution == NULL) { return; }
@@ -257,15 +257,13 @@ cuopt_int_t test_mip_callbacks()
   }
 
   context.n_variables = num_variables;
-  callback_context    = &context;
-
-  status = cuOptSetMipGetSolutionCallback(settings, mip_get_solution_callback);
+  status = cuOptSetMipGetSolutionCallback(settings, mip_get_solution_callback, &context);
   if (status != CUOPT_SUCCESS) {
     printf("Error setting get-solution callback\n");
     goto DONE;
   }
 
-  status = cuOptSetMipSetSolutionCallback(settings, mip_set_solution_callback);
+  status = cuOptSetMipSetSolutionCallback(settings, mip_set_solution_callback, &context);
   if (status != CUOPT_SUCCESS) {
     printf("Error setting set-solution callback\n");
     goto DONE;
@@ -290,7 +288,6 @@ cuopt_int_t test_mip_callbacks()
   }
 
 DONE:
-  callback_context = NULL;
   if (context.last_solution != NULL) { free(context.last_solution); }
   cuOptDestroyProblem(&problem);
   cuOptDestroySolverSettings(&settings);

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -40,8 +40,9 @@ class test_set_solution_callback_t : public cuopt::internals::set_solution_callb
   {
   }
   // This will check that the we are able to recompute our own solution
-  void set_solution(void* data, void* cost) override
+  void set_solution(void* data, void* cost, void* user_data) override
   {
+    (void)user_data;
     n_calls++;
     rmm::cuda_stream_view stream{};
     auto assignment = static_cast<double*>(data);
@@ -64,8 +65,9 @@ class test_get_solution_callback_t : public cuopt::internals::get_solution_callb
     : solutions(solutions_in), n_calls(0), n_variables(n_variables_)
   {
   }
-  void get_solution(void* data, void* cost) override
+  void get_solution(void* data, void* cost, void* user_data) override
   {
+    (void)user_data;
     n_calls++;
     rmm::cuda_stream_view stream{};
     rmm::device_uvector<double> assignment(n_variables, stream);

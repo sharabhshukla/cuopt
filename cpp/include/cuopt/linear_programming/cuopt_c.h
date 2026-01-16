@@ -682,22 +682,26 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
                                    cuopt_float_t* parameter_value);
 
 /**
- * @brief Callback for receiving incumbent MIP solutions.
+ * @brief Callback for receiving incumbent MIP solutions with user context.
  *
  * @param[in] solution - Device pointer to incumbent solution values.
  * @param[in] objective_value - Device pointer to incumbent objective value.
+ * @param[in] user_data - User context pointer.
  */
 typedef void (*cuOptMipGetSolutionCallback)(const cuopt_float_t* solution,
-                                            const cuopt_float_t* objective_value);
+                                            const cuopt_float_t* objective_value,
+                                            void* user_data);
 
 /**
- * @brief Callback for injecting MIP solutions.
+ * @brief Callback for injecting MIP solutions with user context.
  *
  * @param[out] solution - Device pointer to solution values to set.
  * @param[out] objective_value - Device pointer to objective value to set.
+ * @param[in] user_data - User context pointer.
  */
 typedef void (*cuOptMipSetSolutionCallback)(cuopt_float_t* solution,
-                                            cuopt_float_t* objective_value);
+                                            cuopt_float_t* objective_value,
+                                            void* user_data);
 
 /**
  * @brief Register a callback to receive incumbent MIP solutions.
@@ -708,7 +712,8 @@ typedef void (*cuOptMipSetSolutionCallback)(cuopt_float_t* solution,
  * @return A status code indicating success or failure.
  */
 cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
-                                           cuOptMipGetSolutionCallback callback);
+                                           cuOptMipGetSolutionCallback callback,
+                                           void* user_data);
 
 /**
  * @brief Register a callback to inject MIP solutions.
@@ -719,7 +724,8 @@ cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
  * @return A status code indicating success or failure.
  */
 cuopt_int_t cuOptSetMipSetSolutionCallback(cuOptSolverSettings settings,
-                                           cuOptMipSetSolutionCallback callback);
+                                           cuOptMipSetSolutionCallback callback,
+                                           void* user_data);
 
 /** @brief Check if an optimization problem is a mixed integer programming problem.
  *

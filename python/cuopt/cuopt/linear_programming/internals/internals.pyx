@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved. # noqa
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. # noqa
 # SPDX-License-Identifier: Apache-2.0
 
 # cython: profile=False
@@ -23,12 +23,12 @@ cdef extern from "cuopt/linear_programming/utilities/callbacks_implems.hpp" name
 
     cdef cppclass default_get_solution_callback_t(Callback):
         void setup() except +
-        void get_solution(void* data, void* objective_value) except +
+        void get_solution(void* data, void* objective_value, void* user_data) except +
         PyObject* pyCallbackClass
 
     cdef cppclass default_set_solution_callback_t(Callback):
         void setup() except +
-        void set_solution(void* data, void* objective_value) except +
+        void set_solution(void* data, void* objective_value, void* user_data) except +
         PyObject* pyCallbackClass
 
 
@@ -69,6 +69,10 @@ cdef class GetSolutionCallback(PyCallback):
 
     def __init__(self):
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
+        self._user_data = None
+
+    def get_user_data_ptr(self):
+        return <uintptr_t><PyObject*>self._user_data
 
     def get_native_callback(self):
         return <uintptr_t>&(self.native_callback)
@@ -80,6 +84,10 @@ cdef class SetSolutionCallback(PyCallback):
 
     def __init__(self):
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
+        self._user_data = None
+
+    def get_user_data_ptr(self):
+        return <uintptr_t><PyObject*>self._user_data
 
     def get_native_callback(self):
         return <uintptr_t>&(self.native_callback)

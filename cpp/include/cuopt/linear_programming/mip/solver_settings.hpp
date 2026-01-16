@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -37,7 +37,8 @@ class mip_solver_settings_t {
   /**
    * @brief Set the callback for the user solution
    */
-  void set_mip_callback(internals::base_solution_callback_t* callback = nullptr);
+  void set_mip_callback(internals::base_solution_callback_t* callback = nullptr,
+                        void* user_data                               = nullptr);
 
   /**
    * @brief Add an primal solution.

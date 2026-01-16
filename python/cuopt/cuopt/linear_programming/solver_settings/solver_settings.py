@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import IntEnum, auto
@@ -245,7 +245,7 @@ class SolverSettings:
         """
         self.pdlp_warm_start_data = pdlp_warm_start_data
 
-    def set_mip_callback(self, callback):
+    def set_mip_callback(self, callback, user_data=None):
         """
         Note: Only supported for MILP
 
@@ -256,6 +256,8 @@ class SolverSettings:
         callback : class for function callback
             Callback class that inherits from GetSolutionCallback
             or SetSolutionCallback.
+        user_data : object, optional
+            User context passed to the callback.
 
         Examples
         --------
@@ -298,6 +300,8 @@ class SolverSettings:
         >>> settings.set_mip_callback(get_callback)
         >>> settings.set_mip_callback(set_callback)
         """
+        if callback is not None:
+            callback._user_data = user_data
         self.mip_callbacks.append(callback)
 
     def get_mip_callbacks(self):

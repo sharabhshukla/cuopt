@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -299,7 +299,8 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
           temp_sol.problem_ptr->get_user_obj_from_solver_obj(temp_sol.get_objective());
         user_objective_vec.set_element_async(0, user_objective, temp_sol.handle_ptr->get_stream());
         CUOPT_LOG_DEBUG("Returning incumbent solution with objective %g", user_objective);
-        get_sol_callback->get_solution(temp_sol.assignment.data(), user_objective_vec.data());
+        get_sol_callback->get_solution(
+          temp_sol.assignment.data(), user_objective_vec.data(), get_sol_callback->get_user_data());
       }
     }
     // save the best objective here, because we might not have been able to return the solution to
@@ -320,7 +321,9 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
       auto inf = std::numeric_limits<f_t>::infinity();
       d_outside_sol_objective.set_value_async(inf, sol.handle_ptr->get_stream());
       sol.handle_ptr->sync_stream();
-      set_sol_callback->set_solution(incumbent_assignment.data(), d_outside_sol_objective.data());
+      set_sol_callback->set_solution(incumbent_assignment.data(),
+                                     d_outside_sol_objective.data(),
+                                     set_sol_callback->get_user_data());
 
       f_t outside_sol_objective = d_outside_sol_objective.value(sol.handle_ptr->get_stream());
       // The callback might be called without setting any valid solution or objective which triggers
