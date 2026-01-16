@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -169,7 +169,6 @@ bool line_segment_search_t<i_t, f_t>::search_line_segment(
       fj.settings.update_weights  = false;
       fj.settings.feasibility_run = is_feasibility_run;
       fj.settings.time_limit      = std::min(0.1, timer.remaining_time());
-      fj.settings.work_limit      = fj.settings.time_limit;
       is_feasible                 = fj.solve(solution);
     }
     cuopt_func_call(solution.test_number_all_integer());

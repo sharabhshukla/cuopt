@@ -201,7 +201,6 @@ i_t find_singletons(const csc_matrix_t<i_t, f_t>& A,
     row_form = true;
 
     // Find column singletons
-    // Use .underlying() to get std::vector iterators for row_col_graph_t
     auto& col_perm_vec = static_cast<std::vector<i_t>&>(col_perm);
     auto& row_perm_vec = static_cast<std::vector<i_t>&>(row_perm);
     row_col_graph_t<i_t> graph{Cdeg.begin(),
@@ -235,7 +234,6 @@ i_t find_singletons(const csc_matrix_t<i_t, f_t>& A,
     }
 
     // Find row singletons
-    // Use .underlying() to get std::vector iterators for row_col_graph_t
     auto& row_perm_vec2 = static_cast<std::vector<i_t>&>(row_perm);
     auto& col_perm_vec2 = static_cast<std::vector<i_t>&>(col_perm);
     row_col_graph_t<i_t> graph{Rdeg.begin(),

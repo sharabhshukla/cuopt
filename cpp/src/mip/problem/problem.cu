@@ -1799,10 +1799,6 @@ void problem_t<i_t, f_t>::get_host_user_problem(
   user_problem.num_range_rows = user_problem.range_rows.size();
   std::tie(user_problem.lower, user_problem.upper) =
     extract_host_bounds<f_t>(variable_bounds, handle_ptr);
-
-  // Debug: Log bounds fingerprint to detect GPU presolve non-determinism
-  CUOPT_LOG_INFO("Problem fingerprint after GPU presolve: 0x%x", get_fingerprint());
-
   user_problem.problem_name = original_problem_ptr->get_problem_name();
   if (static_cast<i_t>(row_names.size()) == m) {
     user_problem.row_names.resize(m);

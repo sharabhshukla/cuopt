@@ -379,7 +379,7 @@ void branch_and_bound_t<i_t, f_t>::flush_pending_features()
            last_features_.node_status);
 
   // Single printf call
-  settings_.log.printf("%s", line_buffer);
+  // settings_.log.printf("%s", line_buffer);
 
   has_pending_features_ = false;
 }

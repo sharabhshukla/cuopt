@@ -109,7 +109,10 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
   diversity_manager_t<i_t, f_t> dm(context);
   dm.timer              = work_limit_timer_t(context.gpu_heur_loop, timer_.get_time_limit());
-  bool presolve_success = dm.run_presolve(timer_.get_time_limit());
+  f_t time_limit        = context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC
+                            ? timer_.get_time_limit()
+                            : timer_.remaining_time();
+  bool presolve_success = dm.run_presolve(time_limit);
   if (!presolve_success) {
     CUOPT_LOG_INFO("Problem proven infeasible in presolve");
     solution_t<i_t, f_t> sol(*context.problem_ptr);
@@ -146,8 +149,6 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     context.problem_ptr->post_process_solution(sol);
     return sol;
   }
-
-  context.work_unit_scheduler_.verbose = true;
   context.work_unit_scheduler_.register_context(context.gpu_heur_loop);
 
   namespace dual_simplex = cuopt::linear_programming::dual_simplex;
@@ -190,15 +191,13 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
     i_t num_threads        = branch_and_bound_settings.num_threads;
     i_t num_bfs_threads    = std::max(1, num_threads / 4);
-    i_t num_diving_threads = num_threads - num_bfs_threads;
+    i_t num_diving_threads = std::max(1, num_threads - num_bfs_threads);
     // deterministic mode: use BSP coordinator with multiple workers, no diving
     if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
       // BSP mode can use multiple workers deterministically
       num_bfs_threads    = std::max(1, num_threads);
       num_diving_threads = 0;  // No diving in deterministic mode
     }
-    // num_diving_threads = 0;
-    // num_bfs_threads = std::max(1, num_threads);
     branch_and_bound_settings.num_bfs_threads    = num_bfs_threads;
     branch_and_bound_settings.num_diving_threads = num_diving_threads;
 
@@ -241,10 +240,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
                   branch_and_bound.get(),
                   std::placeholders::_1);
     } else if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
-      // In deterministic mode, use VT-aware solution injection
-      // Use the B&B's current horizon as the VT timestamp
-      // This ensures heuristic solutions are processed at the END of the current horizon,
-      // maintaining determinism regardless of when the GPU heuristic actually finds the solution
+      // TODO
       context.problem_ptr->branch_and_bound_callback =
         [bb = branch_and_bound.get()](const std::vector<f_t>& solution) {
           double vt = bb->get_current_bsp_horizon();

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -97,7 +97,7 @@ class recombiner_t {
                  this->remaining_indices.data(),
                  this->remaining_indices.data() + remaining_variables);
 
-    CUOPT_LOG_DEBUG("remaining indices hash 0x%x, size %d",
+    CUOPT_LOG_TRACE("remaining indices hash 0x%x, size %d",
                     detail::compute_hash(this->remaining_indices),
                     remaining_variables);
 
@@ -181,8 +181,8 @@ class recombiner_t {
                            i_t n_vars_from_guiding)
   {
     vars_to_fix.resize(n_vars_from_guiding, offspring.handle_ptr->get_stream());
-    CUOPT_LOG_DEBUG("remaining indices hash 0x%x", detail::compute_hash(this->remaining_indices));
-    CUOPT_LOG_DEBUG("integer_indices hash 0x%x",
+    CUOPT_LOG_TRACE("remaining indices hash 0x%x", detail::compute_hash(this->remaining_indices));
+    CUOPT_LOG_TRACE("integer_indices hash 0x%x",
                     detail::compute_hash(offspring.problem_ptr->integer_indices));
     // set difference needs two sorted arrays
     thrust::sort(offspring.handle_ptr->get_thrust_policy(),

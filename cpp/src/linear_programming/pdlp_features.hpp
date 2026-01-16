@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -188,34 +188,34 @@ struct pdlp_features_t {
                                                           (interval_time_ms / 1000.0)
                                                       : 0.0;
 
-    printf(
-      "PDLP_RESULT: n_vars=%d n_cstrs=%d nnz=%ld sparsity=%.6e nnz_stddev=%.4f "
-      "unbalancedness=%.4f interval_iters=%d interval_major=%d interval_restarts=%d "
-      "spmv_ops=%ld total_iters=%d total_restarts=%d iters_since_restart=%d "
-      "primal_res=%.6e dual_res=%.6e gap=%.6e kkt=%.6e "
-      "step_size=%.6e primal_weight=%.6e time_ms=%.2f nnz_per_s=%.2e warm_start=%d",
-      n_vars,
-      n_cstrs,
-      nnz,
-      sparsity,
-      nnz_stddev,
-      unbalancedness,
-      interval_iters,
-      interval_major,
-      interval_restarts,
-      interval_spmv_ops,
-      total_iters,
-      total_restarts,
-      iters_since_restart,
-      primal_res,
-      dual_res,
-      gap,
-      kkt_score,
-      step_size,
-      primal_weight,
-      interval_time_ms,
-      nnz_per_sec,
-      static_cast<int>(has_warm_start));
+    // printf(
+    //   "PDLP_RESULT: n_vars=%d n_cstrs=%d nnz=%ld sparsity=%.6e nnz_stddev=%.4f "
+    //   "unbalancedness=%.4f interval_iters=%d interval_major=%d interval_restarts=%d "
+    //   "spmv_ops=%ld total_iters=%d total_restarts=%d iters_since_restart=%d "
+    //   "primal_res=%.6e dual_res=%.6e gap=%.6e kkt=%.6e "
+    //   "step_size=%.6e primal_weight=%.6e time_ms=%.2f nnz_per_s=%.2e warm_start=%d",
+    //   n_vars,
+    //   n_cstrs,
+    //   nnz,
+    //   sparsity,
+    //   nnz_stddev,
+    //   unbalancedness,
+    //   interval_iters,
+    //   interval_major,
+    //   interval_restarts,
+    //   interval_spmv_ops,
+    //   total_iters,
+    //   total_restarts,
+    //   iters_since_restart,
+    //   primal_res,
+    //   dual_res,
+    //   gap,
+    //   kkt_score,
+    //   step_size,
+    //   primal_weight,
+    //   interval_time_ms,
+    //   nnz_per_sec,
+    //   static_cast<int>(has_warm_start));
   }
 
   /**

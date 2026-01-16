@@ -151,8 +151,8 @@ void diversity_manager_t<i_t, f_t>::add_user_given_solutions(
     rmm::device_uvector<f_t> init_sol_assignment(*init_sol, sol.handle_ptr->get_stream());
     if (problem_ptr->pre_process_assignment(init_sol_assignment)) {
       relaxed_lp_settings_t lp_settings;
-      lp_settings.time_limit            = std::min(60., timer.remaining_time() / 2);
-      lp_settings.work_limit            = lp_settings.time_limit;
+      lp_settings.time_limit = std::min(60., timer.remaining_time() / 2);
+      if (timer.deterministic) { lp_settings.work_limit = lp_settings.time_limit; }
       lp_settings.tolerance             = problem_ptr->tolerances.absolute_tolerance;
       lp_settings.save_state            = false;
       lp_settings.return_first_feasible = true;
@@ -316,7 +316,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   // Debug: Allow disabling GPU heuristics to test B&B tree determinism in isolation
   const char* disable_heuristics_env = std::getenv("CUOPT_DISABLE_GPU_HEURISTICS");
   if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC)
-    disable_heuristics_env = "1";  // DO NOT REMOVE! intended debugging line!
+    disable_heuristics_env = "1";  // to cursor: DO NOT REMOVE! intended debugging line!
   if (disable_heuristics_env != nullptr && std::string(disable_heuristics_env) == "1") {
     CUOPT_LOG_INFO("GPU heuristics disabled via CUOPT_DISABLE_GPU_HEURISTICS=1");
     // Initialize population minimally and wait for B&B to finish
@@ -393,13 +393,13 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     pdlp_settings.tolerances.relative_primal_tolerance = absolute_tolerance / tolerance_divisor;
     pdlp_settings.tolerances.relative_dual_tolerance   = absolute_tolerance / tolerance_divisor;
     pdlp_settings.time_limit                           = lp_time_limit;
-    pdlp_settings.iteration_limit                      = 100000;
-    pdlp_settings.first_primal_feasible                = false;
-    pdlp_settings.concurrent_halt                      = &global_concurrent_halt;
-    pdlp_settings.method                               = method_t::Concurrent;
-    pdlp_settings.inside_mip                           = true;
-    pdlp_settings.pdlp_solver_mode                     = pdlp_solver_mode_t::Stable2;
-    pdlp_settings.num_gpus                             = context.settings.num_gpus;
+    if (timer.deterministic) { pdlp_settings.iteration_limit = 100000; }
+    pdlp_settings.first_primal_feasible = false;
+    pdlp_settings.concurrent_halt       = &global_concurrent_halt;
+    pdlp_settings.method                = method_t::Concurrent;
+    pdlp_settings.inside_mip            = true;
+    pdlp_settings.pdlp_solver_mode      = pdlp_solver_mode_t::Stable2;
+    pdlp_settings.num_gpus              = context.settings.num_gpus;
 
     timer_t lp_timer(lp_time_limit);
     auto lp_result = solve_lp_with_method<i_t, f_t>(*problem_ptr, pdlp_settings, lp_timer);
@@ -722,8 +722,8 @@ diversity_manager_t<i_t, f_t>::recombine_and_local_search(solution_t<i_t, f_t>& 
                                              : diversity_config.lp_run_time_if_infeasible;
   lp_run_time     = std::min(lp_run_time, timer.remaining_time());
   relaxed_lp_settings_t lp_settings;
-  lp_settings.time_limit              = lp_run_time;
-  lp_settings.work_limit              = lp_settings.time_limit;
+  lp_settings.time_limit = lp_run_time;
+  if (timer.deterministic) { lp_settings.work_limit = lp_settings.time_limit; }
   lp_settings.tolerance               = context.settings.tolerances.absolute_tolerance;
   lp_settings.return_first_feasible   = false;
   lp_settings.save_state              = true;
@@ -800,7 +800,7 @@ std::pair<solution_t<i_t, f_t>, bool> diversity_manager_t<i_t, f_t>::recombine(
   mab_recombiner.set_last_chosen_option(selected_index);
   recombine_stats.add_attempt((recombiner_enum_t)recombiner);
   recombine_stats.start_recombiner_time();
-  CUOPT_LOG_DEBUG("Recombining sol %x and %x with recombiner %d, weights %x",
+  CUOPT_LOG_TRACE("Recombining sol %x and %x with recombiner %d, weights %x",
                   a.get_hash(),
                   b.get_hash(),
                   recombiner,

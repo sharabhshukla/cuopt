@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -99,7 +99,8 @@ std::tuple<f_t, i_t> lb_bounds_repair_t<i_t, f_t>::get_ii_violation(
     thrust::make_counting_iterator(0) + problem.n_constraints,
     [cstr_violations_up   = cstr_violations_up.data(),
      cstr_violations_down = cstr_violations_down.data()] __device__(i_t cstr_idx) -> f_t {
-      return max(cstr_violations_up[cstr_idx], cstr_violations_down[cstr_idx]);
+      auto violation = max(cstr_violations_up[cstr_idx], cstr_violations_down[cstr_idx]);
+      return violation >= ROUNDOFF_TOLERANCE ? violation : 0.;
     },
     (f_t)0,
     thrust::plus<f_t>());

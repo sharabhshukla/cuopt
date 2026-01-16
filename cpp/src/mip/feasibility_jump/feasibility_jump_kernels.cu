@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -1224,12 +1224,6 @@ DI thrust::tuple<i_t, f_t, typename fj_t<i_t, f_t>::move_score_t> gridwide_reduc
 
     // affected by tabu
     f_t delta = get_move(var_idx);
-
-    // if (!WeakTabu && !recompute_score) {
-    //   printf("iter[%d] block[%d] considered var %d delta %g\n", *fj.iterations, blockIdx.x,
-    //   var_idx, delta);
-    // }
-
     if constexpr (WeakTabu) {
       if ((delta < 0 && *fj.iterations == fj.tabu_lastinc[var_idx] + 1) ||
           (delta > 0 && *fj.iterations == fj.tabu_lastdec[var_idx] + 1))
@@ -1250,12 +1244,6 @@ DI thrust::tuple<i_t, f_t, typename fj_t<i_t, f_t>::move_score_t> gridwide_reduc
       loc_best_score_info = compute_new_score<i_t, f_t, TPB>(fj, var_idx, delta);
     }
 
-    // if (!WeakTabu && !recompute_score) {
-    //   printf("iter[%d] block[%d] found score (%d,%d) for var %d delta %g\n", *fj.iterations,
-    //   blockIdx.x, loc_best_score_info.score.base, loc_best_score_info.score.bonus, var_idx,
-    //   delta);
-    // }
-
     if (threadIdx.x == 0) {
       if (loc_best_score_info.score > best_score ||
           (loc_best_score_info.score == best_score && var_idx > best_var)) {
@@ -1267,11 +1255,6 @@ DI thrust::tuple<i_t, f_t, typename fj_t<i_t, f_t>::move_score_t> gridwide_reduc
   }
 
   if (threadIdx.x == 0) {
-    // if (!WeakTabu && !recompute_score) {
-    //   printf("iter[%d] block[%d] var_idx %d score {%d,%d}, delta %g\n", *fj.iterations,
-    //   blockIdx.x, best_var, best_score.base, best_score.bonus, best_delta);
-    // }
-
     fj.grid_score_buf[blockIdx.x] = best_score;
     fj.grid_var_buf[blockIdx.x]   = best_var;
     fj.grid_delta_buf[blockIdx.x] = best_delta;

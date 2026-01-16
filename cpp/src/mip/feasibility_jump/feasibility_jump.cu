@@ -865,7 +865,9 @@ void fj_t<i_t, f_t>::refresh_lhs_and_violation(const rmm::cuda_stream_view& stre
     thrust::plus<f_t>());
   data.violation_score.set_value_async(violation, stream);
   data.weighted_violation_score.set_value_async(weighted_violation, stream);
-  data.violated_constraints.sort(stream);
+  if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
+    data.violated_constraints.sort(stream);
+  }
 #if FJ_SINGLE_STEP
   CUOPT_LOG_DEBUG("hash assignment %x, hash lhs %x, hash lhscomp %x",
                   detail::compute_hash(data.incumbent_assignment, stream),
@@ -1289,7 +1291,7 @@ i_t fj_t<i_t, f_t>::solve(solution_t<i_t, f_t>& solution)
   bool deterministic = context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC;
   if (deterministic) { settings.work_limit = settings.time_limit; }
   // if work_limit is set: compute an estimate of the number of iterations required
-  if (settings.work_limit != std::numeric_limits<double>::infinity()) {
+  if (deterministic && settings.work_limit != std::numeric_limits<double>::infinity()) {
     std::map<std::string, float> features_map = get_feature_vector(0);
     float iter_prediction                     = std::max(
       (f_t)0.0, (f_t)ceil(context.work_unit_predictors.fj_predictor.predict_scalar(features_map)));

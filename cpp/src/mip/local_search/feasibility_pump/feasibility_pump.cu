@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -232,7 +232,7 @@ bool feasibility_pump_t<i_t, f_t>::linear_project_onto_polytope(solution_t<i_t, 
   last_lp_time = old_remaining - timer.remaining_time();
   lp_time += last_lp_time;
   n_calls++;
-  // CUOPT_LOG_DEBUG("lp_time %f average lp_time %f", last_lp_time, lp_time / n_calls);
+  CUOPT_LOG_TRACE("lp_time %f average lp_time %f", last_lp_time, lp_time / n_calls);
   solution.assignment.resize(solution.problem_ptr->n_variables, solution.handle_ptr->get_stream());
   raft::copy(last_projection.data(),
              solution.assignment.data(),
@@ -255,7 +255,7 @@ template <typename i_t, typename f_t>
 bool feasibility_pump_t<i_t, f_t>::round(solution_t<i_t, f_t>& solution)
 {
   bool result;
-  // CUOPT_LOG_DEBUG("Rounding the point");
+  CUOPT_LOG_TRACE("Rounding the point");
   work_limit_timer_t bounds_prop_timer(context.gpu_heur_loop,
                                        std::max(0.05, std::min(0.5, timer.remaining_time() / 10.)));
   const f_t lp_run_time_after_feasible     = 0.;
@@ -289,7 +289,7 @@ void feasibility_pump_t<i_t, f_t>::perturbate(solution_t<i_t, f_t>& solution)
 template <typename i_t, typename f_t>
 bool feasibility_pump_t<i_t, f_t>::run_fj_cycle_escape(solution_t<i_t, f_t>& solution)
 {
-  CUOPT_LOG_DEBUG("Running FJ cycle escape");
+  CUOPT_LOG_TRACE("Running FJ cycle escape");
   bool is_feasible;
   fj.settings.mode                   = fj_mode_t::EXIT_NON_IMPROVING;
   fj.settings.update_weights         = true;
@@ -345,7 +345,7 @@ template <typename i_t, typename f_t>
 bool feasibility_pump_t<i_t, f_t>::handle_cycle(solution_t<i_t, f_t>& solution)
 {
   raft::common::nvtx::range fun_scope("handle_cycle");
-  // CUOPT_LOG_DEBUG("running handle cycle");
+  CUOPT_LOG_TRACE("running handle cycle");
   bool is_feasible       = false;
   fp_fj_cycle_time_begin = timer.remaining_time();
   CUOPT_LOG_DEBUG("Running longer FJ on last rounding");
@@ -422,15 +422,15 @@ bool feasibility_pump_t<i_t, f_t>::check_distance_cycle(solution_t<i_t, f_t>& so
       std::accumulate(last_distances.begin(), last_distances.end(), 0.0) / last_distances.size();
     if (avg_distance - distance_to_last_rounding <
         config.cycle_distance_reduction_ration * avg_distance) {
-      // CUOPT_LOG_DEBUG("Distance cycle detected curr %f avg %f for last %d iter",
-      //                 distance_to_last_rounding,
-      //                 avg_distance,
-      //                 last_distances.size());
+      CUOPT_LOG_TRACE("Distance cycle detected curr %f avg %f for last %d iter",
+                      distance_to_last_rounding,
+                      avg_distance,
+                      last_distances.size());
       is_cycle = true;
     }
     last_distances.pop_back();
   } else {
-    // CUOPT_LOG_DEBUG("Distance of projection: %f", distance_to_last_rounding);
+    CUOPT_LOG_TRACE("Distance of projection: %f", distance_to_last_rounding);
   }
   last_distances.push_front(distance_to_last_rounding);
   return is_cycle;
@@ -543,7 +543,7 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
              solution.assignment.size(),
              solution.handle_ptr->get_stream());
 
-  CUOPT_LOG_DEBUG("FP: starting FP descent, sol hash 0x%x", solution.get_hash());
+  CUOPT_LOG_TRACE("FP: starting FP descent, sol hash 0x%x", solution.get_hash());
   while (true) {
     fp_iterations++;
     if (timer.check_time_limit()) {
@@ -563,10 +563,7 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
     CUOPT_LOG_DEBUG(
       "FP: after fp projection, iter %d sol hash 0x%x", fp_iterations, solution.get_hash());
     i_t n_integers = solution.compute_number_of_integers();
-    // CUOPT_LOG_DEBUG("after fp projection n_integers %d total n_integes %d",
-    //                 n_integers,
-    //                 solution.problem_ptr->n_integer_vars);
-    bool is_cycle = true;
+    bool is_cycle  = true;
     // temp comment for presolve run
     if (config.check_distance_cycle) {
       // use distance cycle if we are running ii or objective FP
@@ -578,7 +575,7 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
           bool res = solution.compute_feasibility();
           cuopt_assert(res, "Feasibility issue");
           f_t time_taken = start_time - timer.remaining_time();
-          CUOPT_LOG_INFO(
+          CUOPT_LOG_TRACE(
             "FP_RESULT: iterations=%d time_taken=%.6f termination=FEASIBLE_DISTANCE_CYCLE",
             fp_iterations,
             time_taken);
@@ -587,12 +584,8 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
         cuopt::default_logger().flush();
         f_t remaining_time_end_fp = timer.remaining_time();
         total_fp_time_until_cycle = fp_fj_cycle_time_begin - remaining_time_end_fp;
-        // CUOPT_LOG_DEBUG("total_fp_time_until_cycle: %f", total_fp_time_until_cycle);
+        CUOPT_LOG_TRACE("total_fp_time_until_cycle: %f", total_fp_time_until_cycle);
         f_t time_taken = start_time - timer.remaining_time();
-        // CUOPT_LOG_INFO(
-        //   "FP_RESULT: iterations=%d time_taken=%.6f termination=INFEASIBLE_DISTANCE_CYCLE",
-        //   fp_iterations,
-        //   time_taken);
         return false;
       }
     }
@@ -600,11 +593,6 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
     if (n_integers == solution.problem_ptr->n_integer_vars) {
       if (is_feasible) {
         CUOPT_LOG_DEBUG("Feasible solution found after LP with relative tolerance");
-        f_t time_taken = start_time - timer.remaining_time();
-        // CUOPT_LOG_INFO(
-        //   "FP_RESULT: iterations=%d time_taken=%.6f termination=FEASIBLE_LP_PROJECTION",
-        //   fp_iterations,
-        //   time_taken);
         return true;
       }
       // if the solution is almost on polytope
@@ -612,8 +600,8 @@ bool feasibility_pump_t<i_t, f_t>::run_single_fp_descent(solution_t<i_t, f_t>& s
         // run the LP with full precision to check if it actually is feasible
         const f_t lp_verify_time_limit = 5.;
         relaxed_lp_settings_t lp_settings;
-        lp_settings.time_limit            = lp_verify_time_limit;
-        lp_settings.work_limit            = lp_settings.time_limit;
+        lp_settings.time_limit = lp_verify_time_limit;
+        if (timer.deterministic) { lp_settings.work_limit = lp_settings.time_limit; }
         lp_settings.tolerance             = solution.problem_ptr->tolerances.absolute_tolerance;
         lp_settings.return_first_feasible = true;
         lp_settings.save_state            = true;

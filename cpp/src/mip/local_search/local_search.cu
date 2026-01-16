@@ -413,11 +413,10 @@ bool local_search_t<i_t, f_t>::check_fj_on_lp_optimal(solution_t<i_t, f_t>& solu
     const f_t lp_run_time = 2.;
     relaxed_lp_settings_t lp_settings;
     lp_settings.time_limit = std::min(lp_run_time, timer.remaining_time());
-    lp_settings.work_limit = lp_settings.time_limit;
-    lp_settings.tolerance  = solution.problem_ptr->tolerances.absolute_tolerance;
+    if (timer.deterministic) { lp_settings.work_limit = lp_settings.time_limit; }
+    lp_settings.tolerance = solution.problem_ptr->tolerances.absolute_tolerance;
     run_lp_with_vars_fixed(
       *solution.problem_ptr, solution, solution.problem_ptr->integer_indices, lp_settings);
-    CUOPT_LOG_DEBUG("FJ ON LP OPT: exited", lp_settings.time_limit);
   } else {
     return is_feasible;
   }

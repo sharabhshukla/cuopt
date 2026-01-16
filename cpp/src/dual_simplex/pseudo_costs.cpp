@@ -159,7 +159,7 @@ void strong_branching(const lp_problem_t<i_t, f_t>& original_lp,
                       settings.num_threads,
                       fractional.size());
 
-#pragma omp parallel num_threads(64)
+#pragma omp parallel num_threads(settings.num_threads)
   {
     i_t n = std::min<i_t>(4 * settings.num_threads, fractional.size());
 

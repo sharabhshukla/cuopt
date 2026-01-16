@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -905,16 +905,16 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
     set_bounds_on_fixed_vars(sol);
   }
 
-  // CUOPT_LOG_DEBUG("Bounds propagation rounding: unset vars %lu", unset_integer_vars.size());
+  CUOPT_LOG_TRACE("Bounds propagation rounding: unset vars %lu", unset_integer_vars.size());
   if (unset_integer_vars.size() == 0) {
-    // CUOPT_LOG_DEBUG("No integer variables provided in the bounds prop rounding");
+    CUOPT_LOG_TRACE("No integer variables provided in the bounds prop rounding");
     expand_device_copy(orig_sol.assignment, sol.assignment, sol.handle_ptr->get_stream());
     cuopt_func_call(orig_sol.test_variable_bounds());
     return orig_sol.compute_feasibility();
   }
   // this is needed for the sort inside of the loop
   bool problem_ii = is_problem_ii(*sol.problem_ptr);
-  // CUOPT_LOG_DEBUG("is problem ii %d", problem_ii);
+  CUOPT_LOG_TRACE("is problem ii %d", problem_ii);
   //  if the problem is ii, run the bounds prop in the beginning
   if (problem_ii) {
     bool bounds_repaired =
@@ -940,7 +940,7 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
   bool timeout_happened          = false;
   i_t n_failed_repair_iterations = 0;
   while (set_count < unset_integer_vars.size()) {
-    CUOPT_LOG_DEBUG("n_set_vars %d vars to set %lu", set_count, unset_integer_vars.size());
+    CUOPT_LOG_TRACE("n_set_vars %d vars to set %lu", set_count, unset_integer_vars.size());
     CUOPT_LOG_DEBUG("hash unset_integer_vars 0x%x", detail::compute_hash(unset_integer_vars));
     update_host_assignment(sol);
     if (max_timer.check_time_limit()) {
@@ -978,18 +978,18 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
                n_vars_to_set,
                sol.handle_ptr->get_stream());
 
-    CUOPT_LOG_DEBUG("host_vars_to_set hash 0x%x", detail::compute_hash(host_vars_to_set));
+    CUOPT_LOG_TRACE("host_vars_to_set hash 0x%x", detail::compute_hash(host_vars_to_set));
 
     auto var_probe_vals =
       generate_bulk_rounding_vector(sol, orig_sol, host_vars_to_set, probing_config);
 
-    CUOPT_LOG_DEBUG("var_probe_vals hash 1 0x%x, hash 2 0x%x, hash 3 0x%x",
+    CUOPT_LOG_TRACE("var_probe_vals hash 1 0x%x, hash 2 0x%x, hash 3 0x%x",
                     detail::compute_hash(std::get<0>(var_probe_vals)),
                     detail::compute_hash(std::get<1>(var_probe_vals)),
                     detail::compute_hash(std::get<2>(var_probe_vals)));
     probe(
       sol, orig_sol.problem_ptr, var_probe_vals, &set_count, unset_integer_vars, probing_config);
-    CUOPT_LOG_DEBUG("post probe, set count %d, unset var hash 0x%x, size %lu",
+    CUOPT_LOG_TRACE("post probe, set count %d, unset var hash 0x%x, size %lu",
                     (int)set_count,
                     detail::compute_hash(unset_integer_vars),
                     unset_integer_vars.size());
@@ -1024,7 +1024,7 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
                                      make_span(orig_sol.problem_ptr->variable_bounds),
                                      make_span(sol.assignment)});
         i_t n_fixed_vars = (iter - (unset_vars.begin() + set_count));
-        CUOPT_LOG_DEBUG("After repair procedure, number of additional fixed vars %d", n_fixed_vars);
+        CUOPT_LOG_TRACE("After repair procedure, number of additional fixed vars %d", n_fixed_vars);
         set_count += n_fixed_vars;
       }
     }
@@ -1051,10 +1051,10 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
     // which is the unchanged problem bounds
     multi_probe.update_host_bounds(sol.handle_ptr, make_span(sol.problem_ptr->variable_bounds));
   }
-  // CUOPT_LOG_DEBUG(
-  //   "Bounds propagation rounding end: ii constraint count first buffer %d, second buffer %d",
-  //   multi_probe.infeas_constraints_count_0,
-  //   multi_probe.infeas_constraints_count_1);
+  CUOPT_LOG_TRACE(
+    "Bounds propagation rounding end: ii constraint count first buffer %d, second buffer %d",
+    multi_probe.infeas_constraints_count_0,
+    multi_probe.infeas_constraints_count_1);
   cuopt_assert(sol.test_number_all_integer(), "All integers must be rounded");
   expand_device_copy(orig_sol.assignment, sol.assignment, sol.handle_ptr->get_stream());
   cuopt_func_call(orig_sol.test_variable_bounds());
@@ -1063,12 +1063,11 @@ bool constraint_prop_t<i_t, f_t>::find_integer(
        multi_probe.infeas_constraints_count_1 == 0) &&
       !timeout_happened && lp_run_time_after_feasible > 0) {
     relaxed_lp_settings_t lp_settings;
-    lp_settings.time_limit = lp_run_time_after_feasible;
-    // CHANGE
+    lp_settings.time_limit            = lp_run_time_after_feasible;
     lp_settings.tolerance             = orig_sol.problem_ptr->tolerances.absolute_tolerance;
     lp_settings.save_state            = false;
     lp_settings.return_first_feasible = true;
-    CUOPT_LOG_DEBUG("bounds repair LP, sol hash 0x%x", orig_sol.get_hash());
+    CUOPT_LOG_TRACE("bounds repair LP, sol hash 0x%x", orig_sol.get_hash());
     run_lp_with_vars_fixed(*orig_sol.problem_ptr,
                            orig_sol,
                            orig_sol.problem_ptr->integer_indices,
@@ -1136,17 +1135,17 @@ bool constraint_prop_t<i_t, f_t>::apply_round(
   f_t bounds_prop_end_time = max_timer.remaining_time();
   repair_stats.total_time_spent_on_bounds_prop += bounds_prop_start_time - bounds_prop_end_time;
 
-  // CUOPT_LOG_DEBUG(
-  //   "repair_success %lu repair_attempts %lu intermediate_repair_success %lu total_repair_loops
-  //   %lu " "total_time_spent_on_repair %f total_time_spent_bounds_prop_after_repair %f "
-  //   "total_time_spent_on_bounds_prop %f",
-  //   repair_stats.repair_success,
-  //   repair_stats.repair_attempts,
-  //   repair_stats.intermediate_repair_success,
-  //   repair_stats.total_repair_loops,
-  //   repair_stats.total_time_spent_on_repair,
-  //   repair_stats.total_time_spent_bounds_prop_after_repair,
-  //   repair_stats.total_time_spent_on_bounds_prop);
+  CUOPT_LOG_TRACE(
+    "repair_success %lu repair_attempts %lu intermediate_repair_success %lu total_repair_loops"
+    "%lu total_time_spent_on_repair %f total_time_spent_bounds_prop_after_repair %f "
+    "total_time_spent_on_bounds_prop %f",
+    repair_stats.repair_success,
+    repair_stats.repair_attempts,
+    repair_stats.intermediate_repair_success,
+    repair_stats.total_repair_loops,
+    repair_stats.total_time_spent_on_repair,
+    repair_stats.total_time_spent_bounds_prop_after_repair,
+    repair_stats.total_time_spent_on_bounds_prop);
   // === CONSTRAINT PROP PREDICTOR RESULTS - START ===
   auto cp_end_time = std::chrono::high_resolution_clock::now();
   auto cp_elapsed_ms =
@@ -1247,10 +1246,10 @@ bool constraint_prop_t<i_t, f_t>::handle_fixed_vars(
   auto set_count    = *set_count_ptr;
   const f_t int_tol = sol.problem_ptr->tolerances.integrality_tolerance;
   // which other variables were affected?
-  CUOPT_LOG_DEBUG("handle_fixed_vars, unset vars hash 0x%x, sol.assignment hash 0x%x",
+  CUOPT_LOG_TRACE("handle_fixed_vars, unset vars hash 0x%x, sol.assignment hash 0x%x",
                   detail::compute_hash(unset_vars),
                   detail::compute_hash(sol.assignment));
-  CUOPT_LOG_DEBUG(
+  CUOPT_LOG_TRACE(
     "handle_fixed_vars, original_problem->variable_bounds hash 0x%x, "
     "sol.problem_ptr->variable_bounds hash 0x%x",
     detail::compute_hash(original_problem->variable_bounds),
@@ -1268,7 +1267,7 @@ bool constraint_prop_t<i_t, f_t>::handle_fixed_vars(
   cuopt_assert(n_fixed_vars >= std::get<0>(var_probe_vals).size(),
                "Error in number of vars fixed!");
   set_count += n_fixed_vars;
-  CUOPT_LOG_DEBUG("Set var count increased from %d to %d", *set_count_ptr, set_count);
+  CUOPT_LOG_TRACE("Set var count increased from %d to %d", *set_count_ptr, set_count);
   *set_count_ptr = set_count;
   return multi_probe.infeas_constraints_count_0 == 0 || multi_probe.infeas_constraints_count_1 == 0;
 }
