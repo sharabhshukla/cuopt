@@ -301,7 +301,7 @@ class SolverSettings:
         >>> settings.set_mip_callback(set_callback)
         """
         if callback is not None:
-            callback._user_data = user_data
+            callback.user_data = user_data
         self.mip_callbacks.append(callback)
 
     def get_mip_callbacks(self):

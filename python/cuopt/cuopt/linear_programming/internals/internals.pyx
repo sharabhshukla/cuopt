@@ -31,6 +31,24 @@ cdef extern from "cuopt/linear_programming/utilities/callbacks_implems.hpp" name
 
 cdef class PyCallback:
 
+    cdef object _user_data
+
+    def __init__(self):
+        self._user_data = None
+
+    property user_data:
+        def __get__(self):
+            return self._user_data
+        def __set__(self, value):
+            self._user_data = value
+
+    cpdef uintptr_t get_user_data_ptr(self):
+        cdef PyObject* ptr
+        if self._user_data is None:
+            return 0
+        ptr = <PyObject*>self._user_data
+        return <uintptr_t>ptr
+
     def get_numba_matrix(self, data, shape, typestr):
 
         sizeofType = 4 if typestr == "float32" else 8
@@ -63,18 +81,10 @@ cdef class PyCallback:
 cdef class GetSolutionCallback(PyCallback):
 
     cdef default_get_solution_callback_t native_callback
-    cdef object _user_data
 
     def __init__(self):
+        super().__init__()
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
-        self._user_data = None
-
-    cpdef uintptr_t get_user_data_ptr(self):
-        cdef PyObject* ptr
-        if self._user_data is None:
-            return 0
-        ptr = <PyObject*>self._user_data
-        return <uintptr_t>ptr
 
     def get_native_callback(self):
         return <uintptr_t>&(self.native_callback)
@@ -83,18 +93,10 @@ cdef class GetSolutionCallback(PyCallback):
 cdef class SetSolutionCallback(PyCallback):
 
     cdef default_set_solution_callback_t native_callback
-    cdef object _user_data
 
     def __init__(self):
+        super().__init__()
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
-        self._user_data = None
-
-    cpdef uintptr_t get_user_data_ptr(self):
-        cdef PyObject* ptr
-        if self._user_data is None:
-            return 0
-        ptr = <PyObject*>self._user_data
-        return <uintptr_t>ptr
 
     def get_native_callback(self):
         return <uintptr_t>&(self.native_callback)
