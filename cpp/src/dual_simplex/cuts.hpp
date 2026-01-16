@@ -26,11 +26,14 @@ enum cut_type_t : int8_t {
 };
 
 template <typename i_t, typename f_t>
-void print_cut_types(const std::vector<cut_type_t>& cut_types, const simplex_solver_settings_t<i_t, f_t>& settings) {
-  i_t num_gomory_cuts = 0;
-  i_t num_mir_cuts = 0;
+void print_cut_types(const std::string& prefix,
+                     const std::vector<cut_type_t>& cut_types,
+                     const simplex_solver_settings_t<i_t, f_t>& settings)
+{
+  i_t num_gomory_cuts   = 0;
+  i_t num_mir_cuts      = 0;
   i_t num_knapsack_cuts = 0;
-  i_t num_cg_cuts = 0;
+  i_t num_cg_cuts       = 0;
   for (i_t i = 0; i < cut_types.size(); i++) {
     if (cut_types[i] == cut_type_t::MIXED_INTEGER_GOMORY) {
       num_gomory_cuts++;
@@ -42,9 +45,18 @@ void print_cut_types(const std::vector<cut_type_t>& cut_types, const simplex_sol
       num_cg_cuts++;
     }
   }
-  settings.log.printf("Gomory cuts: %d, MIR cuts: %d, Knapsack cuts: %d CG cuts: %d\n", num_gomory_cuts, num_mir_cuts, num_knapsack_cuts, num_cg_cuts);
+  settings.log.printf("%s: Gomory cuts: %d, MIR cuts: %d, Knapsack cuts: %d CG cuts: %d\n",
+                      prefix.c_str(),
+                      num_gomory_cuts,
+                      num_mir_cuts,
+                      num_knapsack_cuts,
+                      num_cg_cuts);
 }
 
+template <typename i_t, typename f_t>
+void read_saved_solution_for_cut_verification(const lp_problem_t<i_t, f_t>& lp,
+                                              const simplex_solver_settings_t<i_t, f_t>& settings,
+                                              std::vector<f_t>& saved_solution);
 
 template <typename i_t, typename f_t>
 f_t minimum_violation(const csr_matrix_t<i_t, f_t>& C,
@@ -96,6 +108,8 @@ class cut_pool_t {
   void drop_cuts();
 
   i_t pool_size() const { return cut_storage_.m; }
+
+  void print_cutpool_types() { print_cut_types("In cut pool", cut_type_, settings_); }
 
  private:
   f_t cut_distance(i_t row, const std::vector<f_t>& x, f_t& cut_violation, f_t &cut_norm);
@@ -232,9 +246,9 @@ class cut_generation_t {
 };
 
 template <typename i_t, typename f_t>
-class mixed_integer_gomory_base_inequality_t {
+class tableau_equality_t {
  public:
-  mixed_integer_gomory_base_inequality_t(const lp_problem_t<i_t, f_t>& lp,
+  tableau_equality_t(const lp_problem_t<i_t, f_t>& lp,
                                          basis_update_mpf_t<i_t, f_t>& basis_update,
                                          const std::vector<i_t> nonbasic_list)
     : b_bar_(lp.num_rows, 0.0),
@@ -249,7 +263,7 @@ class mixed_integer_gomory_base_inequality_t {
   }
 
   // Generates the base inequalities: C*x == d that will be turned into cuts
-  i_t generate_base_inequality(const lp_problem_t<i_t, f_t>& lp,
+  i_t generate_base_equality(const lp_problem_t<i_t, f_t>& lp,
                                const simplex_solver_settings_t<i_t, f_t>& settings,
                                csr_matrix_t<i_t, f_t>& Arow,
                                const std::vector<variable_type_t>& var_types,
@@ -271,23 +285,10 @@ class mixed_integer_gomory_base_inequality_t {
 template <typename i_t, typename f_t>
 class mixed_integer_rounding_cut_t {
  public:
-  mixed_integer_rounding_cut_t(i_t num_vars, const simplex_solver_settings_t<i_t, f_t>& settings)
-    : num_vars_(num_vars),
-      settings_(settings),
-      x_workspace_(num_vars, 0.0),
-      x_mark_(num_vars, 0),
-      has_lower_(num_vars, 0),
-      has_upper_(num_vars, 0),
-      needs_complement_(false)
-  {
-  }
-
-  // We call initalize each cut pass
-  // it resizes the arrays
-  void initialize(const lp_problem_t<i_t, f_t>& lp,
-                  const std::vector<i_t>& new_slacks,
-                  const std::vector<f_t>& xstar);
-
+  mixed_integer_rounding_cut_t(const lp_problem_t<i_t, f_t>& lp,
+                               const simplex_solver_settings_t<i_t, f_t>& settings,
+                               const std::vector<i_t>& new_slacks,
+                               const std::vector<f_t>& xstar);
 
   // Convert an inequality of the form: sum_j a_j x_j >= beta
   // with l_j <= x_j <= u_j into the form:
@@ -378,6 +379,15 @@ class strong_cg_cut_t {
   strong_cg_cut_t(const lp_problem_t<i_t, f_t>& lp,
                   const std::vector<variable_type_t>& var_types,
                   const std::vector<f_t>& xstar);
+
+  i_t generate_strong_cg_cut(const lp_problem_t<i_t, f_t>& lp,
+                             const simplex_solver_settings_t<i_t, f_t>& settings,
+                             const std::vector<variable_type_t>& var_types,
+                             const sparse_vector_t<i_t, f_t>& inequality,
+                             const f_t inequality_rhs,
+                             const std::vector<f_t>& xstar,
+                             sparse_vector_t<i_t, f_t>& cut,
+                             f_t& cut_rhs);
 
   i_t remove_continuous_variables_integers_nonnegative(
     const lp_problem_t<i_t, f_t>& lp,

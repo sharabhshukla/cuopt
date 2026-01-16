@@ -228,10 +228,6 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
 {
   exploration_stats_.start_time = tic();
   dualize_info_t<i_t, f_t> dualize_info;
-#ifdef PRINT_A
-  settings_.log.printf("A");
-  original_problem_.A.print_matrix();
-#endif
   convert_user_problem(original_problem_, settings_, original_lp_, new_slacks_, dualize_info);
   full_variable_types(original_problem_, original_lp_, var_types_);
 
@@ -241,25 +237,26 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
       num_integer_variables_++;
     }
   }
-  printf("num_integer_variables %d\n", num_integer_variables_);
 
   // Check slack
-  printf("slacks size %ld m %d\n", new_slacks_.size(), original_lp_.num_rows);
+#ifdef CHECK_SLACKS
+  assert(new_slacks_.size() == original_lp_.num_rows);
   for (i_t slack : new_slacks_) {
     const i_t col_start = original_lp_.A.col_start[slack];
     const i_t col_end = original_lp_.A.col_start[slack + 1];
     const i_t col_len = col_end - col_start;
     if (col_len != 1) {
-      printf("Slack %d has %d nzs\n", slack, col_len);
-      exit(1);
+      settings_.log.printf("Slack %d has %d nzs\n", slack, col_len);
+      assert(col_len == 1);
     }
     const i_t i = original_lp_.A.i[col_start];
     const f_t x = original_lp_.A.x[col_start];
     if (std::abs(x) != 1.0) {
-      printf("Slack %d row %d has non-unit coefficient %e\n", slack, i, x);
-      exit(1);
+      settings_.log.printf("Slack %d row %d has non-unit coefficient %e\n", slack, i, x);
+      assert(std::abs(x) == 1.0);
     }
   }
+#endif
 
   mutex_upper_.lock();
   upper_bound_ = inf;
@@ -1484,12 +1481,15 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
         }
       }
       if (basic_list.size() != original_lp_.num_rows) {
-        printf("basic_list size %d != m %d\n", basic_list.size(), original_lp_.num_rows);
-        exit(1);
+        settings_.log.printf(
+          "basic_list size %d != m %d\n", basic_list.size(), original_lp_.num_rows);
+        assert(basic_list.size() == original_lp_.num_rows);
       }
       if (nonbasic_list.size() != original_lp_.num_cols - original_lp_.num_rows) {
-        printf("nonbasic_list size %d != n - m %d\n", nonbasic_list.size(), original_lp_.num_cols - original_lp_.num_rows);
-        exit(1);
+        settings_.log.printf("nonbasic_list size %d != n - m %d\n",
+                             nonbasic_list.size(),
+                             original_lp_.num_cols - original_lp_.num_rows);
+        assert(nonbasic_list.size() == original_lp_.num_cols - original_lp_.num_rows);
       }
       root_crossover_settings.max_cut_passes = 3;
       // Populate the basis_update from the crossover vstatus
@@ -1504,13 +1504,13 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       // Set the edge norms to a default value
       edge_norms.resize(original_lp_.num_cols, -1.0);
       set_uninitialized_steepest_edge_norms<i_t, f_t>(edge_norms);
-      printf("Using crossover solution\n");
+      settings_.log.printf("Using crossover solution\n");
     } else {
-      printf("Using dual simplex solution 1: crossover status %d\n", crossover_status);
+      settings_.log.printf("Using dual simplex solution\n");
       root_status = root_status_future.get();
     }
   } else {
-    printf("Using dual simplex solution\n");
+    settings_.log.printf("Using dual simplex solution\n");
     root_status = root_status_future.get();
   }
   return root_status;
@@ -1646,91 +1646,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
   std::vector<f_t> saved_solution;
 #if 1
-  printf("Trying to open solution.dat\n");
-  FILE* fid = NULL;
-  fid = fopen("solution.dat", "r");
-  if (fid != NULL)
-  {
-    i_t n_solution_dat;
-    i_t count = fscanf(fid, "%d\n", &n_solution_dat);
-    printf("Solution.dat variables %d =? %d =? %ld count %d\n", n_solution_dat, original_lp_.num_cols, solution.x.size(), count);
-    bool good = true;
-    if (count == 1 && n_solution_dat == original_lp_.num_cols)
-    {
-      printf("Opened solution.dat with %d number of variables\n", n_solution_dat);
-      saved_solution.resize(n_solution_dat);
-       for (i_t j = 0; j < n_solution_dat; j++)
-       {
-         count = fscanf(fid, "%lf", &saved_solution[j]);
-         if (count != 1)
-         {
-           printf("bad read solution.dat: j %d count %d\n", j, count);
-           good = false;
-           break;
-         }
-       }
-    } else {
-      good = false;
-    }
-    fclose(fid);
-
-    if (!good)
-    {
-      saved_solution.resize(0);
-      printf("Solution.dat is bad\n");
-    }
-    else
-    {
-      printf("Read solution file\n");
-
-      auto hash_combine_f = [](size_t seed, f_t x) {
-        seed ^= std::hash<f_t>{}(x) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        return seed;
-      };
-      size_t seed = original_lp_.num_cols;
-      for (i_t j = 0; j < original_lp_.num_cols; ++j)
-      {
-        seed = hash_combine_f(seed, saved_solution[j]);
-      }
-      printf("Saved solution hash: %20x\n", seed);
-
-      FILE* fid = NULL;
-      fid       = fopen("solution.dat.2", "w");
-      if (fid != NULL) {
-        printf("Writing solution.dat.2\n");
-        i_t n = original_lp_.num_cols;
-        size_t seed = n;
-        fprintf(fid, "%d\n", n);
-        for (i_t j = 0; j < n; ++j) {
-          fprintf(fid, "%.17g\n", saved_solution[j]);
-        }
-        fclose(fid);
-      }
-
-      // Compute || A * x - b ||_inf
-      std::vector<f_t> residual = original_lp_.rhs;
-      matrix_vector_multiply(original_lp_.A, 1.0, saved_solution, -1.0, residual);
-      printf("Saved solution: || A*x - b ||_inf %e\n", vector_norm_inf<i_t, f_t>(residual));
-      f_t infeas = 0;
-      for (i_t j = 0; j < original_lp_.num_cols; j++) {
-        if (saved_solution[j] < original_lp_.lower[j] - 1e-6) {
-          f_t curr_infeas = (original_lp_.lower[j] - saved_solution[j]);
-          infeas += curr_infeas;
-          printf(
-            "j: %d saved solution %e lower %e\n", j, saved_solution[j], original_lp_.lower[j]);
-        }
-        if (saved_solution[j] > original_lp_.upper[j] + 1e-6) {
-          f_t curr_infeas = (saved_solution[j] - original_lp_.upper[j]);
-          infeas += curr_infeas;
-          printf(
-            "j %d saved solution %e upper %e\n", j, saved_solution[j], original_lp_.upper[j]);
-        }
-      }
-      printf("Bound infeasibility %e\n", infeas);
-    }
-  } else {
-    printf("Could not open solution.dat\n");
-  }
+  read_saved_solution_for_cut_verification(original_lp_, settings_, saved_solution);
 #endif
 
   i_t num_gomory_cuts = 0;
@@ -1740,13 +1656,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   i_t cut_pool_size = 0;
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
-#ifdef PRINT_SOLUTION
-      for (i_t j = 0; j < original_lp_.num_cols; j++) {
-        if (var_types_[j] == variable_type_t::INTEGER) {
-          settings_.log.printf("Variable %d type %d val %e\n", j, var_types_[j], root_relax_soln_.x[j]);
-        }
-      }
-#endif
       mutex_upper_.lock();
       incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
       upper_bound_ = root_objective_;
@@ -1810,36 +1719,22 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           num_cg_cuts++;
         }
       }
-      print_cut_types(cut_types, settings_);
+      cut_pool.print_cutpool_types();
+      print_cut_types("In LP      ", cut_types, settings_);
       printf("Cut pool size: %d\n", cut_pool.pool_size());
 
-
+#ifdef CHECK_CUT_MATRIX
       if (cuts_to_add.check_matrix() != 0) {
-        printf("Bad cuts matrix\n");
+        settings_.log.printf("Bad cuts matrix\n");
         for (i_t i = 0; i < static_cast<i_t>(cut_types.size()); ++i)
         {
-          printf("row %d cut type %d\n", i, cut_types[i]);
+          settings_.log.printf("row %d cut type %d\n", i, cut_types[i]);
         }
-        exit(-1);
-      }
-
-#ifdef PRINT_CUTS
-      csc_matrix_t<i_t, f_t> cuts_to_add_col(cuts_to_add.m, cuts_to_add.n, cuts_to_add.row_start[cuts_to_add.m]);
-      cuts_to_add.to_compressed_col(cuts_to_add_col);
-      cuts_to_add_col.print_matrix();
-      for (i_t i = 0; i < cut_rhs.size(); i++) {
-        printf("cut_rhs[%d] = %g\n", i, cut_rhs[i]);
+        return mip_status_t::NUMERICAL;
       }
 #endif
-
-#if 0
-      f_t min_cut_violation = minimum_violation(cuts_to_add, cut_rhs, root_relax_soln_.x);
-      if (min_cut_violation < 1e-6) {
-        settings_.log.printf("Min cut violation %e\n", min_cut_violation);
-      }
-#endif
-
       // Check against saved solution
+#if 1
       if (saved_solution.size() > 0) {
         csc_matrix_t<i_t, f_t> cuts_to_add_col(cuts_to_add.m, cuts_to_add.n, cuts_to_add.row_start[cuts_to_add.m]);
         cuts_to_add.to_compressed_col(cuts_to_add_col);
@@ -1849,11 +1744,11 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           //printf("Cx[%d] = %e cut_rhs[%d] = %e\n", k, Cx[k], k, cut_rhs[k]);
           if (Cx[k] > cut_rhs[k] + 1e-6) {
             printf("Cut %d is violated by saved solution. Cx %e cut_rhs %e\n", k, Cx[k], cut_rhs[k]);
-            exit(1);
+            return mip_status_t::NUMERICAL;
           }
         }
       }
-
+#endif
       cut_pool_size = cut_pool.pool_size();
 
       // Resolve the LP with the new cuts
@@ -1879,7 +1774,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       mutex_original_lp_.unlock();
       if (add_cuts_status != 0) {
         settings_.log.printf("Failed to add cuts\n");
-        exit(1);
+        return mip_status_t::NUMERICAL;
       }
 
       // Try to do bound strengthening
@@ -1892,15 +1787,14 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       original_lp_.A.check_matrix();
 #endif
       original_lp_.A.to_compressed_row(Arow);
-#if 1
+
       bounds_strengthening_t<i_t, f_t> node_presolve(original_lp_, Arow, row_sense, var_types_);
       bool feasible = node_presolve.bounds_strengthening(original_lp_.lower, original_lp_.upper, settings_);
 
       if (!feasible) {
         settings_.log.printf("Bound strengthening failed\n");
-        exit(1);
+        return mip_status_t::NUMERICAL;
       }
-#endif
 
       // Adjust the solution
       root_relax_soln_.x.resize(original_lp_.num_cols, 0.0);
@@ -1934,7 +1828,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       if (cut_status != dual::status_t::OPTIMAL) {
         settings_.log.printf("Cut status %d\n", cut_status);
-        exit(1);
+        return mip_status_t::NUMERICAL;
       }
 
       local_lower_bounds_.assign(settings_.num_bfs_threads, root_objective_);
@@ -1960,7 +1854,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       // TODO: Get upper bound from heuristics
       f_t upper_bound = get_upper_bound();
-      f_t obj = num_fractional != 0 ? get_upper_bound() : compute_user_objective(original_lp_, root_objective_);
+      f_t obj = num_fractional != 0 ? get_upper_bound() : root_objective_;
       f_t user_obj    = compute_user_objective(original_lp_, obj);
       f_t user_lower  = compute_user_objective(original_lp_, root_objective_);
       std::string gap = num_fractional != 0 ? user_mip_gap<f_t>(user_obj, user_lower) : "0.0%";
