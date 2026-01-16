@@ -8,6 +8,8 @@
 #include <linear_programming/pdlp_constants.hpp>
 #include <linear_programming/termination_strategy/termination_strategy.hpp>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/swap_and_resize_helper.cuh>
+
 #include <mip/mip_constants.hpp>
 
 #include <cuopt/linear_programming/pdlp/pdlp_warm_start_data.hpp>
@@ -25,7 +27,7 @@ pdlp_termination_strategy_t<i_t, f_t>::pdlp_termination_strategy_t(
   problem_t<i_t, f_t>& op_problem,
   const problem_t<i_t, f_t>& scaled_op_problem,
   cusparse_view_t<i_t, f_t>& cusparse_view,
-                              const cusparse_view_t<i_t, f_t>& scaled_cusparse_view,
+  const cusparse_view_t<i_t, f_t>& scaled_cusparse_view,
   const i_t primal_size,
   const i_t dual_size,
   const pdlp_initial_scaling_strategy_t<i_t, f_t>& scaling_strategy,
@@ -51,6 +53,25 @@ pdlp_termination_strategy_t<i_t, f_t>::pdlp_termination_strategy_t(
     climber_strategies_(climber_strategies)
 {
   std::fill(termination_status_.begin(), termination_status_.end(), (i_t)pdlp_termination_status_t::NoTermination);
+}
+
+template <typename i_t, typename f_t>
+void pdlp_termination_strategy_t<i_t, f_t>::swap_context(i_t left_swap_index, i_t right_swap_index)
+{
+  convergence_information_.swap_context(left_swap_index, right_swap_index);
+  cuopt_assert(!settings_.detect_infeasibility, "Infeasibility detection must be disabled to swap the termination status");
+  //infeasibility_information_.swap_context(id);
+  cuopt_assert(!termination_status_.empty(), "Termination status must not be empty");
+  host_vector_swap(termination_status_, left_swap_index, right_swap_index);
+}
+
+template <typename i_t, typename f_t>
+void pdlp_termination_strategy_t<i_t, f_t>::resize_context(i_t new_size)
+{
+  convergence_information_.resize_context(new_size);
+  cuopt_assert(!settings_.detect_infeasibility, "Infeasibility detection must be disabled to resize the termination status");
+  cuopt_assert(!termination_status_.empty(), "Termination status must not be empty");
+  termination_status_.resize(new_size);
 }
 
 template <typename i_t, typename f_t>
@@ -166,6 +187,12 @@ const convergence_information_t<i_t, f_t>&
 pdlp_termination_strategy_t<i_t, f_t>::get_convergence_information() const
 {
   return convergence_information_;
+}
+
+template <typename i_t, typename f_t>
+const infeasibility_information_t<i_t, f_t>& pdlp_termination_strategy_t<i_t, f_t>::get_infeasibility_information() const
+{
+  return infeasibility_information_;
 }
 
 template <typename i_t, typename f_t>
@@ -360,6 +387,67 @@ void pdlp_termination_strategy_t<i_t, f_t>::check_termination_criteria()
                                 settings_.per_constraint_residual,
                                 climber_strategies_.size());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
+}
+
+template <typename i_t, typename f_t>
+void  pdlp_termination_strategy_t<i_t, f_t>::fill_term_stats(typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t& term_stats, i_t i, i_t number_of_iterations, pdhg_solver_t<i_t, f_t>& current_pdhg_solver,
+const convergence_information_t<i_t, f_t>& convergence_information,
+const infeasibility_information_t<i_t, f_t>& infeasibility_information,
+pdlp_termination_status_t termination_status)
+{
+  typename convergence_information_t<i_t, f_t>::view_t convergence_information_view =
+  convergence_information_.view();
+typename infeasibility_information_t<i_t, f_t>::view_t infeasibility_information_view =
+  infeasibility_information_.view();
+
+  term_stats.number_of_steps_taken           = number_of_iterations;
+  term_stats.total_number_of_attempted_steps = current_pdhg_solver.get_total_pdhg_iterations();
+
+  cuopt_assert(i < climber_strategies_.size(), "i too big for batch size");
+
+  raft::copy(&term_stats.l2_primal_residual,
+          (settings_.per_constraint_residual)
+            ? convergence_information_view.relative_l_inf_primal_residual // TODO later batch mode: handle per climber overall residual
+      : convergence_information_view.l2_primal_residual.data() + i,
+      1,
+    stream_view_);
+
+  term_stats.l2_relative_primal_residual =
+  convergence_information_.get_relative_l2_primal_residual_value(i);
+
+  raft::copy(&term_stats.l2_dual_residual,
+    (settings_.per_constraint_residual)
+    ? convergence_information_view.relative_l_inf_dual_residual
+    : convergence_information_view.l2_dual_residual.data() + i,
+    1,
+    stream_view_);
+    
+    term_stats.l2_relative_dual_residual =
+      convergence_information_.get_relative_l2_dual_residual_value(i);
+
+  raft::copy(
+  &term_stats.primal_objective, convergence_information_view.primal_objective.data() + i, 1, stream_view_);
+raft::copy(
+  &term_stats.dual_objective, convergence_information_view.dual_objective.data() + i, 1, stream_view_);
+raft::copy(&term_stats.gap, convergence_information_view.gap.data() + i, 1, stream_view_);
+term_stats.relative_gap = convergence_information_.get_relative_gap_value(i);
+raft::copy(&term_stats.max_primal_ray_infeasibility,
+          &infeasibility_information_view.max_primal_ray_infeasibility[i],
+          1,
+          stream_view_);
+raft::copy(&term_stats.primal_ray_linear_objective,
+          &infeasibility_information_view.primal_ray_linear_objective[i],
+          1,
+          stream_view_);
+raft::copy(&term_stats.max_dual_ray_infeasibility,
+          &infeasibility_information_view.max_dual_ray_infeasibility[i],
+          1,
+          stream_view_);
+raft::copy(&term_stats.dual_ray_linear_objective,
+          &infeasibility_information_view.dual_ray_linear_objective[i],
+          1,
+          stream_view_);
+term_stats.solved_by_pdlp = (termination_status != pdlp_termination_status_t::ConcurrentLimit);
 }
 
 template <typename i_t, typename f_t>

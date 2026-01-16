@@ -56,6 +56,14 @@ class pdlp_termination_strategy_t {
 
   void print_termination_criteria(i_t iteration, f_t elapsed, i_t best_id = 0) const;
 
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
+
+  void fill_term_stats(typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t& term_stats, i_t i, i_t number_of_iterations, pdhg_solver_t<i_t, f_t>& current_pdhg_solver,
+    const convergence_information_t<i_t, f_t>& convergence_information,
+    const infeasibility_information_t<i_t, f_t>& infeasibility_information,
+    pdlp_termination_status_t termination_status);
+
   void set_relative_dual_tolerance_factor(f_t dual_tolerance_factor);
   void set_relative_primal_tolerance_factor(f_t primal_tolerance_factor);
   f_t get_relative_dual_tolerance_factor() const;
@@ -71,6 +79,7 @@ class pdlp_termination_strategy_t {
   i_t get_optimal_solution_id() const;
 
   const convergence_information_t<i_t, f_t>& get_convergence_information() const;
+  const infeasibility_information_t<i_t, f_t>& get_infeasibility_information() const;
 
   // Deep copy is used when save best primal so far is toggled
   optimization_problem_solution_t<i_t, f_t> fill_return_problem_solution(

@@ -8,8 +8,11 @@
 #include <linear_programming/pdlp_constants.hpp>
 #include <linear_programming/utilities/ping_pong_graph.cuh>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/swap_and_resize_helper.cuh>
 #include <linear_programming/utils.cuh>
+
 #include <raft/core/device_span.hpp>
+
 #include <mip/mip_constants.hpp>
 
 #include <cuopt/error.hpp>
@@ -111,6 +114,66 @@ pdhg_solver_t<i_t, f_t>::pdhg_solver_t(raft::handle_t const* handle_ptr,
   thrust::fill(
     handle_ptr->get_thrust_policy(), reflected_dual_.data(), reflected_dual_.end(), f_t(0));
   thrust::fill(handle_ptr->get_thrust_policy(), dual_slack_.data(), dual_slack_.end(), f_t(0));
+}
+
+template <typename i_t, typename f_t>
+void pdhg_solver_t<i_t, f_t>::swap_context(i_t left_swap_index, i_t right_swap_index)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(tmp_primal_.size() / primal_size_h_);
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(left_swap_index < right_swap_index, "Left swap index must be less than right swap index");
+  cuopt_assert(left_swap_index < batch_size, "Left swap index is out of bounds");
+  cuopt_assert(right_swap_index < batch_size, "Right swap index is out of bounds");
+
+  matrix_swap(tmp_primal_, primal_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(tmp_dual_, dual_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(potential_next_primal_solution_, primal_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(potential_next_dual_solution_, dual_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(reflected_primal_, primal_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(reflected_dual_, dual_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(dual_slack_, primal_size_h_, left_swap_index, right_swap_index);
+  current_saddle_point_state_.swap_context(left_swap_index, right_swap_index);
+  if (new_bounds_idx_.size() != 0) {
+    device_vector_swap(new_bounds_idx_, left_swap_index, right_swap_index);
+    device_vector_swap(new_bounds_lower_, left_swap_index, right_swap_index);
+    device_vector_swap(new_bounds_upper_, left_swap_index, right_swap_index);
+  }
+
+  #ifdef CUPDLP_DEBUG_MODE
+  std::cout << "Swap context for climber " << left_swap_index << " and " << right_swap_index << std::endl;
+  print("new_bounds_idx_", new_bounds_idx_);
+  print("new_bounds_lower_", new_bounds_lower_);
+  print("new_bounds_upper_", new_bounds_upper_);
+  #endif
+}
+
+template <typename i_t, typename f_t>
+void pdhg_solver_t<i_t, f_t>::resize_context(i_t new_size)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(tmp_primal_.size() / primal_size_h_);
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(new_size > 0, "New size must be greater than 0");
+  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+
+  tmp_primal_.resize(new_size * primal_size_h_, stream_view_);
+  tmp_dual_.resize(new_size * dual_size_h_, stream_view_);
+  potential_next_primal_solution_.resize(new_size * primal_size_h_, stream_view_);
+  potential_next_dual_solution_.resize(new_size * dual_size_h_, stream_view_);
+  reflected_primal_.resize(new_size * primal_size_h_, stream_view_);
+  reflected_dual_.resize(new_size * dual_size_h_, stream_view_);
+  dual_slack_.resize(new_size * primal_size_h_, stream_view_);
+  current_saddle_point_state_.resize_context(new_size);
+  if (new_bounds_idx_.size() != 0) {
+    new_bounds_idx_.resize(new_size, stream_view_);
+    new_bounds_lower_.resize(new_size, stream_view_);
+    new_bounds_upper_.resize(new_size, stream_view_);
+  }
+}
+
+template <typename i_t, typename f_t>
+ping_pong_graph_t<i_t>& pdhg_solver_t<i_t, f_t>::get_graph_all()
+{
+  return graph_all;
 }
 
 template <typename i_t, typename f_t>
@@ -660,6 +723,11 @@ template <typename i_t, typename f_t>
 void pdhg_solver_t<i_t, f_t>::refine_initial_primal_projection()
 {
   if (new_bounds_idx_.size() == 0) return;
+  #ifdef CUPDLP_DEBUG_MODE
+  print("new_bounds_idx_", new_bounds_idx_);
+  print("new_bounds_lower_", new_bounds_lower_);
+  print("new_bounds_upper_", new_bounds_upper_);
+  #endif
   const auto [grid_size, block_size] = kernel_config_from_batch_size(climber_strategies_.size());
   refine_initial_primal_projection_kernel<<<grid_size, block_size, 0, stream_view_>>>(
     (i_t)climber_strategies_.size(),
@@ -718,6 +786,11 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
           stream_view_);
       }
       if (new_bounds_idx_.size() != 0) {
+        #ifdef CUPDLP_DEBUG_MODE
+        print("new_bounds_idx_", new_bounds_idx_);
+        print("new_bounds_lower_", new_bounds_lower_);
+        print("new_bounds_upper_", new_bounds_upper_);
+        #endif
         const auto [grid_size, block_size] =
           kernel_config_from_batch_size(climber_strategies_.size());
         refine_primal_projection_major_batch_kernel<<<grid_size, block_size, 0, stream_view_>>>(
@@ -823,6 +896,11 @@ print("current_saddle_point_state_.get_current_AtY()", current_saddle_point_stat
           stream_view_);
       }
       if (new_bounds_idx_.size() != 0) {
+        #ifdef CUPDLP_DEBUG_MODE
+        print("new_bounds_idx_", new_bounds_idx_);
+        print("new_bounds_lower_", new_bounds_lower_);
+        print("new_bounds_upper_", new_bounds_upper_);
+        #endif
         const auto [grid_size, block_size] =
           kernel_config_from_batch_size(climber_strategies_.size());
         refine_primal_projection_batch_kernel<<<grid_size, block_size, 0, stream_view_>>>(

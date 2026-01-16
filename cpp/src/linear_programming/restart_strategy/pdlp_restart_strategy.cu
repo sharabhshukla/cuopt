@@ -11,7 +11,10 @@
 #include <linear_programming/pdlp_constants.hpp>
 #include <linear_programming/restart_strategy/pdlp_restart_strategy.cuh>
 #include <linear_programming/utils.cuh>
+#include <linear_programming/swap_and_resize_helper.cuh>
+
 #include <mip/mip_constants.hpp>
+
 #ifdef CUPDLP_DEBUG_MODE
 #include <utilities/copy_helpers.hpp>
 #endif
@@ -234,7 +237,7 @@ pdlp_restart_strategy_t<i_t, f_t>::pdlp_restart_strategy_t(
   std::fill(primal_weight_last_error_.begin(), primal_weight_last_error_.end() , f_t(0.0));
   std::fill(best_primal_dual_residual_gap_.begin(), best_primal_dual_residual_gap_.end() , std::numeric_limits<f_t>::infinity());
 
-  if (climber_strategies_.size() > 1)
+  if (batch_mode_)
   {
     // Pass down any input pointer of the right type, actual pointer does not matter
     size_t byte_needed = 0;
@@ -957,6 +960,38 @@ void pdlp_restart_strategy_t<i_t, f_t>::cupdlpx_restart(
 }
 
 template <typename i_t, typename f_t>
+void pdlp_restart_strategy_t<i_t, f_t>::swap_context(i_t left_swap_index, i_t right_swap_index)
+{
+  last_restart_duality_gap_.swap_context(left_swap_index, right_swap_index);
+
+  cuopt_assert(!fixed_point_error_.empty(), "Fixed point error must not be empty");
+  host_vector_swap(fixed_point_error_, left_swap_index, right_swap_index);
+  host_vector_swap(initial_fixed_point_error_, left_swap_index, right_swap_index);
+  host_vector_swap(last_trial_fixed_point_error_, left_swap_index, right_swap_index);
+  host_vector_swap(primal_weight_error_sum_, left_swap_index, right_swap_index);
+  host_vector_swap(primal_weight_last_error_, left_swap_index, right_swap_index);
+  host_vector_swap(best_primal_dual_residual_gap_, left_swap_index, right_swap_index);
+}
+
+template <typename i_t, typename f_t>
+void pdlp_restart_strategy_t<i_t, f_t>::resize_context(i_t new_size)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(fixed_point_error_.size());
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(new_size > 0, "New size must be greater than 0");
+  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+
+  last_restart_duality_gap_.resize_context(new_size);
+
+  fixed_point_error_.resize(new_size);
+  initial_fixed_point_error_.resize(new_size);
+  last_trial_fixed_point_error_.resize(new_size);
+  primal_weight_error_sum_.resize(new_size);
+  primal_weight_last_error_.resize(new_size);
+  best_primal_dual_residual_gap_.resize(new_size);
+}
+
+template <typename i_t, typename f_t>
 void pdlp_restart_strategy_t<i_t, f_t>::run_cupdlpx_restart(
   const convergence_information_t<i_t, f_t>& current_convergence_information,
   pdhg_solver_t<i_t, f_t>& pdhg_solver,
@@ -1167,7 +1202,7 @@ void pdlp_restart_strategy_t<i_t, f_t>::distance_squared_moved_from_last_restart
                          a_sub_scalar_times_b<f_t>(reusable_device_scalar_value_1_.data()),
                          stream_view_);
 
-  if (climber_strategies_.size() == 1)
+  if (!batch_mode_)
   {
     RAFT_CUBLAS_TRY(raft::linalg::detail::cublasdot(handle_ptr_->get_cublas_handle(),
                                                   size_of_solutions_h,

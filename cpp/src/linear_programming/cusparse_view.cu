@@ -132,6 +132,7 @@ cusparse_dn_mat_descr_wrapper_t<f_t>& cusparse_dn_mat_descr_wrapper_t<f_t>::oper
 template <typename f_t>
 void cusparse_dn_mat_descr_wrapper_t<f_t>::create(int64_t row, int64_t col, int64_t ld, f_t* values, cusparseOrder_t order)
 {
+  if (need_destruction_) { RAFT_CUSPARSE_TRY(cusparseDestroyDnMat(descr_)); }
   RAFT_CUSPARSE_TRY(raft::sparse::detail::cusparsecreatednmat(&descr_, row, col, ld, values, order));
   need_destruction_ = true;
 }

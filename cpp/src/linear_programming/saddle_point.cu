@@ -7,6 +7,7 @@
 
 #include <cuopt/error.hpp>
 
+#include <linear_programming/swap_and_resize_helper.cuh>
 #include <linear_programming/saddle_point.hpp>
 
 #include <mip/mip_constants.hpp>
@@ -51,6 +52,41 @@ saddle_point_state_t<i_t, f_t>::saddle_point_state_t(raft::handle_t const* handl
     dual_gradient_.data(), 0, sizeof(f_t) * dual_gradient_.size(), handle_ptr->get_stream()));
 
   // No need to 0 init current/next AtY, they are directlty written as result of SpMV
+}
+
+template <typename i_t, typename f_t>
+void saddle_point_state_t<i_t, f_t>::swap_context(i_t left_swap_index, i_t right_swap_index)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(primal_solution_.size() / primal_size_);
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(left_swap_index < right_swap_index, "Left swap index must be less than right swap index");
+  cuopt_assert(left_swap_index < batch_size, "Left swap index is out of bounds");
+  cuopt_assert(right_swap_index < batch_size, "Right swap index is out of bounds");
+  
+  matrix_swap(primal_solution_, primal_size_, left_swap_index, right_swap_index);
+  matrix_swap(dual_solution_, dual_size_, left_swap_index, right_swap_index);
+  matrix_swap(delta_primal_, primal_size_, left_swap_index, right_swap_index);
+  matrix_swap(delta_dual_, dual_size_, left_swap_index, right_swap_index);
+  matrix_swap(dual_gradient_, dual_size_, left_swap_index, right_swap_index);
+  matrix_swap(current_AtY_, primal_size_, left_swap_index, right_swap_index);
+  matrix_swap(next_AtY_, primal_size_, left_swap_index, right_swap_index);
+}
+
+template <typename i_t, typename f_t>
+void saddle_point_state_t<i_t, f_t>::resize_context(i_t new_size)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(primal_solution_.size() / primal_size_);
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(new_size > 0, "New size must be greater than 0");
+  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+
+  primal_solution_.resize(new_size * primal_size_, primal_solution_.stream());
+  dual_solution_.resize(new_size * dual_size_, dual_solution_.stream());
+  delta_primal_.resize(new_size * primal_size_, delta_primal_.stream());
+  delta_dual_.resize(new_size * dual_size_, delta_dual_.stream());
+  dual_gradient_.resize(new_size * dual_size_, dual_gradient_.stream());
+  current_AtY_.resize(new_size * primal_size_, current_AtY_.stream());
+  next_AtY_.resize(new_size * primal_size_, next_AtY_.stream());
 }
 
 template <typename i_t, typename f_t>

@@ -46,6 +46,7 @@ class convergence_information_t {
     const pdlp_solver_settings_t<i_t, f_t>& settings);
 
   rmm::device_uvector<f_t>& get_reduced_cost();
+  const rmm::device_uvector<f_t>& get_reduced_cost() const;
 
   // Needed for kkt restart & debug prints
   const rmm::device_uvector<f_t>& get_primal_objective() const;
@@ -120,6 +121,9 @@ class convergence_information_t {
   void compute_primal_residual(cusparse_view_t<i_t, f_t>& cusparse_view,
                                rmm::device_uvector<f_t>& tmp_dual,
                                [[maybe_unused]] const rmm::device_uvector<f_t>& dual_iterate);
+
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
 
  private:
   void compute_primal_objective(rmm::device_uvector<f_t>& primal_solution);

@@ -86,6 +86,9 @@ class saddle_point_state_t {
   rmm::device_uvector<f_t>& get_current_AtY();
   rmm::device_uvector<f_t>& get_next_AtY();
 
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
+
   /**
    * @brief Gets the device-side view (with raw pointers), for ease of access
    *        inside cuda kernels

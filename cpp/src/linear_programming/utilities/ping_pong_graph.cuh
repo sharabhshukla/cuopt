@@ -20,15 +20,15 @@ namespace cuopt::linear_programming::detail {
 template <typename i_t>
 class ping_pong_graph_t {
  public:
-  ping_pong_graph_t(rmm::cuda_stream_view stream_view, bool is_batch_mode = false)
-    : stream_view_(stream_view), is_batch_mode_(is_batch_mode)
+  ping_pong_graph_t(rmm::cuda_stream_view stream_view, bool is_legacy_batch_mode = false)
+    : stream_view_(stream_view), is_legacy_batch_mode_(is_legacy_batch_mode)
   {
   }
 
   ~ping_pong_graph_t()
   {
     #ifndef CUPDLP_DEBUG_MODE
-    if (!is_batch_mode_) {
+    if (!is_legacy_batch_mode_) {
       if (even_initialized) { RAFT_CUDA_TRY_NO_THROW(cudaGraphExecDestroy(even_instance)); }
       if (odd_initialized) { RAFT_CUDA_TRY_NO_THROW(cudaGraphExecDestroy(odd_instance)); }
     }
@@ -38,7 +38,7 @@ class ping_pong_graph_t {
   void start_capture(i_t total_pdlp_iterations)
   {
     #ifndef CUPDLP_DEBUG_MODE
-    if (!is_batch_mode_) {
+    if (!is_legacy_batch_mode_) {
       if (total_pdlp_iterations % 2 == 0 && !even_initialized) {
         RAFT_CUDA_TRY(
           cudaStreamBeginCapture(stream_view_.value(), cudaStreamCaptureModeThreadLocal));
@@ -53,7 +53,7 @@ class ping_pong_graph_t {
   void end_capture(i_t total_pdlp_iterations)
   {
     #ifndef CUPDLP_DEBUG_MODE
-    if (!is_batch_mode_) {
+    if (!is_legacy_batch_mode_) {
       if (total_pdlp_iterations % 2 == 0 && !even_initialized) {
         RAFT_CUDA_TRY(cudaStreamEndCapture(stream_view_.value(), &even_graph));
         RAFT_CUDA_TRY(cudaGraphInstantiate(&even_instance, even_graph));
@@ -72,7 +72,7 @@ class ping_pong_graph_t {
   void launch(i_t total_pdlp_iterations)
   {
     #ifndef CUPDLP_DEBUG_MODE
-    if (!is_batch_mode_) {
+    if (!is_legacy_batch_mode_) {
       if (total_pdlp_iterations % 2 == 0 && even_initialized) {
         RAFT_CUDA_TRY(cudaGraphLaunch(even_instance, stream_view_.value()));
       } else if (total_pdlp_iterations % 2 == 1 && odd_initialized) {
@@ -85,7 +85,7 @@ class ping_pong_graph_t {
   bool is_initialized(i_t total_pdlp_iterations)
   {
     #ifndef CUPDLP_DEBUG_MODE
-    if (!is_batch_mode_) {
+    if (!is_legacy_batch_mode_) {
       return (total_pdlp_iterations % 2 == 0 && even_initialized) ||
              (total_pdlp_iterations % 2 == 1 && odd_initialized);
     }
@@ -101,7 +101,7 @@ class ping_pong_graph_t {
   rmm::cuda_stream_view stream_view_;
   bool even_initialized{false};
   bool odd_initialized{false};
-  // Temporary fix to disable cuda graph in batch mode
-  bool is_batch_mode_{false};
+  // Temporary fix to disable cuda graph in legacy batch mode
+  bool is_legacy_batch_mode_{false};
 };
 }  // namespace cuopt::linear_programming::detail

@@ -6,11 +6,15 @@
 /* clang-format on */
 
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
+
 #include <linear_programming/pdlp_constants.hpp>
 #include <linear_programming/step_size_strategy/adaptive_step_size_strategy.hpp>
+#include <linear_programming/swap_and_resize_helper.cuh>
 #include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/utils.cuh>
+
 #include <mip/mip_constants.hpp>
+
 #include <utilities/unique_pinned_ptr.hpp>
 
 #include <raft/sparse/detail/cusparse_macros.h>
@@ -91,6 +95,32 @@ adaptive_step_size_strategy_t<i_t, f_t>::adaptive_step_size_strategy_t(
 
   dot_product_storage.resize(dot_product_bytes, stream_view_);
   }
+}
+
+template <typename i_t, typename f_t>
+void adaptive_step_size_strategy_t<i_t, f_t>::swap_context(i_t left_swap_index, i_t right_swap_index)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(interaction_.size());
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(left_swap_index < batch_size, "Left swap index is out of bounds");
+  cuopt_assert(right_swap_index < batch_size, "Right swap index is out of bounds");
+
+  device_vector_swap(interaction_, left_swap_index, right_swap_index);
+  device_vector_swap(norm_squared_delta_primal_, left_swap_index, right_swap_index);
+  device_vector_swap(norm_squared_delta_dual_, left_swap_index, right_swap_index);
+}
+
+template <typename i_t, typename f_t>
+void adaptive_step_size_strategy_t<i_t, f_t>::resize_context(i_t new_size)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(interaction_.size());
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(new_size > 0, "New size must be greater than 0");
+  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+
+  interaction_.resize(new_size, stream_view_);
+  norm_squared_delta_primal_.resize(new_size, stream_view_);
+  norm_squared_delta_dual_.resize(new_size, stream_view_);
 }
 
 
@@ -253,7 +283,7 @@ void adaptive_step_size_strategy_t<i_t, f_t>::compute_step_sizes(
 {
   raft::common::nvtx::range fun_scope("compute_step_sizes");
 
-  cuopt_assert(!(climber_strategies_.size() > 1), "Batch mode is not supported for compute_step_sizes");
+  cuopt_assert(!batch_mode_, "Batch mode is not supported for compute_step_sizes");
 
   if (!graph.is_initialized(total_pdlp_iterations)) {
     graph.start_capture(total_pdlp_iterations);

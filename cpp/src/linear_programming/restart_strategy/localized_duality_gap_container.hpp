@@ -51,6 +51,9 @@ struct localized_duality_gap_container_t {
     pdlp_hyper_params::pdlp_hyper_params_t hyper_params;
   };
 
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
+
   /**
    * @brief Gets the device-side view (with raw pointers), for ease of access
    *        inside cuda kernels

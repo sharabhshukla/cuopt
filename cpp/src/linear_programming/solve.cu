@@ -650,7 +650,6 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
   pdlp_solver_settings_t<i_t, f_t> batch_settings = settings;
   const auto original_new_bounds = batch_settings.new_bounds;
   batch_settings.method = cuopt::linear_programming::method_t::PDLP;
-  batch_settings.detect_infeasibility = true;
   batch_settings.presolve = false;
   batch_settings.pdlp_solver_mode = pdlp_solver_mode_t::Stable3;
 

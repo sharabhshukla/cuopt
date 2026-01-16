@@ -107,6 +107,9 @@ class pdlp_restart_strategy_t {
     CUPDLPX_RESTART      = 3,
   };
 
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
+
   pdlp_restart_strategy_t(raft::handle_t const* handle_ptr,
                           problem_t<i_t, f_t>& op_problem,
                           const cusparse_view_t<i_t, f_t>& cusparse_view,

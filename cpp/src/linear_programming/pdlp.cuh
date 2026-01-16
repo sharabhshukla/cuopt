@@ -28,6 +28,8 @@
 #include <rmm/device_uvector.hpp>
 
 #include <optional>
+#include <unordered_set>
+
 #include "linear_programming/termination_strategy/convergence_information.hpp"
 
 namespace cuopt::linear_programming::detail {
@@ -68,6 +70,12 @@ class pdlp_solver_t {
   f_t get_relative_dual_tolerance_factor() const;
   f_t get_relative_primal_tolerance_factor() const;
   detail::pdlp_termination_strategy_t<i_t, f_t>& get_current_termination_strategy();
+
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
+  void swap_all_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_all_context(i_t new_size);
+  void resize_and_swap_all_context_loop(const std::unordered_set<i_t>& climber_strategies_to_remove);
 
   void set_problem_ptr(problem_t<i_t, f_t>* problem_ptr_);
 
@@ -127,11 +135,6 @@ class pdlp_solver_t {
 
   raft::handle_t const* handle_ptr_;
   rmm::cuda_stream_view stream_view_;
-
-  #ifdef BATCH_VERBOSE_MODE
-  std::unordered_map<i_t, i_t> climber_done;
-  std::unordered_map<i_t, i_t> climber_was_done;
-  #endif
 
   problem_t<i_t, f_t>* problem_ptr;
   // Combined bounds in op_problem_scaled_ will only be scaled if
@@ -219,6 +222,8 @@ class pdlp_solver_t {
 
   const rmm::device_scalar<f_t> reusable_device_scalar_value_1_;
   const rmm::device_scalar<f_t> reusable_device_scalar_value_0_;
+
+  optimization_problem_solution_t<i_t, f_t> batch_solution_to_return_;
 
   // Only used if save_best_primal_so_far is toggeled
   optimization_problem_solution_t<i_t, f_t> best_primal_solution_so_far;

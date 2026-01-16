@@ -9,6 +9,7 @@
 #include <linear_programming/termination_strategy/convergence_information.hpp>
 #include <linear_programming/utils.cuh>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/swap_and_resize_helper.cuh>
 
 #include <mip/mip_constants.hpp>
 
@@ -169,6 +170,47 @@ convergence_information_t<i_t, f_t>::convergence_information_t(
 }
 
 template <typename i_t, typename f_t>
+void convergence_information_t<i_t, f_t>::swap_context(i_t left_swap_index, i_t right_swap_index)
+{
+  matrix_swap(primal_residual_, dual_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(dual_residual_, primal_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(reduced_cost_, primal_size_h_, left_swap_index, right_swap_index);
+  matrix_swap(primal_slack_, dual_size_h_, left_swap_index, right_swap_index);
+
+  device_vector_swap(primal_objective_, left_swap_index, right_swap_index);
+  device_vector_swap(dual_objective_, left_swap_index, right_swap_index);
+  device_vector_swap(l2_primal_residual_, left_swap_index, right_swap_index);
+  device_vector_swap(l2_dual_residual_, left_swap_index, right_swap_index);
+  device_vector_swap(gap_, left_swap_index, right_swap_index);
+  device_vector_swap(abs_objective_, left_swap_index, right_swap_index);
+  device_vector_swap(dual_dot_, left_swap_index, right_swap_index);
+  device_vector_swap(sum_primal_slack_, left_swap_index, right_swap_index);
+}
+
+template <typename i_t, typename f_t>
+void convergence_information_t<i_t, f_t>::resize_context(i_t new_size)
+{
+  [[maybe_unused]] const auto batch_size = static_cast<i_t>(primal_objective_.size());
+  cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
+  cuopt_assert(new_size > 0, "New size must be greater than 0");
+  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+
+  primal_residual_.resize(new_size * dual_size_h_, stream_view_);
+  dual_residual_.resize(new_size * primal_size_h_, stream_view_);
+  reduced_cost_.resize(new_size * primal_size_h_, stream_view_);
+  primal_slack_.resize(new_size * dual_size_h_, stream_view_);
+
+  primal_objective_.resize(new_size, stream_view_);
+  dual_objective_.resize(new_size, stream_view_);
+  l2_primal_residual_.resize(new_size, stream_view_);
+  l2_dual_residual_.resize(new_size, stream_view_);
+  gap_.resize(new_size, stream_view_);
+  abs_objective_.resize(new_size, stream_view_);
+  dual_dot_.resize(new_size, stream_view_);
+  sum_primal_slack_.resize(new_size, stream_view_);
+}
+
+template <typename i_t, typename f_t>
 void convergence_information_t<i_t, f_t>::set_relative_dual_tolerance_factor(
   f_t dual_tolerance_factor)
 {
@@ -317,7 +359,7 @@ void convergence_information_t<i_t, f_t>::compute_convergence_information(
   // If per_constraint_residual is false we still need to perform the l2 since it's used in kkt
   if (settings.per_constraint_residual) {
     // TODO later batch mode: handle per_constraint_residual here
-    cuopt_expects(!(climber_strategies_.size() > 1), error_type_t::ValidationError, "Batch mode not supported for per_constraint_residual");
+    cuopt_expects(!batch_mode_, error_type_t::ValidationError, "Batch mode not supported for per_constraint_residual");
 
     // Compute the linf of (residual_i - rel * c_i)
     thrust::device_ptr<f_t> result_ptr(linf_dual_residual_.data());
@@ -389,7 +431,7 @@ void convergence_information_t<i_t, f_t>::compute_primal_residual(
 
   if (!hyper_params_.use_reflected_primal_dual) {
     // The constraint bound violations for the first part of the residual
-    cuopt_expects(!(climber_strategies_.size() > 1), error_type_t::ValidationError, "Batch mode not supported for !use_reflected_primal_dual");
+    cuopt_expects(!batch_mode_, error_type_t::ValidationError, "Batch mode not supported for !use_reflected_primal_dual");
 
     raft::linalg::ternaryOp<f_t, violation<f_t>>(primal_residual_.data(),
                                                  tmp_dual.data(),
@@ -540,7 +582,7 @@ void convergence_information_t<i_t, f_t>::compute_dual_residual(
                                     cuda::std::minus<>{},
                                     stream_view_);
   } else {
-    cuopt_expects(!(climber_strategies_.size() > 1), error_type_t::ValidationError, "Batch mode not supported for !use_reflected_primal_dual");
+    cuopt_expects(!batch_mode_, error_type_t::ValidationError, "Batch mode not supported for !use_reflected_primal_dual");
 
     compute_reduced_cost_from_primal_gradient(tmp_primal, primal_solution);
 
@@ -568,7 +610,7 @@ void convergence_information_t<i_t, f_t>::compute_dual_objective(
   //  (l^c)^T[y]_+ − (u^c)^T[y]_− in the dual objective
 
   if (!hyper_params_.use_reflected_primal_dual) {
-    cuopt_expects(!(climber_strategies_.size() > 1), error_type_t::ValidationError, "Batch mode not supported for !use_reflected_primal_dual");
+    cuopt_expects(!batch_mode_, error_type_t::ValidationError, "Batch mode not supported for !use_reflected_primal_dual");
 
     raft::linalg::ternaryOp(bound_value_.data(),
                             dual_solution.data(),
@@ -709,6 +751,12 @@ void convergence_information_t<i_t, f_t>::compute_reduced_costs_dual_objective_c
 
 template <typename i_t, typename f_t>
 rmm::device_uvector<f_t>& convergence_information_t<i_t, f_t>::get_reduced_cost()
+{
+  return reduced_cost_;
+}
+
+template <typename i_t, typename f_t>
+const rmm::device_uvector<f_t>& convergence_information_t<i_t, f_t>::get_reduced_cost() const
 {
   return reduced_cost_;
 }

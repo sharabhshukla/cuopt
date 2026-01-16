@@ -39,8 +39,8 @@ class pdhg_solver_t {
   const rmm::device_uvector<f_t>& get_potential_next_primal_solution() const;
   rmm::device_uvector<f_t>& get_potential_next_dual_solution();
   const rmm::device_uvector<f_t>& get_potential_next_dual_solution() const;
-   rmm::device_uvector<f_t>& get_reflected_dual() ;
-   rmm::device_uvector<f_t>& get_reflected_primal() ;
+  rmm::device_uvector<f_t>& get_reflected_dual();
+  rmm::device_uvector<f_t>& get_reflected_primal();
   const rmm::device_uvector<f_t>& get_reflected_dual() const;
   const rmm::device_uvector<f_t>& get_reflected_primal() const;
   i_t get_total_pdhg_iterations();
@@ -50,6 +50,10 @@ class pdhg_solver_t {
   i_t get_primal_size() const;
   i_t get_dual_size() const;
 
+  void swap_context(i_t left_swap_index, i_t right_swap_index);
+  void resize_context(i_t new_size);
+  ping_pong_graph_t<i_t>& get_graph_all();
+  
   rmm::device_uvector<i_t>& get_new_bounds_idx() { return new_bounds_idx_; }
   rmm::device_uvector<f_t>& get_new_bounds_lower() { return new_bounds_lower_; }
   rmm::device_uvector<f_t>& get_new_bounds_upper() { return new_bounds_upper_; }
