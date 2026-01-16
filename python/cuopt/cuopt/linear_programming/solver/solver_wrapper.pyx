@@ -169,6 +169,7 @@ cdef set_solver_setting(
     cdef uintptr_t c_last_restart_duality_gap_primal_solution
     cdef uintptr_t c_last_restart_duality_gap_dual_solution
     cdef uintptr_t callback_ptr = 0
+    cdef uintptr_t callback_user_data = 0
     if mip:
         if data_model_obj is not None and data_model_obj.get_initial_primal_solution().shape[0] != 0:  # noqa
             c_solver_settings.add_initial_mip_solution(
@@ -186,7 +187,7 @@ cdef set_solver_setting(
         for callback in callbacks:
             if callback:
                 callback_ptr = callback.get_native_callback()
-                cdef uintptr_t callback_user_data = (
+                callback_user_data = (
                     callback.get_user_data_ptr()
                     if hasattr(callback, "get_user_data_ptr")
                     else 0

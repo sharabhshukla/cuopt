@@ -8,13 +8,10 @@
 
 
 from libc.stdint cimport uintptr_t
+from cpython.ref cimport PyObject
 
 import numpy as np
 from numba.cuda.api import from_cuda_array_interface
-
-
-cdef extern from "Python.h":
-    cdef cppclass PyObject
 
 
 cdef extern from "cuopt/linear_programming/utilities/callbacks_implems.hpp" namespace "cuopt::internals":  # noqa
@@ -72,8 +69,12 @@ cdef class GetSolutionCallback(PyCallback):
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
         self._user_data = None
 
-    def get_user_data_ptr(self):
-        return <uintptr_t><PyObject*>self._user_data
+    cpdef uintptr_t get_user_data_ptr(self):
+        cdef PyObject* ptr
+        if self._user_data is None:
+            return 0
+        ptr = <PyObject*>self._user_data
+        return <uintptr_t>ptr
 
     def get_native_callback(self):
         return <uintptr_t>&(self.native_callback)
@@ -88,8 +89,12 @@ cdef class SetSolutionCallback(PyCallback):
         self.native_callback.pyCallbackClass = <PyObject *><void*>self
         self._user_data = None
 
-    def get_user_data_ptr(self):
-        return <uintptr_t><PyObject*>self._user_data
+    cpdef uintptr_t get_user_data_ptr(self):
+        cdef PyObject* ptr
+        if self._user_data is None:
+            return 0
+        ptr = <PyObject*>self._user_data
+        return <uintptr_t>ptr
 
     def get_native_callback(self):
         return <uintptr_t>&(self.native_callback)
