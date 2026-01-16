@@ -22,6 +22,7 @@ enum cut_type_t : int8_t {
    MIXED_INTEGER_GOMORY = 0,
    MIXED_INTEGER_ROUNDING  = 1,
    KNAPSACK = 2,
+   CHVATAL_GOMORY = 3
 };
 
 template <typename i_t, typename f_t>
@@ -29,6 +30,7 @@ void print_cut_types(const std::vector<cut_type_t>& cut_types, const simplex_sol
   i_t num_gomory_cuts = 0;
   i_t num_mir_cuts = 0;
   i_t num_knapsack_cuts = 0;
+  i_t num_cg_cuts = 0;
   for (i_t i = 0; i < cut_types.size(); i++) {
     if (cut_types[i] == cut_type_t::MIXED_INTEGER_GOMORY) {
       num_gomory_cuts++;
@@ -36,9 +38,11 @@ void print_cut_types(const std::vector<cut_type_t>& cut_types, const simplex_sol
       num_mir_cuts++;
     } else if (cut_types[i] == cut_type_t::KNAPSACK) {
       num_knapsack_cuts++;
+    } else if (cut_types[i] == cut_type_t::CHVATAL_GOMORY) {
+      num_cg_cuts++;
     }
   }
-  settings.log.printf("Gomory cuts: %d, MIR cuts: %d, Knapsack cuts: %d\n", num_gomory_cuts, num_mir_cuts, num_knapsack_cuts);
+  settings.log.printf("Gomory cuts: %d, MIR cuts: %d, Knapsack cuts: %d CG cuts: %d\n", num_gomory_cuts, num_mir_cuts, num_knapsack_cuts, num_cg_cuts);
 }
 
 
@@ -366,6 +370,35 @@ class mixed_integer_rounding_cut_t {
   std::vector<i_t> indices_;
   std::vector<i_t> bound_info_;
   bool needs_complement_;
+};
+
+template <typename i_t, typename f_t>
+class strong_cg_cut_t {
+ public:
+  strong_cg_cut_t(const lp_problem_t<i_t, f_t>& lp,
+                  const std::vector<variable_type_t>& var_types,
+                  const std::vector<f_t>& xstar);
+
+  i_t remove_continuous_variables_integers_nonnegative(
+    const lp_problem_t<i_t, f_t>& lp,
+    const simplex_solver_settings_t<i_t, f_t>& settings,
+    const std::vector<variable_type_t>& var_types,
+    sparse_vector_t<i_t, f_t>& inequality,
+    f_t& inequality_rhs);
+
+  void to_original_integer_variables(const lp_problem_t<i_t, f_t>& lp,
+                                     sparse_vector_t<i_t, f_t>& cut,
+                                     f_t& cut_rhs);
+
+  i_t generate_strong_cg_cut_integer_only(const simplex_solver_settings_t<i_t, f_t>& settings,
+                                          const std::vector<variable_type_t>& var_types,
+                                          const sparse_vector_t<i_t, f_t>& inequality,
+                                          f_t inequality_rhs,
+                                          sparse_vector_t<i_t, f_t>& cut,
+                                          f_t& cut_rhs);
+
+ private:
+  std::vector<i_t> transformed_variables_;
 };
 
 template <typename i_t, typename f_t>

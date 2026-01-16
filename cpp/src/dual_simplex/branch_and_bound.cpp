@@ -1736,6 +1736,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   i_t num_gomory_cuts = 0;
   i_t num_mir_cuts = 0;
   i_t num_knapsack_cuts = 0;
+  i_t num_cg_cuts = 0;
   i_t cut_pool_size = 0;
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
@@ -1754,6 +1755,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         settings_.log.printf("Gomory cuts   : %d\n", num_gomory_cuts);
         settings_.log.printf("MIR cuts      : %d\n", num_mir_cuts);
         settings_.log.printf("Knapsack cuts : %d\n", num_knapsack_cuts);
+        settings_.log.printf("CG cuts       : %d\n", num_cg_cuts);
         settings_.log.printf("Cut pool size : %d\n", cut_pool_size);
         settings_.log.printf("Size with cuts: %d constraints, %d variables, %d nonzeros\n", original_lp_.num_rows, original_lp_.num_cols, original_lp_.A.col_start[original_lp_.A.n]);
       }
@@ -1804,6 +1806,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
           num_mir_cuts++;
         } else if (cut_types[k] == cut_type_t::KNAPSACK) {
           num_knapsack_cuts++;
+        } else if (cut_types[k] == cut_type_t::CHVATAL_GOMORY) {
+          num_cg_cuts++;
         }
       }
       print_cut_types(cut_types, settings_);
@@ -1975,10 +1979,11 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     }
   }
 
-  if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts > 0) {
+  if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts + num_cg_cuts > 0) {
     settings_.log.printf("Gomory cuts   : %d\n", num_gomory_cuts);
     settings_.log.printf("MIR cuts      : %d\n", num_mir_cuts);
     settings_.log.printf("Knapsack cuts : %d\n", num_knapsack_cuts);
+    settings_.log.printf("CG cuts       : %d\n", num_cg_cuts);
     settings_.log.printf("Cut pool size : %d\n", cut_pool_size);
     settings_.log.printf("Size with cuts: %d constraints, %d variables, %d nonzeros\n", original_lp_.num_rows, original_lp_.num_cols, original_lp_.A.col_start[original_lp_.A.n]);
   }
