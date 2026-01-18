@@ -14,6 +14,18 @@
 
 namespace cuopt::linear_programming::dual_simplex {
 
+// Indicate the search and variable selection algorithms used by the worker (See [1]).
+//
+// [1] T. Achterberg, "Constraint Integer Programming," PhD, Technischen Universität Berlin,
+// Berlin, 2007. doi: 10.14279/depositonce-1634.
+enum class bnb_worker_type_t {
+  BEST_FIRST         = 0,  // Best-First + Plunging.
+  PSEUDOCOST_DIVING  = 1,  // Pseudocost diving (9.2.5)
+  LINE_SEARCH_DIVING = 2,  // Line search diving (9.2.4)
+  GUIDED_DIVING = 3,  // Guided diving (9.2.3). If no incumbent is found yet, use pseudocost diving.
+  COEFFICIENT_DIVING = 4  // Coefficient diving (9.2.1)
+};
+
 template <typename i_t>
 struct branch_variable_t {
   i_t variable;

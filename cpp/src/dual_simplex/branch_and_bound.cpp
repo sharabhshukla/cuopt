@@ -1739,37 +1739,71 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
 
   bsp_horizon_step_ = 0.05;
 
-  const int num_workers = settings_.num_bfs_workers;
-  bsp_mode_enabled_     = true;
-  bsp_current_horizon_  = bsp_horizon_step_;
-  bsp_horizon_number_   = 0;
+  // Split workers 50/50 between BFS and diving (with at least 1 BFS worker)
+  const int total_workers      = settings_.num_bfs_workers;
+  const int num_bfs_workers    = std::max(1, total_workers / 2);
+  const int num_diving_workers = total_workers - num_bfs_workers;
+
+  bsp_mode_enabled_    = true;
+  bsp_current_horizon_ = bsp_horizon_step_;
+  bsp_horizon_number_  = 0;
   bsp_terminated_.store(false);
 
-  // Initialize worker pool
+  // Initialize BFS worker pool
   bsp_workers_ = std::make_unique<bb_worker_pool_t<i_t, f_t>>();
-  bsp_workers_->initialize(num_workers,
+  bsp_workers_->initialize(num_bfs_workers,
                            original_lp_,
                            Arow,
                            var_types_,
                            settings_.refactor_frequency,
                            settings_.deterministic);
 
+  // Initialize diving worker pool if we have diving workers
+  if (num_diving_workers > 0) {
+    std::vector<bnb_worker_type_t> diving_types = {bnb_worker_type_t::PSEUDOCOST_DIVING,
+                                                   bnb_worker_type_t::LINE_SEARCH_DIVING,
+                                                   bnb_worker_type_t::GUIDED_DIVING,
+                                                   bnb_worker_type_t::COEFFICIENT_DIVING};
+    bsp_diving_workers_ = std::make_unique<bsp_diving_worker_pool_t<i_t, f_t>>();
+    bsp_diving_workers_->initialize(num_diving_workers,
+                                    diving_types,
+                                    original_lp_,
+                                    Arow,
+                                    var_types_,
+                                    settings_.refactor_frequency,
+                                    settings_.deterministic);
+
+    // Calculate variable locks for coefficient diving
+    calculate_variable_locks(original_lp_, var_up_locks_, var_down_locks_);
+  }
+
   // Initialize scheduler for automatic sync at horizon boundaries
   // Workers will block in record_work() when they cross sync points
   bsp_scheduler_ = std::make_unique<work_unit_scheduler_t>(bsp_horizon_step_);
 
-  // Register all worker contexts with the scheduler
+  // Register all BFS worker contexts with the scheduler
   for (auto& worker : *bsp_workers_) {
     bsp_scheduler_->register_context(worker.work_context);
   }
 
+  // Register all diving worker contexts with the scheduler
+  if (bsp_diving_workers_) {
+    for (auto& worker : *bsp_diving_workers_) {
+      bsp_scheduler_->register_context(worker.work_context);
+    }
+  }
+
   // Initialize debug logger
   bsp_debug_logger_.set_settings(bsp_debug_settings_);
-  bsp_debug_logger_.set_num_workers(num_workers);
+  bsp_debug_logger_.set_num_workers(num_bfs_workers);
   bsp_debug_logger_.set_horizon_step(bsp_horizon_step_);
 
   settings_.log.printf(
-    "BSP Mode: %d workers, horizon step = %.2f work units\n", num_workers, bsp_horizon_step_);
+    "BSP Mode: %d BFS workers + %d diving workers, horizon step = %.2f work "
+    "units\n",
+    num_bfs_workers,
+    num_diving_workers,
+    bsp_horizon_step_);
 
   // Push initial children to the global heap
   // Set deterministic BSP identity for root children (pre-BSP origin with seq 0 and 1)
@@ -1794,7 +1828,7 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
     return bsp_terminated_.load();
   });
 
-  // Set initial upper bound snapshot for all workers
+  // Set initial upper bound snapshot for all BFS workers
   for (auto& worker : *bsp_workers_) {
     worker.local_upper_bound    = upper_bound_.load();
     worker.pc_sum_up_snapshot   = pc_.pseudo_cost_sum_up;
@@ -1805,27 +1839,60 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
     worker.horizon_end          = bsp_horizon_step_;
   }
 
-  // Main BSP execution - workers run in parallel with scheduler-driven sync
-#pragma omp parallel num_threads(num_workers)
-  {
-    int worker_id = omp_get_thread_num();
-    auto& worker  = (*bsp_workers_)[worker_id];
+  // Set initial snapshots for diving workers
+  if (bsp_diving_workers_) {
+    std::vector<f_t> incumbent_snapshot;
+    if (incumbent_.has_incumbent) { incumbent_snapshot = incumbent_.x; }
 
-    f_t worker_start_time = tic();
-
-    // Run worker loop - scheduler handles sync at horizon boundaries
-    run_worker_loop(worker, search_tree_);
-
-    worker.total_runtime += toc(worker_start_time);
+    for (auto& worker : *bsp_diving_workers_) {
+      worker.set_snapshots(pc_.pseudo_cost_sum_up,
+                           pc_.pseudo_cost_sum_down,
+                           pc_.pseudo_cost_num_up,
+                           pc_.pseudo_cost_num_down,
+                           incumbent_snapshot,
+                           &root_relax_soln_.x);
+      worker.local_upper_bound = upper_bound_.load();
+      worker.horizon_start     = 0.0;
+      worker.horizon_end       = bsp_horizon_step_;
+    }
   }
+
+  const int total_thread_count = num_bfs_workers + num_diving_workers;
+
+  // Main BSP execution - workers run in parallel with scheduler-driven sync
+#pragma omp parallel num_threads(total_thread_count)
+  {
+    int thread_id = omp_get_thread_num();
+
+    if (thread_id < num_bfs_workers) {
+      // BFS worker
+      auto& worker          = (*bsp_workers_)[thread_id];
+      f_t worker_start_time = tic();
+      run_worker_loop(worker, search_tree_);
+      worker.total_runtime += toc(worker_start_time);
+    } else {
+      // Diving worker
+      int diving_id         = thread_id - num_bfs_workers;
+      auto& worker          = (*bsp_diving_workers_)[diving_id];
+      f_t worker_start_time = tic();
+      run_diving_worker_loop(worker);
+      worker.total_runtime += toc(worker_start_time);
+    }
+  }
+
   // All workers have terminated - deregister contexts
   for (auto& worker : *bsp_workers_) {
     bsp_scheduler_->deregister_context(worker.work_context);
   }
+  if (bsp_diving_workers_) {
+    for (auto& worker : *bsp_diving_workers_) {
+      bsp_scheduler_->deregister_context(worker.work_context);
+    }
+  }
 
   // Print per-worker statistics
   settings_.log.printf("\n");
-  settings_.log.printf("BSP Worker Statistics:\n");
+  settings_.log.printf("BSP BFS Worker Statistics:\n");
   settings_.log.printf(
     "  Worker |  Nodes  | Branched | Pruned | Infeas. | IntSol | Assigned |  Clock   | "
     "Sync%% | NoWork\n");
@@ -1848,6 +1915,31 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
                          total_time,
                          std::min(99.9, sync_percent),
                          worker.total_nowork_time);
+  }
+
+  // Print diving worker statistics
+  if (bsp_diving_workers_ && bsp_diving_workers_->size() > 0) {
+    settings_.log.printf("\nBSP Diving Worker Statistics:\n");
+    settings_.log.printf("  Worker |  Type  |  Dives  | Nodes  | IntSol |  Clock   | NoWork\n");
+    settings_.log.printf("  -------+--------+---------+--------+--------+----------+-------\n");
+    for (const auto& worker : *bsp_diving_workers_) {
+      const char* type_str = "???";
+      switch (worker.diving_type) {
+        case bnb_worker_type_t::PSEUDOCOST_DIVING: type_str = "PC"; break;
+        case bnb_worker_type_t::LINE_SEARCH_DIVING: type_str = "LS"; break;
+        case bnb_worker_type_t::GUIDED_DIVING: type_str = "GD"; break;
+        case bnb_worker_type_t::COEFFICIENT_DIVING: type_str = "CD"; break;
+        default: break;
+      }
+      settings_.log.printf("  %6d | %6s | %7d | %6d | %6d | %7.3fs | %5.2fs\n",
+                           worker.worker_id,
+                           type_str,
+                           worker.total_dives,
+                           worker.total_nodes_explored,
+                           worker.total_integer_solutions,
+                           worker.total_runtime,
+                           worker.total_nowork_time);
+    }
   }
   settings_.log.printf("\n");
 
@@ -2015,7 +2107,18 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
   // Prune paused nodes that are now dominated by new incumbent
   prune_worker_nodes_vs_incumbent();
 
+  // === Diving worker sync operations ===
+  // 1. Merge diving solutions found this horizon
+  merge_diving_solutions();
+
+  // 2. Populate diving heap from BFS backlogs BEFORE load balancing clears them
+  populate_diving_heap_at_sync();
+
+  // 3. Assign new starting nodes to diving workers
+  assign_diving_nodes();
+
   // Balance worker loads if significant imbalance detected
+  // Note: This must happen AFTER diving heap population since it clears backlogs
   balance_worker_loads();
   BSP_DEBUG_FLUSH_ASSIGN_TRACE(bsp_debug_settings_, bsp_debug_logger_);
 
@@ -2092,6 +2195,24 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     worker.horizon_end          = bsp_current_horizon_;
   }
 
+  // Update diving worker snapshots for next horizon
+  if (bsp_diving_workers_) {
+    std::vector<f_t> incumbent_snapshot;
+    if (incumbent_.has_incumbent) { incumbent_snapshot = incumbent_.x; }
+
+    for (auto& worker : *bsp_diving_workers_) {
+      worker.set_snapshots(pc_.pseudo_cost_sum_up,
+                           pc_.pseudo_cost_sum_down,
+                           pc_.pseudo_cost_num_up,
+                           pc_.pseudo_cost_num_down,
+                           incumbent_snapshot,
+                           &root_relax_soln_.x);
+      worker.local_upper_bound = upper_bound_.load();
+      worker.horizon_start     = horizon_end;
+      worker.horizon_end       = bsp_current_horizon_;
+    }
+  }
+
   // Check termination conditions
   f_t lower_bound = compute_bsp_lower_bound();
   f_t upper_bound = upper_bound_.load();
@@ -2105,8 +2226,11 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     should_terminate = true;
   }
 
-  // No more work
-  if (heap_.size() == 0 && !bsp_workers_->any_has_work()) { should_terminate = true; }
+  // No more work (for both BFS and diving)
+  bool diving_has_work = bsp_diving_workers_ && bsp_diving_workers_->any_has_work();
+  if (heap_.size() == 0 && !bsp_workers_->any_has_work() && !diving_has_work) {
+    should_terminate = true;
+  }
 
   // Time limit
   if (toc(exploration_stats_.start_time) > settings_.time_limit) {
@@ -3027,7 +3151,7 @@ f_t branch_and_bound_t<i_t, f_t>::compute_bsp_lower_bound()
   if (heap_.size() > 0) { lower_bound = std::min(heap_.top()->lower_bound, lower_bound); }
   mutex_heap_.unlock();
 
-  // Check all worker queues
+  // Check all BFS worker queues
   for (const auto& worker : *bsp_workers_) {
     // Check paused node (current_node)
     if (worker.current_node != nullptr) {
@@ -3045,7 +3169,414 @@ f_t branch_and_bound_t<i_t, f_t>::compute_bsp_lower_bound()
     }
   }
 
+  // Note: diving worker queues contain copies of nodes that remain in backlogs/heap
+  // (speculative diving model), so no need to check them separately.
+
   return lower_bound;
+}
+
+// ============================================================================
+// BSP Diving Implementation
+// ============================================================================
+
+template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::populate_diving_heap_at_sync()
+{
+  // Clear diving heap from previous horizon
+  diving_heap_.clear();
+
+  if (!bsp_diving_workers_ || bsp_diving_workers_->size() == 0) return;
+
+  const int num_diving                  = bsp_diving_workers_->size();
+  constexpr int target_nodes_per_worker = 10;
+  const int target_total                = num_diving * target_nodes_per_worker;
+  f_t upper_bound                       = upper_bound_.load();
+
+  // Collect candidate nodes from backlogs with their scores.
+  // Following the opportunistic diving model: we DON'T remove nodes from their
+  // original locations. Diving is speculative - original nodes stay in backlogs/heap
+  // for BFS processing and correct lower bound computation. Diving workers get
+  // copies via detach_copy() in enqueue_dive_node().
+  std::vector<std::pair<mip_node_t<i_t, f_t>*, f_t>> candidates;
+
+  for (auto& worker : *bsp_workers_) {
+    for (auto* node : worker.backlog) {
+      if (node->lower_bound < upper_bound) {
+        f_t score = node->objective_estimate;
+        if (!std::isfinite(score)) { score = node->lower_bound; }
+        candidates.push_back({node, score});
+      }
+    }
+  }
+
+  // If backlogs don't have enough nodes, also consider global heap nodes.
+  // Use data() to iterate without popping - nodes stay in heap.
+  if ((int)candidates.size() < target_total) {
+    mutex_heap_.lock();
+    for (auto* node : heap_.data()) {
+      if (node->lower_bound < upper_bound) {
+        f_t score = node->objective_estimate;
+        if (!std::isfinite(score)) { score = node->lower_bound; }
+        candidates.push_back({node, score});
+        if ((int)candidates.size() >= target_total) break;
+      }
+    }
+    mutex_heap_.unlock();
+  }
+
+  if (candidates.empty()) return;
+
+  // Sort candidates by score (lower is better for diving - closer to optimum)
+  std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
+    return a.second < b.second;
+  });
+
+  // Take enough nodes for diving workers' queues
+  int nodes_to_take = std::min(target_total, (int)candidates.size());
+
+  for (int i = 0; i < nodes_to_take; ++i) {
+    diving_heap_.push({candidates[i].first, candidates[i].second});
+  }
+
+  // Original nodes stay in backlogs/heap - no removal needed.
+  // Diving workers will get copies via detach_copy() in assign_diving_nodes().
+}
+
+template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::assign_diving_nodes()
+{
+  if (!bsp_diving_workers_ || bsp_diving_workers_->size() == 0) {
+    // No diving workers - just clear the diving heap.
+    // Original nodes remain in backlogs/heap (speculative diving model).
+    diving_heap_.clear();
+    return;
+  }
+
+  // Assign multiple nodes per diving worker from the diving heap.
+  // Diving workers get copies via detach_copy() in enqueue_dive_node().
+  constexpr int target_nodes_per_worker = 10;
+
+  // Round-robin assignment to balance load across workers
+  int worker_idx        = 0;
+  const int num_workers = bsp_diving_workers_->size();
+
+  while (!diving_heap_.empty()) {
+    auto& worker = (*bsp_diving_workers_)[worker_idx];
+
+    // Skip workers that already have enough nodes
+    if ((int)worker.dive_queue_size() >= target_nodes_per_worker) {
+      worker_idx = (worker_idx + 1) % num_workers;
+      // Check if all workers are full
+      bool all_full = true;
+      for (auto& w : *bsp_diving_workers_) {
+        if ((int)w.dive_queue_size() < target_nodes_per_worker) {
+          all_full = false;
+          break;
+        }
+      }
+      if (all_full) break;
+      continue;
+    }
+
+    auto entry = diving_heap_.pop();
+    if (entry.has_value()) { worker.enqueue_dive_node(entry.value().node); }
+
+    worker_idx = (worker_idx + 1) % num_workers;
+  }
+
+  // Any remaining nodes in diving_heap_ can be discarded - originals remain in
+  // backlogs/heap per the speculative diving model.
+  diving_heap_.clear();
+}
+
+template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::merge_diving_solutions()
+{
+  if (!bsp_diving_workers_) return;
+
+  // Collect all integer solutions from diving workers
+  std::vector<typename bsp_diving_worker_state_t<i_t, f_t>::queued_integer_solution_t*>
+    all_solutions;
+
+  for (auto& worker : *bsp_diving_workers_) {
+    for (auto& sol : worker.integer_solutions) {
+      all_solutions.push_back(&sol);
+    }
+  }
+
+  // Sort by objective for deterministic processing
+  std::sort(all_solutions.begin(), all_solutions.end(), [](const auto* a, const auto* b) {
+    return a->objective < b->objective;
+  });
+
+  // Apply improving solutions to incumbent
+  f_t current_upper = upper_bound_.load();
+  for (const auto* sol : all_solutions) {
+    if (sol->objective < current_upper) {
+      f_t user_obj         = compute_user_objective(original_lp_, sol->objective);
+      f_t bsp_lower        = compute_bsp_lower_bound();
+      f_t user_lower       = compute_user_objective(original_lp_, bsp_lower);
+      i_t nodes_explored   = exploration_stats_.nodes_explored.load();
+      i_t nodes_unexplored = exploration_stats_.nodes_unexplored.load();
+
+      settings_.log.printf("D %10d   %10d    %+13.6e    %+10.6e   %6d   %7.1e     %s %9.2f\n",
+                           nodes_explored,
+                           nodes_unexplored,
+                           user_obj,
+                           user_lower,
+                           sol->depth,
+                           nodes_explored > 0
+                             ? (double)exploration_stats_.total_lp_iters.load() / nodes_explored
+                             : 0.0,
+                           user_mip_gap<f_t>(user_obj, user_lower).c_str(),
+                           toc(exploration_stats_.start_time));
+
+      mutex_upper_.lock();
+      if (sol->objective < upper_bound_) {
+        upper_bound_ = sol->objective;
+        incumbent_.set_incumbent_solution(sol->objective, sol->solution);
+        current_upper = sol->objective;
+      }
+      mutex_upper_.unlock();
+    }
+  }
+
+  // Clear solution queues
+  for (auto& worker : *bsp_diving_workers_) {
+    worker.integer_solutions.clear();
+  }
+}
+
+template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::run_diving_worker_loop(
+  bsp_diving_worker_state_t<i_t, f_t>& worker)
+{
+  raft::common::nvtx::range scope("BB::diving_worker_loop");
+
+  while (!bsp_terminated_.load() && !bsp_scheduler_->is_stopped() &&
+         solver_status_ == mip_status_t::UNSET) {
+    // Process dives from queue until empty or horizon exhausted
+    auto node_opt = worker.dequeue_dive_node();
+    if (node_opt.has_value()) {
+      dive_from_bsp(worker, std::move(node_opt.value()));
+      continue;
+    }
+
+    // Queue empty - wait for next sync point where we'll be assigned new nodes
+    f_t nowork_start            = tic();
+    cuopt::sync_result_t result = bsp_scheduler_->wait_for_next_sync(worker.work_context);
+    worker.total_nowork_time += toc(nowork_start);
+    if (result == cuopt::sync_result_t::STOPPED) { break; }
+  }
+}
+
+template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, f_t>& worker,
+                                                 mip_node_t<i_t, f_t> starting_node)
+{
+  raft::common::nvtx::range scope("BB::dive_from_bsp");
+
+  // Create local search tree for the dive
+  search_tree_t<i_t, f_t> dive_tree(std::move(starting_node));
+  std::deque<mip_node_t<i_t, f_t>*> stack;
+  stack.push_front(&dive_tree.root);
+
+  // Initialize bounds from root node
+  worker.dive_lower = original_lp_.lower;
+  worker.dive_upper = original_lp_.upper;
+  dive_tree.root.get_variable_bounds(
+    worker.dive_lower, worker.dive_upper, worker.node_presolver->bounds_changed);
+
+  const i_t max_nodes_per_dive      = 100;
+  const i_t max_backtrack_depth     = 5;
+  i_t nodes_this_dive               = 0;
+  worker.recompute_bounds_and_basis = true;
+
+  while (!stack.empty() && solver_status_ == mip_status_t::UNSET && !bsp_terminated_.load() &&
+         nodes_this_dive < max_nodes_per_dive) {
+    // Check horizon budget
+    if (worker.work_context.global_work_units_elapsed >= worker.horizon_end) {
+      bsp_scheduler_->wait_for_next_sync(worker.work_context);
+      if (bsp_terminated_.load()) break;
+    }
+
+    mip_node_t<i_t, f_t>* node_ptr = stack.front();
+    stack.pop_front();
+
+    // Prune check using snapshot upper bound
+    if (node_ptr->lower_bound >= worker.local_upper_bound) {
+      worker.recompute_bounds_and_basis = true;
+      continue;
+    }
+
+    // Setup bounds for this node
+    std::fill(worker.node_presolver->bounds_changed.begin(),
+              worker.node_presolver->bounds_changed.end(),
+              false);
+
+    if (worker.recompute_bounds_and_basis) {
+      worker.leaf_problem->lower = worker.dive_lower;
+      worker.leaf_problem->upper = worker.dive_upper;
+      node_ptr->get_variable_bounds(worker.leaf_problem->lower,
+                                    worker.leaf_problem->upper,
+                                    worker.node_presolver->bounds_changed);
+    } else {
+      node_ptr->update_branched_variable_bounds(worker.leaf_problem->lower,
+                                                worker.leaf_problem->upper,
+                                                worker.node_presolver->bounds_changed);
+    }
+
+    // Setup LP settings
+    simplex_solver_settings_t<i_t, f_t> lp_settings = settings_;
+    lp_settings.set_log(false);
+    lp_settings.cut_off       = worker.local_upper_bound + settings_.dual_tol;
+    lp_settings.inside_mip    = 2;
+    lp_settings.time_limit    = settings_.time_limit - toc(exploration_stats_.start_time);
+    lp_settings.work_limit    = settings_.work_limit;
+    lp_settings.scale_columns = false;
+
+    // Solve LP relaxation
+    lp_solution_t<i_t, f_t> leaf_solution(worker.leaf_problem->num_rows,
+                                          worker.leaf_problem->num_cols);
+    std::vector<variable_status_t>& leaf_vstatus = node_ptr->vstatus;
+    i_t node_iter                                = 0;
+    f_t lp_start_time                            = tic();
+    std::vector<f_t> leaf_edge_norms             = edge_norms_;
+
+    dual::status_t lp_status = dual_phase2_with_advanced_basis(2,
+                                                               0,
+                                                               worker.recompute_bounds_and_basis,
+                                                               lp_start_time,
+                                                               *worker.leaf_problem,
+                                                               lp_settings,
+                                                               leaf_vstatus,
+                                                               *worker.basis_factors,
+                                                               worker.basic_list,
+                                                               worker.nonbasic_list,
+                                                               leaf_solution,
+                                                               node_iter,
+                                                               leaf_edge_norms,
+                                                               &worker.work_context);
+
+    ++nodes_this_dive;
+    ++worker.nodes_explored_this_horizon;
+    ++worker.total_nodes_explored;
+
+    // Update worker clock from work context
+    worker.clock = worker.work_context.global_work_units_elapsed;
+
+    if (lp_status == dual::status_t::TIME_LIMIT) {
+      solver_status_ = mip_status_t::TIME_LIMIT;
+      break;
+    }
+    if (lp_status == dual::status_t::WORK_LIMIT) { break; }
+
+    if (lp_status == dual::status_t::DUAL_UNBOUNDED || lp_status == dual::status_t::CUTOFF) {
+      worker.recompute_bounds_and_basis = true;
+      continue;
+    }
+
+    if (lp_status == dual::status_t::OPTIMAL) {
+      std::vector<i_t> leaf_fractional;
+      fractional_variables(settings_, leaf_solution.x, var_types_, leaf_fractional);
+
+      f_t leaf_objective    = compute_objective(*worker.leaf_problem, leaf_solution.x);
+      node_ptr->lower_bound = leaf_objective;
+
+      if (leaf_fractional.empty()) {
+        // Integer feasible solution found!
+        if (leaf_objective < worker.local_upper_bound) {
+          worker.queue_integer_solution(leaf_objective, leaf_solution.x, node_ptr->depth);
+        }
+        worker.recompute_bounds_and_basis = true;
+        continue;
+      }
+
+      if (leaf_objective <= worker.local_upper_bound + settings_.absolute_mip_gap_tol / 10) {
+        // Branch - select variable using diving-type-specific strategy
+        branch_variable_t<i_t> branch_result;
+
+        switch (worker.diving_type) {
+          case bnb_worker_type_t::PSEUDOCOST_DIVING:
+            branch_result =
+              worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
+            break;
+
+          case bnb_worker_type_t::LINE_SEARCH_DIVING:
+            if (worker.root_solution) {
+              logger_t log;
+              log.log       = false;
+              branch_result = line_search_diving<i_t, f_t>(
+                leaf_fractional, leaf_solution.x, *worker.root_solution, log);
+            } else {
+              branch_result =
+                worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
+            }
+            break;
+
+          case bnb_worker_type_t::GUIDED_DIVING:
+            branch_result = worker.guided_variable_selection(leaf_fractional, leaf_solution.x);
+            break;
+
+          case bnb_worker_type_t::COEFFICIENT_DIVING: {
+            logger_t log;
+            log.log       = false;
+            branch_result = coefficient_diving<i_t, f_t>(*worker.leaf_problem,
+                                                         leaf_fractional,
+                                                         leaf_solution.x,
+                                                         var_up_locks_,
+                                                         var_down_locks_,
+                                                         log);
+          } break;
+
+          default:
+            branch_result =
+              worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
+            break;
+        }
+
+        i_t branch_var                 = branch_result.variable;
+        rounding_direction_t round_dir = branch_result.direction;
+
+        if (branch_var < 0) {
+          worker.recompute_bounds_and_basis = true;
+          continue;
+        }
+
+        // Create children
+        logger_t log;
+        log.log = false;
+        dive_tree.branch(node_ptr,
+                         branch_var,
+                         leaf_solution.x[branch_var],
+                         leaf_vstatus,
+                         *worker.leaf_problem,
+                         log);
+
+        // Add children to stack (preferred direction first)
+        if (round_dir == rounding_direction_t::UP) {
+          stack.push_front(node_ptr->get_down_child());
+          stack.push_front(node_ptr->get_up_child());
+        } else {
+          stack.push_front(node_ptr->get_up_child());
+          stack.push_front(node_ptr->get_down_child());
+        }
+
+        // Limit backtracking depth
+        if (stack.size() > 1 && stack.front()->depth - stack.back()->depth > max_backtrack_depth) {
+          stack.pop_back();
+        }
+
+        worker.recompute_bounds_and_basis = false;
+      } else {
+        // Fathomed by bound
+        worker.recompute_bounds_and_basis = true;
+      }
+    } else {
+      // Numerical or other error
+      worker.recompute_bounds_and_basis = true;
+    }
+  }
 }
 
 #ifdef DUAL_SIMPLEX_INSTANTIATE_DOUBLE

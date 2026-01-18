@@ -10,12 +10,16 @@
 #include <dual_simplex/basis_updates.hpp>
 #include <dual_simplex/bb_event.hpp>
 #include <dual_simplex/bounds_strengthening.hpp>
+#include <dual_simplex/diving_heuristics.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/mip_node.hpp>
 #include <dual_simplex/types.hpp>
 #include <utilities/work_limit_timer.hpp>
 
+#include <optional>
+
 #include <cmath>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <queue>
@@ -558,6 +562,386 @@ struct bb_worker_state_t {
 
   // Track node assigned via load balancing
   void track_node_assigned() { ++total_nodes_assigned; }
+};
+
+// =============================================================================
+// BSP Diving Worker State
+// =============================================================================
+
+// Per-worker state for BSP deterministic diving
+// Diving workers operate on detached copies of nodes and don't modify the main tree
+template <typename i_t, typename f_t>
+struct bsp_diving_worker_state_t {
+  int worker_id{0};
+  bnb_worker_type_t diving_type{bnb_worker_type_t::PSEUDOCOST_DIVING};
+
+  // Worker's virtual time clock (cumulative work units)
+  double clock{0.0};
+
+  // Current horizon boundaries
+  double horizon_start{0.0};
+  double horizon_end{0.0};
+
+  // Work context for horizon sync
+  work_limit_context_t work_context;
+
+  // LP problem copy for this worker
+  std::unique_ptr<lp_problem_t<i_t, f_t>> leaf_problem;
+
+  // Basis factorization state
+  std::unique_ptr<basis_update_mpf_t<i_t, f_t>> basis_factors;
+
+  // Bounds strengthening
+  std::unique_ptr<bounds_strengthening_t<i_t, f_t>> node_presolver;
+
+  // Working vectors for basis
+  std::vector<i_t> basic_list;
+  std::vector<i_t> nonbasic_list;
+
+  // Whether basis needs recomputation for next node
+  bool recompute_bounds_and_basis{true};
+
+  // ==========================================================================
+  // Snapshots for determinism (taken at horizon start)
+  // ==========================================================================
+
+  f_t local_upper_bound{std::numeric_limits<f_t>::infinity()};
+
+  // Incumbent snapshot for guided diving
+  std::vector<f_t> incumbent_snapshot;
+
+  // Pseudo-cost snapshots
+  std::vector<f_t> pc_sum_up_snapshot;
+  std::vector<f_t> pc_sum_down_snapshot;
+  std::vector<i_t> pc_num_up_snapshot;
+  std::vector<i_t> pc_num_down_snapshot;
+
+  // Root relaxation solution (for line search diving)
+  const std::vector<f_t>* root_solution{nullptr};
+
+  // ==========================================================================
+  // Diving-specific state
+  // ==========================================================================
+
+  // Queue of starting nodes for dives (detached copies assigned at sync)
+  // Worker processes these until queue empty or horizon exhausted
+  std::deque<mip_node_t<i_t, f_t>> dive_queue;
+
+  // Current lower/upper bounds for the dive (initialized from starting node)
+  std::vector<f_t> dive_lower;
+  std::vector<f_t> dive_upper;
+
+  // ==========================================================================
+  // Queued results (merged at sync)
+  // ==========================================================================
+
+  struct queued_integer_solution_t {
+    f_t objective;
+    std::vector<f_t> solution;
+    i_t depth;
+  };
+  std::vector<queued_integer_solution_t> integer_solutions;
+
+  // ==========================================================================
+  // Statistics
+  // ==========================================================================
+
+  i_t nodes_explored_this_horizon{0};
+  i_t total_nodes_explored{0};
+  i_t total_integer_solutions{0};
+  i_t total_dives{0};
+  double total_runtime{0.0};
+  double total_nowork_time{0.0};
+
+  // ==========================================================================
+  // Constructor and initialization
+  // ==========================================================================
+
+  explicit bsp_diving_worker_state_t(int id, bnb_worker_type_t type)
+    : worker_id(id), diving_type(type), work_context("Diving_Worker_" + std::to_string(id))
+  {
+  }
+
+  void initialize(const lp_problem_t<i_t, f_t>& original_lp,
+                  const csr_matrix_t<i_t, f_t>& Arow,
+                  const std::vector<variable_type_t>& var_types,
+                  i_t refactor_frequency,
+                  bool deterministic)
+  {
+    leaf_problem = std::make_unique<lp_problem_t<i_t, f_t>>(original_lp);
+
+    const i_t m   = leaf_problem->num_rows;
+    basis_factors = std::make_unique<basis_update_mpf_t<i_t, f_t>>(m, refactor_frequency);
+
+    std::vector<char> row_sense;
+    node_presolver =
+      std::make_unique<bounds_strengthening_t<i_t, f_t>>(*leaf_problem, Arow, row_sense, var_types);
+
+    basic_list.resize(m);
+    nonbasic_list.clear();
+
+    dive_lower = original_lp.lower;
+    dive_upper = original_lp.upper;
+
+    work_context.deterministic = deterministic;
+  }
+
+  void reset_for_horizon(double start, double end, f_t upper_bound)
+  {
+    clock                                  = start;
+    horizon_start                          = start;
+    horizon_end                            = end;
+    work_context.global_work_units_elapsed = start;
+
+    local_upper_bound           = upper_bound;
+    nodes_explored_this_horizon = 0;
+    // Note: Don't clear dive_queue here - workers may still have nodes to process
+    integer_solutions.clear();
+    recompute_bounds_and_basis = true;
+  }
+
+  void set_snapshots(const std::vector<f_t>& pc_sum_up,
+                     const std::vector<f_t>& pc_sum_down,
+                     const std::vector<i_t>& pc_num_up,
+                     const std::vector<i_t>& pc_num_down,
+                     const std::vector<f_t>& incumbent,
+                     const std::vector<f_t>* root_sol)
+  {
+    pc_sum_up_snapshot   = pc_sum_up;
+    pc_sum_down_snapshot = pc_sum_down;
+    pc_num_up_snapshot   = pc_num_up;
+    pc_num_down_snapshot = pc_num_down;
+    incumbent_snapshot   = incumbent;
+    root_solution        = root_sol;
+  }
+
+  void enqueue_dive_node(mip_node_t<i_t, f_t>* node) { dive_queue.push_back(node->detach_copy()); }
+
+  std::optional<mip_node_t<i_t, f_t>> dequeue_dive_node()
+  {
+    if (dive_queue.empty()) return std::nullopt;
+    auto node = std::move(dive_queue.front());
+    dive_queue.pop_front();
+    ++total_dives;
+    return node;
+  }
+
+  bool has_work() const { return !dive_queue.empty(); }
+
+  size_t dive_queue_size() const { return dive_queue.size(); }
+
+  void queue_integer_solution(f_t objective, const std::vector<f_t>& solution, i_t depth)
+  {
+    integer_solutions.push_back({objective, solution, depth});
+    ++total_integer_solutions;
+  }
+
+  // Variable selection using snapshot pseudo-costs (for pseudocost diving)
+  branch_variable_t<i_t> variable_selection_from_snapshot(const std::vector<i_t>& fractional,
+                                                          const std::vector<f_t>& solution) const
+  {
+    const i_t num_fractional = fractional.size();
+    if (num_fractional == 0) return {-1, rounding_direction_t::NONE};
+
+    i_t num_initialized_down = 0;
+    i_t num_initialized_up   = 0;
+    f_t pseudo_cost_down_avg = 0;
+    f_t pseudo_cost_up_avg   = 0;
+
+    const i_t n = pc_sum_down_snapshot.size();
+    for (i_t j = 0; j < n; ++j) {
+      if (pc_num_down_snapshot[j] > 0) {
+        ++num_initialized_down;
+        if (std::isfinite(pc_sum_down_snapshot[j])) {
+          pseudo_cost_down_avg += pc_sum_down_snapshot[j] / pc_num_down_snapshot[j];
+        }
+      }
+      if (pc_num_up_snapshot[j] > 0) {
+        ++num_initialized_up;
+        if (std::isfinite(pc_sum_up_snapshot[j])) {
+          pseudo_cost_up_avg += pc_sum_up_snapshot[j] / pc_num_up_snapshot[j];
+        }
+      }
+    }
+    pseudo_cost_down_avg =
+      (num_initialized_down > 0) ? pseudo_cost_down_avg / num_initialized_down : 1.0;
+    pseudo_cost_up_avg = (num_initialized_up > 0) ? pseudo_cost_up_avg / num_initialized_up : 1.0;
+
+    i_t branch_var                 = fractional[0];
+    f_t max_score                  = std::numeric_limits<f_t>::lowest();
+    rounding_direction_t round_dir = rounding_direction_t::DOWN;
+    constexpr f_t eps              = 1e-6;
+
+    for (i_t j : fractional) {
+      f_t f_down = solution[j] - std::floor(solution[j]);
+      f_t f_up   = std::ceil(solution[j]) - solution[j];
+
+      f_t pc_down = pc_num_down_snapshot[j] != 0 ? pc_sum_down_snapshot[j] / pc_num_down_snapshot[j]
+                                                 : pseudo_cost_down_avg;
+      f_t pc_up   = pc_num_up_snapshot[j] != 0 ? pc_sum_up_snapshot[j] / pc_num_up_snapshot[j]
+                                               : pseudo_cost_up_avg;
+
+      f_t score_down = std::sqrt(f_up) * (1 + pc_up) / (1 + pc_down);
+      f_t score_up   = std::sqrt(f_down) * (1 + pc_down) / (1 + pc_up);
+
+      f_t score                = 0;
+      rounding_direction_t dir = rounding_direction_t::DOWN;
+
+      f_t root_val = (root_solution && j < static_cast<i_t>(root_solution->size()))
+                       ? (*root_solution)[j]
+                       : solution[j];
+
+      if (solution[j] < root_val - 0.4) {
+        score = score_down;
+        dir   = rounding_direction_t::DOWN;
+      } else if (solution[j] > root_val + 0.4) {
+        score = score_up;
+        dir   = rounding_direction_t::UP;
+      } else if (f_down < 0.3) {
+        score = score_down;
+        dir   = rounding_direction_t::DOWN;
+      } else if (f_down > 0.7) {
+        score = score_up;
+        dir   = rounding_direction_t::UP;
+      } else if (pc_down < pc_up + eps) {
+        score = score_down;
+        dir   = rounding_direction_t::DOWN;
+      } else {
+        score = score_up;
+        dir   = rounding_direction_t::UP;
+      }
+
+      if (score > max_score) {
+        max_score  = score;
+        branch_var = j;
+        round_dir  = dir;
+      }
+    }
+
+    return {branch_var, round_dir};
+  }
+
+  // Guided diving variable selection using incumbent snapshot
+  branch_variable_t<i_t> guided_variable_selection(const std::vector<i_t>& fractional,
+                                                   const std::vector<f_t>& solution) const
+  {
+    if (incumbent_snapshot.empty()) {
+      return variable_selection_from_snapshot(fractional, solution);
+    }
+
+    const i_t num_fractional = fractional.size();
+    if (num_fractional == 0) return {-1, rounding_direction_t::NONE};
+
+    i_t num_initialized_down = 0;
+    i_t num_initialized_up   = 0;
+    f_t pseudo_cost_down_avg = 0;
+    f_t pseudo_cost_up_avg   = 0;
+
+    const i_t n = pc_sum_down_snapshot.size();
+    for (i_t j = 0; j < n; ++j) {
+      if (pc_num_down_snapshot[j] > 0) {
+        ++num_initialized_down;
+        if (std::isfinite(pc_sum_down_snapshot[j])) {
+          pseudo_cost_down_avg += pc_sum_down_snapshot[j] / pc_num_down_snapshot[j];
+        }
+      }
+      if (pc_num_up_snapshot[j] > 0) {
+        ++num_initialized_up;
+        if (std::isfinite(pc_sum_up_snapshot[j])) {
+          pseudo_cost_up_avg += pc_sum_up_snapshot[j] / pc_num_up_snapshot[j];
+        }
+      }
+    }
+    pseudo_cost_down_avg =
+      (num_initialized_down > 0) ? pseudo_cost_down_avg / num_initialized_down : 1.0;
+    pseudo_cost_up_avg = (num_initialized_up > 0) ? pseudo_cost_up_avg / num_initialized_up : 1.0;
+
+    i_t branch_var                 = fractional[0];
+    f_t max_score                  = std::numeric_limits<f_t>::lowest();
+    rounding_direction_t round_dir = rounding_direction_t::DOWN;
+    constexpr f_t eps              = 1e-6;
+
+    for (i_t j : fractional) {
+      f_t f_down    = solution[j] - std::floor(solution[j]);
+      f_t f_up      = std::ceil(solution[j]) - solution[j];
+      f_t down_dist = std::abs(incumbent_snapshot[j] - std::floor(solution[j]));
+      f_t up_dist   = std::abs(std::ceil(solution[j]) - incumbent_snapshot[j]);
+      rounding_direction_t dir =
+        down_dist < up_dist + eps ? rounding_direction_t::DOWN : rounding_direction_t::UP;
+
+      f_t pc_down = pc_num_down_snapshot[j] != 0 ? pc_sum_down_snapshot[j] / pc_num_down_snapshot[j]
+                                                 : pseudo_cost_down_avg;
+      f_t pc_up   = pc_num_up_snapshot[j] != 0 ? pc_sum_up_snapshot[j] / pc_num_up_snapshot[j]
+                                               : pseudo_cost_up_avg;
+
+      f_t score1 = dir == rounding_direction_t::DOWN ? 5 * pc_down * f_down : 5 * pc_up * f_up;
+      f_t score2 = dir == rounding_direction_t::DOWN ? pc_up * f_up : pc_down * f_down;
+      f_t score  = (score1 + score2) / 6;
+
+      if (score > max_score) {
+        max_score  = score;
+        branch_var = j;
+        round_dir  = dir;
+      }
+    }
+
+    return {branch_var, round_dir};
+  }
+};
+
+// Container for all diving worker states
+template <typename i_t, typename f_t>
+class bsp_diving_worker_pool_t {
+ public:
+  bsp_diving_worker_pool_t() = default;
+
+  void initialize(int num_workers,
+                  const std::vector<bnb_worker_type_t>& diving_types,
+                  const lp_problem_t<i_t, f_t>& original_lp,
+                  const csr_matrix_t<i_t, f_t>& Arow,
+                  const std::vector<variable_type_t>& var_types,
+                  i_t refactor_frequency,
+                  bool deterministic)
+  {
+    workers_.clear();
+    workers_.reserve(num_workers);
+    for (int i = 0; i < num_workers; ++i) {
+      bnb_worker_type_t type = diving_types[i % diving_types.size()];
+      workers_.emplace_back(i, type);
+      workers_.back().initialize(original_lp, Arow, var_types, refactor_frequency, deterministic);
+    }
+  }
+
+  bsp_diving_worker_state_t<i_t, f_t>& operator[](int worker_id) { return workers_[worker_id]; }
+  const bsp_diving_worker_state_t<i_t, f_t>& operator[](int worker_id) const
+  {
+    return workers_[worker_id];
+  }
+
+  int size() const { return static_cast<int>(workers_.size()); }
+
+  void reset_for_horizon(double horizon_start, double horizon_end, f_t global_upper_bound)
+  {
+    for (auto& worker : workers_) {
+      worker.reset_for_horizon(horizon_start, horizon_end, global_upper_bound);
+    }
+  }
+
+  bool any_has_work() const
+  {
+    for (const auto& worker : workers_) {
+      if (worker.has_work()) return true;
+    }
+    return false;
+  }
+
+  auto begin() { return workers_.begin(); }
+  auto end() { return workers_.end(); }
+  auto begin() const { return workers_.begin(); }
+  auto end() const { return workers_.end(); }
+
+ private:
+  std::vector<bsp_diving_worker_state_t<i_t, f_t>> workers_;
 };
 
 // Container for all worker states in BSP B&B

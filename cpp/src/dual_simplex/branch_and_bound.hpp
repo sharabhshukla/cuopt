@@ -64,18 +64,6 @@ enum class node_solve_info_t {
   WORK_LIMIT       = 6,  // The solver reached a deterministic work limit
 };
 
-// Indicate the search and variable selection algorithms used by the thread (See [1]).
-//
-// [1] T. Achterberg, “Constraint Integer Programming,” PhD, Technischen Universität Berlin,
-// Berlin, 2007. doi: 10.14279/depositonce-1634.
-enum class bnb_worker_type_t {
-  BEST_FIRST         = 0,  // Best-First + Plunging.
-  PSEUDOCOST_DIVING  = 1,  // Pseudocost diving (9.2.5)
-  LINE_SEARCH_DIVING = 2,  // Line search diving (9.2.4)
-  GUIDED_DIVING = 3,  // Guided diving (9.2.3). If no incumbent is found yet, use pseudocost diving.
-  COEFFICIENT_DIVING = 4  // Coefficient diving (9.2.1)
-};
-
 template <typename i_t, typename f_t>
 class bounds_strengthening_t;
 
@@ -345,6 +333,26 @@ class branch_and_bound_t {
   // BSP sync callback - executed when all workers reach barrier
   void bsp_sync_callback(int worker_id);
 
+  // ============================================================================
+  // BSP Diving methods
+  // ============================================================================
+
+  // Run diving worker loop
+  void run_diving_worker_loop(bsp_diving_worker_state_t<i_t, f_t>& worker);
+
+  // Perform a deterministic dive from the given starting node
+  void dive_from_bsp(bsp_diving_worker_state_t<i_t, f_t>& worker,
+                     mip_node_t<i_t, f_t> starting_node);
+
+  // Populate diving heap from BFS worker backlogs at sync
+  void populate_diving_heap_at_sync();
+
+  // Assign starting nodes to diving workers from diving heap
+  void assign_diving_nodes();
+
+  // Collect and merge diving solutions at sync
+  void merge_diving_solutions();
+
  private:
   // BSP state
   std::unique_ptr<bb_worker_pool_t<i_t, f_t>> bsp_workers_;
@@ -378,6 +386,26 @@ class branch_and_bound_t {
   // BSP debug logger (settings read from environment variables)
   bsp_debug_settings_t bsp_debug_settings_;
   bsp_debug_logger_t<i_t, f_t> bsp_debug_logger_;
+
+  // ============================================================================
+  // BSP Diving state
+  // ============================================================================
+
+  // Diving worker pool
+  std::unique_ptr<bsp_diving_worker_pool_t<i_t, f_t>> bsp_diving_workers_;
+
+  // Diving heap - nodes available for diving, sorted by objective estimate
+  struct diving_entry_t {
+    mip_node_t<i_t, f_t>* node;
+    f_t score;  // objective_estimate for diving priority
+  };
+  struct diving_score_comp {
+    bool operator()(const diving_entry_t& a, const diving_entry_t& b) const
+    {
+      return a.score > b.score;  // Min-heap by score (lower is better)
+    }
+  };
+  heap_t<diving_entry_t, diving_score_comp> diving_heap_;
 
  public:
   // Accessor for GPU heuristics to get the current BSP horizon
