@@ -807,7 +807,7 @@ void clean_up_infeasibilities(ins_vector<f_t>& squared_infeasibilities,
 template <typename i_t, typename f_t>
 i_t steepest_edge_pricing_with_infeasibilities(const lp_problem_t<i_t, f_t>& lp,
                                                const simplex_solver_settings_t<i_t, f_t>& settings,
-                                               const ins_vector<f_t>& x,
+                                               const std::vector<f_t>& x,
                                                const std::vector<f_t>& dy_steepest_edge,
                                                const ins_vector<i_t>& basic_mark,
                                                ins_vector<f_t>& squared_infeasibilities,
@@ -909,7 +909,7 @@ i_t steepest_edge_pricing(const lp_problem_t<i_t, f_t>& lp,
 template <typename i_t, typename f_t>
 i_t phase2_pricing(const lp_problem_t<i_t, f_t>& lp,
                    const simplex_solver_settings_t<i_t, f_t>& settings,
-                   const ins_vector<f_t>& x,
+                   const std::vector<f_t>& x,
                    const std::vector<i_t>& basic_list,
                    i_t& direction,
                    i_t& basic_leaving,
@@ -954,7 +954,7 @@ template <typename i_t, typename f_t>
 f_t first_stage_harris(const lp_problem_t<i_t, f_t>& lp,
                        const std::vector<variable_status_t>& vstatus,
                        const std::vector<i_t>& nonbasic_list,
-                       ins_vector<f_t>& z,
+                       std::vector<f_t>& z,
                        ins_vector<f_t>& delta_z)
 {
   const i_t n             = lp.num_cols;
@@ -988,7 +988,7 @@ template <typename i_t, typename f_t>
 i_t second_stage_harris(const lp_problem_t<i_t, f_t>& lp,
                         const std::vector<variable_status_t>& vstatus,
                         const std::vector<i_t>& nonbasic_list,
-                        const ins_vector<f_t>& z,
+                        const std::vector<f_t>& z,
                         const ins_vector<f_t>& delta_z,
                         f_t max_step_length,
                         f_t& step_length,
@@ -1031,7 +1031,7 @@ i_t phase2_ratio_test(const lp_problem_t<i_t, f_t>& lp,
                       const simplex_solver_settings_t<i_t, f_t>& settings,
                       std::vector<variable_status_t>& vstatus,
                       std::vector<i_t>& nonbasic_list,
-                      ins_vector<f_t>& z,
+                      std::vector<f_t>& z,
                       ins_vector<f_t>& delta_z,
                       f_t& step_length,
                       i_t& nonbasic_entering)
@@ -1084,7 +1084,7 @@ i_t flip_bounds(const lp_problem_t<i_t, f_t>& lp,
                 const simplex_solver_settings_t<i_t, f_t>& settings,
                 const ins_vector<uint8_t>& bounded_variables,
                 const ins_vector<f_t>& objective,
-                const ins_vector<f_t>& z,
+                const std::vector<f_t>& z,
                 const ins_vector<i_t>& delta_z_indices,
                 const std::vector<i_t>& nonbasic_list,
                 i_t entering_index,
@@ -1420,7 +1420,7 @@ template <typename i_t, typename f_t>
 i_t compute_perturbation(const lp_problem_t<i_t, f_t>& lp,
                          const simplex_solver_settings_t<i_t, f_t>& settings,
                          const ins_vector<i_t>& delta_z_indices,
-                         ins_vector<f_t>& z,
+                         std::vector<f_t>& z,
                          ins_vector<f_t>& objective,
                          f_t& sum_perturb)
 {
@@ -1541,8 +1541,8 @@ i_t update_dual_variables(const sparse_vector_t<i_t, f_t>& delta_y_sparse,
                           const ins_vector<f_t>& delta_z,
                           f_t step_length,
                           i_t leaving_index,
-                          ins_vector<f_t>& y,
-                          ins_vector<f_t>& z)
+                          std::vector<f_t>& y,
+                          std::vector<f_t>& z)
 {
   // Update dual variables
   // y <- y + steplength * delta_y
@@ -1571,7 +1571,7 @@ void adjust_for_flips(const basis_update_mpf_t<i_t, f_t>& ft,
                       sparse_vector_t<i_t, f_t>& atilde_sparse,
                       sparse_vector_t<i_t, f_t>& delta_xB_0_sparse,
                       ins_vector<f_t>& delta_x_flip,
-                      ins_vector<f_t>& x)
+                      std::vector<f_t>& x)
 {
   const i_t atilde_nz = atilde_index.size();
   // B*delta_xB_0 = atilde
@@ -1616,7 +1616,7 @@ i_t compute_delta_x(const lp_problem_t<i_t, f_t>& lp,
                     const std::vector<i_t>& basic_list,
                     const ins_vector<f_t>& delta_x_flip,
                     const sparse_vector_t<i_t, f_t>& rhs_sparse,
-                    const ins_vector<f_t>& x,
+                    const std::vector<f_t>& x,
                     sparse_vector_t<i_t, f_t>& utilde_sparse,
                     sparse_vector_t<i_t, f_t>& scaled_delta_xB_sparse,
                     ins_vector<f_t>& delta_x)
@@ -1679,7 +1679,7 @@ void update_primal_variables(const sparse_vector_t<i_t, f_t>& scaled_delta_xB_sp
                              const std::vector<i_t>& basic_list,
                              const ins_vector<f_t>& delta_x,
                              i_t entering_index,
-                             ins_vector<f_t>& x)
+                             std::vector<f_t>& x)
 {
   // x <- x + delta_x
   const i_t scaled_delta_xB_nz = scaled_delta_xB_sparse.i.size();
@@ -2052,7 +2052,7 @@ void set_primal_variables_on_bounds(const lp_problem_t<i_t, f_t>& lp,
 }
 
 template <typename f_t>
-f_t compute_perturbed_objective(const ins_vector<f_t>& objective, const ins_vector<f_t>& x)
+f_t compute_perturbed_objective(const ins_vector<f_t>& objective, const std::vector<f_t>& x)
 {
   const size_t n = objective.size();
   f_t obj_val    = 0.0;
@@ -2085,9 +2085,9 @@ void prepare_optimality(const lp_problem_t<i_t, f_t>& lp,
                         f_t start_time,
                         f_t max_val,
                         i_t iter,
-                        const ins_vector<f_t>& x,
-                        ins_vector<f_t>& y,
-                        ins_vector<f_t>& z,
+                        const std::vector<f_t>& x,
+                        std::vector<f_t>& y,
+                        std::vector<f_t>& z,
                         lp_solution_t<i_t, f_t>& sol)
 {
   const i_t m = lp.num_rows;
@@ -2283,10 +2283,10 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   assert(lp.rhs.size() == m);
 
   // Create instrumented wrappers around sol vectors (no ownership transfer)
-  ins_vector<f_t> x, y, z;
-  x.wrap(sol.x);
-  y.wrap(sol.y);
-  z.wrap(sol.z);
+  // ins_vector<f_t> x, y, z;
+  // x.wrap(sol.x);
+  // y.wrap(sol.y);
+  // z.wrap(sol.z);
 
   // Declare instrumented vectors used during initialization (before manifold setup)
   ins_vector<f_t> objective(lp.objective);
@@ -2295,9 +2295,9 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
   // Create instrumentation manifold early to capture init section memory operations
   instrumentation_manifold_t manifold;
-  manifold.add("x", x);
-  manifold.add("y", y);
-  manifold.add("z", z);
+  // manifold.add("x", x);
+  // manifold.add("y", y);
+  // manifold.add("z", z);
   manifold.add("objective", objective);
   manifold.add("c_basic", c_basic);
   manifold.add("xB_workspace", xB_workspace);
@@ -2308,7 +2308,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
   settings.log.printf("Dual Simplex Phase %d\n", phase);
   std::vector<variable_status_t> vstatus_old = vstatus;
-  std::vector<f_t> z_old                     = z;
+  std::vector<f_t> z_old                     = sol.z;
 
   phase2::bound_info(lp, settings);
   if (initialize_basis) {
@@ -2338,17 +2338,20 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   if (toc(start_time) > settings.time_limit) { return dual::status_t::TIME_LIMIT; }
   constexpr bool print_norms = false;
   if constexpr (print_norms) {
-    settings.log.printf(
-      "|| y || %e || cB || %e\n", vector_norm_inf<i_t, f_t>(y), vector_norm_inf<i_t, f_t>(c_basic));
+    settings.log.printf("|| y || %e || cB || %e\n",
+                        vector_norm_inf<i_t, f_t>(sol.y),
+                        vector_norm_inf<i_t, f_t>(c_basic));
   }
 
   phase2::compute_reduced_costs(
     objective.underlying(), lp.A, sol.y, basic_list, nonbasic_list, sol.z);
-  if constexpr (print_norms) { settings.log.printf("|| z || %e\n", vector_norm_inf<i_t, f_t>(z)); }
+  if constexpr (print_norms) {
+    settings.log.printf("|| z || %e\n", vector_norm_inf<i_t, f_t>(sol.z));
+  }
 
 #ifdef COMPUTE_DUAL_RESIDUAL
   std::vector<f_t> dual_res1;
-  compute_dual_residual(lp.A, objective, y, z, dual_res1);
+  compute_dual_residual(lp.A, objective, sol.y, sol.z, dual_res1);
   f_t dual_res_norm = vector_norm_inf<i_t, f_t>(dual_res1);
   if (dual_res_norm > settings.tight_tol) {
     settings.log.printf("|| A'*y + z - c || %e\n", dual_res_norm);
@@ -2361,7 +2364,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 #ifdef PRINT_VSTATUS_CHANGES
   i_t num_vstatus_changes;
   i_t num_z_changes;
-  phase2::vstatus_changes(vstatus, vstatus_old, z, z_old, num_vstatus_changes, num_z_changes);
+  phase2::vstatus_changes(vstatus, vstatus_old, sol.z, z_old, num_vstatus_changes, num_z_changes);
   settings.log.printf("Number of vstatus changes %d\n", num_vstatus_changes);
   settings.log.printf("Number of z changes %d\n", num_z_changes);
 #endif
@@ -2386,7 +2389,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
 #ifdef COMPUTE_PRIMAL_RESIDUAL
   std::vector<f_t> residual = lp.rhs;
-  matrix_vector_multiply(lp.A, 1.0, x, -1.0, residual);
+  matrix_vector_multiply(lp.A, 1.0, sol.x, -1.0, residual);
   f_t primal_residual = vector_norm_inf<i_t, f_t>(residual);
   if (primal_residual > settings.primal_tol) {
     settings.log.printf("|| A*x - b || %e\n", primal_residual);
@@ -2602,7 +2605,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       if (settings.use_steepest_edge_pricing) {
         leaving_index = phase2::steepest_edge_pricing_with_infeasibilities(lp,
                                                                            settings,
-                                                                           x,
+                                                                           sol.x,
                                                                            delta_y_steepest_edge,
                                                                            basic_mark,
                                                                            squared_infeasibilities,
@@ -2613,7 +2616,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       } else {
         // Max infeasibility pricing
         leaving_index = phase2::phase2_pricing(
-          lp, settings, x, basic_list, direction, basic_leaving_index, primal_infeasibility);
+          lp, settings, sol.x, basic_list, direction, basic_leaving_index, primal_infeasibility);
       }
     }
     timers.pricing_time += timers.stop_timer();
@@ -2629,9 +2632,9 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                  start_time,
                                  max_val,
                                  iter,
-                                 x,
-                                 y,
-                                 z,
+                                 sol.x,
+                                 sol.y,
+                                 sol.z,
                                  sol);
       status = dual::status_t::OPTIMAL;
       break;
@@ -2720,19 +2723,20 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     {
       // raft::common::nvtx::range scope_ratio("DualSimplex::ratio_test");
       if (harris_ratio) {
-        f_t max_step_length = phase2::first_stage_harris(lp, vstatus, nonbasic_list, z, delta_z);
-        entering_index      = phase2::second_stage_harris(lp,
+        f_t max_step_length =
+          phase2::first_stage_harris(lp, vstatus, nonbasic_list, sol.z, delta_z);
+        entering_index = phase2::second_stage_harris(lp,
                                                      vstatus,
                                                      nonbasic_list,
-                                                     z,
+                                                     sol.z,
                                                      delta_z,
                                                      max_step_length,
                                                      step_length,
                                                      nonbasic_entering_index);
       } else if (bound_flip_ratio) {
         timers.start_timer();
-        f_t slope = direction == 1 ? (lp.lower[leaving_index] - x[leaving_index])
-                                   : (x[leaving_index] - lp.upper[leaving_index]);
+        f_t slope = direction == 1 ? (lp.lower[leaving_index] - sol.x[leaving_index])
+                                   : (sol.x[leaving_index] - lp.upper[leaving_index]);
         bound_flipping_ratio_test_t<i_t, f_t> bfrt(settings,
                                                    start_time,
                                                    m,
@@ -2754,8 +2758,14 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
         }
         timers.bfrt_time += timers.stop_timer();
       } else {
-        entering_index = phase2::phase2_ratio_test(
-          lp, settings, vstatus, nonbasic_list, z, delta_z, step_length, nonbasic_entering_index);
+        entering_index = phase2::phase2_ratio_test(lp,
+                                                   settings,
+                                                   vstatus,
+                                                   nonbasic_list,
+                                                   sol.z,
+                                                   delta_z,
+                                                   step_length,
+                                                   nonbasic_entering_index);
       }
     }
     if (entering_index == -2) { return dual::status_t::TIME_LIMIT; }
@@ -2777,8 +2787,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
           settings.log.printf("Dual infeasibility after removing perturbation %e\n", dual_infeas);
           if (dual_infeas <= settings.dual_tol) {
             settings.log.printf("Removed perturbation of %.2e.\n", perturbation);
-            z            = unperturbed_z;
-            y            = unperturbed_y;
+            sol.z        = unperturbed_z;
+            sol.y        = unperturbed_y;
             perturbation = 0.0;
 
             std::vector<f_t> unperturbed_x(n);
@@ -2791,7 +2801,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
             objective = lp.objective;
             // Need to reset the objective value, since we have recomputed x
-            obj = phase2::compute_perturbed_objective(objective, x);
+            obj = phase2::compute_perturbed_objective(objective, sol.x);
             if (dual_infeas <= settings.dual_tol && primal_infeasibility <= settings.primal_tol) {
               phase2::prepare_optimality(lp,
                                          settings,
@@ -2804,9 +2814,9 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                          start_time,
                                          max_val,
                                          iter,
-                                         x,
-                                         y,
-                                         z,
+                                         sol.x,
+                                         sol.y,
+                                         sol.z,
                                          sol);
               status = dual::status_t::OPTIMAL;
               break;
@@ -2841,9 +2851,9 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                          start_time,
                                          max_val,
                                          iter,
-                                         x,
-                                         y,
-                                         z,
+                                         sol.x,
+                                         sol.y,
+                                         sol.z,
                                          sol);
               status = dual::status_t::OPTIMAL;
               break;
@@ -2864,13 +2874,13 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
           delta_y_sparse.to_dense(my_delta_y);
 
           // TODO(CMM): Do I use the perturbed or unperturbed objective?
-          const f_t obj_val = phase2::compute_perturbed_objective(objective, x);
+          const f_t obj_val = phase2::compute_perturbed_objective(objective, sol.x);
           phase2::compute_farkas_certificate(lp,
                                              settings,
                                              vstatus,
-                                             x,
-                                             y,
-                                             z,
+                                             sol.x,
+                                             sol.y,
+                                             sol.z,
                                              my_delta_y,
                                              delta_z,
                                              direction,
@@ -2903,7 +2913,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     // y <- y + steplength * delta_y
     // z <- z + steplength * delta_z
     i_t update_dual_variables_status = phase2::update_dual_variables(
-      delta_y_sparse, delta_z_indices, delta_z, step_length, leaving_index, y, z);
+      delta_y_sparse, delta_z_indices, delta_z, step_length, leaving_index, sol.y, sol.z);
     if (update_dual_variables_status == -1) {
       settings.log.printf("Numerical issues encountered in update_dual_variables.\n");
       return dual::status_t::NUMERICAL;
@@ -2911,7 +2921,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     timers.vector_time += timers.stop_timer();
 
 #ifdef COMPUTE_DUAL_RESIDUAL
-    phase2::compute_dual_residual(lp.A, objective, y, z, dual_res1);
+    phase2::compute_dual_residual(lp.A, objective, sol.y, sol.z, dual_res1);
     f_t dual_res_norm = vector_norm_inf<i_t, f_t>(dual_res1);
     if (dual_res_norm > settings.dual_tol) {
       settings.log.printf("|| A'*y + z - c || %e steplength %e\n", dual_res_norm, step_length);
@@ -2924,7 +2934,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                                 settings,
                                                 bounded_variables,
                                                 objective,
-                                                z,
+                                                sol.z,
                                                 delta_z_indices,
                                                 nonbasic_list,
                                                 entering_index,
@@ -2949,7 +2959,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                atilde_sparse,
                                delta_xB_0_sparse,
                                delta_x_flip,
-                               x);
+                               sol.x);
       timers.ftran_time += timers.stop_timer();
     }
 
@@ -2968,7 +2978,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                                   basic_list,
                                   delta_x_flip,
                                   rhs_sparse,
-                                  x,
+                                  sol.x,
                                   utilde_sparse,
                                   scaled_delta_xB_sparse,
                                   delta_x) == -1) {
@@ -3010,12 +3020,13 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
     timers.start_timer();
     // x <- x + delta_x
-    phase2::update_primal_variables(scaled_delta_xB_sparse, basic_list, delta_x, entering_index, x);
+    phase2::update_primal_variables(
+      scaled_delta_xB_sparse, basic_list, delta_x, entering_index, sol.x);
     timers.vector_time += timers.stop_timer();
 
 #ifdef COMPUTE_PRIMAL_RESIDUAL
     residual = lp.rhs;
-    matrix_vector_multiply(lp.A, 1.0, x, -1.0, residual);
+    matrix_vector_multiply(lp.A, 1.0, sol.x, -1.0, residual);
     primal_residual = vector_norm_inf<i_t, f_t>(residual);
     if (iter % 100 == 0 && primal_residual > 10 * settings.primal_tol) {
       settings.log.printf("|| A*x - b || %e\n", primal_residual);
@@ -3071,7 +3082,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
 #if CHECK_PRIMAL_INFEASIBILITIES
     phase2::check_primal_infeasibilities(
-      lp, settings, basic_list, x, squared_infeasibilities, infeasibility_indices);
+      lp, settings, basic_list, sol.x, squared_infeasibilities, infeasibility_indices);
 #endif
     timers.update_infeasibility_time += timers.stop_timer();
 
@@ -3080,7 +3091,7 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
     timers.start_timer();
     f_t sum_perturb = 0.0;
-    phase2::compute_perturbation(lp, settings, delta_z_indices, z, objective, sum_perturb);
+    phase2::compute_perturbation(lp, settings, delta_z_indices, sol.z, objective, sum_perturb);
     timers.perturb_time += timers.stop_timer();
 
     // Update basis information
