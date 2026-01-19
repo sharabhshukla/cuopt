@@ -177,15 +177,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_settings.deterministic =
       context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC;
 
-    // Work limit: use user-specified work_limit, with backward compatibility
-    // (if work_limit is infinity in deterministic mode and time_limit is finite,
-    // fall back to time_limit as work units for backward compatibility)
     if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) {
-      if (std::isinf(context.settings.work_limit) && !std::isinf(context.settings.time_limit)) {
-        branch_and_bound_settings.work_limit = context.settings.time_limit;
-      } else {
-        branch_and_bound_settings.work_limit = context.settings.work_limit;
-      }
+      branch_and_bound_settings.work_limit = context.settings.work_limit;
     } else {
       branch_and_bound_settings.work_limit = std::numeric_limits<f_t>::infinity();
     }
@@ -207,13 +200,12 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_settings.heuristic_preemption_callback = std::bind(
       &branch_and_bound_solution_helper_t<i_t, f_t>::preempt_heuristic_solver, &solution_helper);
 
+    branch_and_bound_settings.solution_callback =
+      std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::solution_callback,
+                &solution_helper,
+                std::placeholders::_1,
+                std::placeholders::_2);
     if (context.settings.determinism_mode == CUOPT_MODE_OPPORTUNISTIC) {
-      branch_and_bound_settings.solution_callback =
-        std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::solution_callback,
-                  &solution_helper,
-                  std::placeholders::_1,
-                  std::placeholders::_2);
-
       branch_and_bound_settings.set_simplex_solution_callback =
         std::bind(&branch_and_bound_solution_helper_t<i_t, f_t>::set_simplex_solution,
                   &solution_helper,

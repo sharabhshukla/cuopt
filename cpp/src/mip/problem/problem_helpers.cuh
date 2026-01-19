@@ -23,50 +23,6 @@
 #include <thrust/sort.h>
 
 namespace cuopt::linear_programming::detail {
-
-template <typename T>
-struct cusparse_data_type {
-  static_assert(sizeof(T) == 0, "cusparse_data_type mapping not defined for this type");
-};
-template <typename T>
-struct cusparse_index_type {
-  static_assert(sizeof(T) == 0, "cusparse_index_type mapping not defined for this type");
-};
-
-template <>
-struct cusparse_data_type<__half> {
-  static constexpr cudaDataType value = CUDA_R_16F;
-};
-template <>
-struct cusparse_data_type<__nv_bfloat16> {
-  static constexpr cudaDataType value = CUDA_R_16BF;
-};
-template <>
-struct cusparse_data_type<float> {
-  static constexpr cudaDataType value = CUDA_R_32F;
-};
-template <>
-struct cusparse_data_type<double> {
-  static constexpr cudaDataType value = CUDA_R_64F;
-};
-template <>
-struct cusparse_data_type<int8_t> {
-  static constexpr cudaDataType value = CUDA_R_8I;
-};
-template <>
-struct cusparse_data_type<int32_t> {
-  static constexpr cudaDataType value = CUDA_R_32I;
-};
-
-template <>
-struct cusparse_index_type<int32_t> {
-  static constexpr cusparseIndexType_t value = CUSPARSE_INDEX_32I;
-};
-template <>
-struct cusparse_index_type<int64_t> {
-  static constexpr cusparseIndexType_t value = CUSPARSE_INDEX_64I;
-};
-
 template <typename f_t>
 struct transform_bounds_functor {
   __device__ thrust::tuple<f_t, f_t> operator()(const thrust::tuple<char, f_t>& input) const

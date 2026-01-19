@@ -13,8 +13,6 @@
 #include <dual_simplex/solve.hpp>
 #include <dual_simplex/tic_toc.hpp>
 
-#include <raft/common/nvtx.hpp>
-
 #include <cmath>
 #include <iostream>
 #include <numeric>

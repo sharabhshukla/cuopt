@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -200,7 +200,6 @@ void sparse_vector_t<i_t, f_t>::sort()
     for (i_t k = 0; k < nz; ++k) {
       perm[k] = k;
     }
-    // Need to capture the underlying array for the lambda
     auto& iunsorted = i;
     std::sort(
       perm.begin(), perm.end(), [&iunsorted](i_t a, i_t b) { return iunsorted[a] < iunsorted[b]; });

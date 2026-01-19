@@ -324,26 +324,16 @@ struct bb_worker_state_t {
   // Node enqueueing methods
   // ==========================================================================
 
-  // Add a node to the plunge stack, assigning BSP identity if not already set
-  // Used for initial node assignment and when starting a new plunge from backlog
+  // Add a node to the plunge stack, assigning BSP identity
   void enqueue_node(mip_node_t<i_t, f_t>* node)
   {
-    // Assign BSP identity if not already set
-    if (!node->has_bsp_identity()) {
-      node->origin_worker_id = worker_id;
-      node->creation_seq     = next_creation_seq++;
-    }
+    node->origin_worker_id = worker_id;
+    node->creation_seq     = next_creation_seq++;
     plunge_stack.push_front(node);
   }
 
   // Add a node that already has BSP identity (from load balancing or initial distribution)
-  // Goes to plunge stack front for immediate processing
-  void enqueue_node_with_identity(mip_node_t<i_t, f_t>* node)
-  {
-    assert(node->has_bsp_identity() &&
-           "Node must have BSP identity for enqueue_node_with_identity");
-    plunge_stack.push_front(node);
-  }
+  void enqueue_node_with_identity(mip_node_t<i_t, f_t>* node) { plunge_stack.push_front(node); }
 
   // Add children after branching with proper plunging behavior:
   // 1. If plunge stack has a sibling, move it to backlog (plugging)
@@ -361,14 +351,10 @@ struct bb_worker_state_t {
     }
 
     // Assign BSP identity to children
-    if (!down_child->has_bsp_identity()) {
-      down_child->origin_worker_id = worker_id;
-      down_child->creation_seq     = next_creation_seq++;
-    }
-    if (!up_child->has_bsp_identity()) {
-      up_child->origin_worker_id = worker_id;
-      up_child->creation_seq     = next_creation_seq++;
-    }
+    down_child->origin_worker_id = worker_id;
+    down_child->creation_seq     = next_creation_seq++;
+    up_child->origin_worker_id   = worker_id;
+    up_child->creation_seq       = next_creation_seq++;
 
     // Push children - preferred child on top (front) for immediate exploration
     mip_node_t<i_t, f_t>* first_child;

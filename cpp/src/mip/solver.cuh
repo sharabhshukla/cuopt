@@ -10,7 +10,7 @@
 #include <cuopt/linear_programming/pdlp/solver_solution.hpp>
 #include <mip/problem/problem.cuh>
 #include <mip/solver_context.cuh>
-#include <utilities/work_limit_timer.hpp>
+#include <utilities/timer.hpp>
 #pragma once
 
 namespace cuopt::linear_programming::detail {

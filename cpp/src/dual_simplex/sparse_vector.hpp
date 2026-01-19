@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -55,7 +55,6 @@ class sparse_vector_t {
   void negate();
   f_t find_coefficient(i_t index) const;
 
-  // Clear the sparse vector (removes all entries, keeps capacity)
   void clear()
   {
     i.clear();

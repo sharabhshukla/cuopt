@@ -1635,11 +1635,11 @@ problem_t<i_t, f_t> problem_t<i_t, f_t>::get_problem_after_fixing_vars(
   [[maybe_unused]] static int total_calls         = 0;
   total_time_taken += time_taken;
   total_calls++;
-  // CUOPT_LOG_DEBUG(
-  //   "Time taken to fix variables: %f milliseconds, average: %f milliseconds total time: %f",
-  //   time_taken,
-  //   total_time_taken / total_calls,
-  //   total_time_taken);
+  CUOPT_LOG_TRACE(
+    "Time taken to fix variables: %f milliseconds, average: %f milliseconds total time: %f",
+    time_taken,
+    total_time_taken / total_calls,
+    total_time_taken);
   // if the fixing is greater than 150, mark this as expensive.
   // this way we can avoid frequent fixings for this problem
   constexpr double expensive_time_threshold = 150;

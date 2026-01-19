@@ -579,8 +579,8 @@ void csr_matrix_t<i_t, f_t>::check_matrix(std::string matrix_name) const
 }
 
 // x <- x + alpha * A(:, j)
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, std::vector<f_t>& x)
+template <typename i_t, typename f_t, typename VectorF>
+void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, VectorF& x)
 {
   const i_t col_start = A.col_start[j];
   const i_t col_end   = A.col_start[j + 1];
@@ -591,49 +591,10 @@ void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, std::vecto
   }
 }
 
-// x <- x + alpha * A(:, j)
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A,
-                   i_t j,
-                   f_t alpha,
-                   std::vector<f_t>& x,
-                   std::vector<i_t>& mark,
-                   std::vector<i_t>& indices)
-{
-  const i_t col_start = A.col_start[j];
-  const i_t col_end   = A.col_start[j + 1];
-  for (i_t p = col_start; p < col_end; ++p) {
-    const i_t i  = A.i[p];
-    const f_t ax = A.x[p];
-    x[i] += alpha * ax;
-    if (!mark[i]) {
-      mark[i] = 1;
-      indices.push_back(i);
-    }
-  }
-}
-
-// Instrumented vector overload: x <- x + alpha * A(:, j)
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, ins_vector<f_t>& x)
-{
-  const i_t col_start = A.col_start[j];
-  const i_t col_end   = A.col_start[j + 1];
-  for (i_t p = col_start; p < col_end; ++p) {
-    const i_t i  = A.i[p];
-    const f_t ax = A.x[p];
-    x[i] += alpha * ax;
-  }
-}
-
-// Instrumented vector overload: x <- x + alpha * A(:, j) with mark/indices tracking
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A,
-                   i_t j,
-                   f_t alpha,
-                   ins_vector<f_t>& x,
-                   ins_vector<i_t>& mark,
-                   ins_vector<i_t>& indices)
+// x <- x + alpha * A(:, j) with mark/indices tracking
+template <typename i_t, typename f_t, typename VectorF, typename VectorI>
+void scatter_dense(
+  const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, VectorF& x, VectorI& mark, VectorI& indices)
 {
   const i_t col_start = A.col_start[j];
   const i_t col_end   = A.col_start[j + 1];
@@ -912,29 +873,31 @@ template int scatter<int, double>(const csc_matrix_t<int, double>& A,
                                   csc_matrix_t<int, double>& C,
                                   int nz);
 
-template void scatter_dense<int, double>(const csc_matrix_t<int, double>& A,
-                                         int j,
-                                         double alpha,
-                                         std::vector<double>& x);
+template void scatter_dense<int, double, std::vector<double>>(const csc_matrix_t<int, double>& A,
+                                                              int j,
+                                                              double alpha,
+                                                              std::vector<double>& x);
 
-template void scatter_dense<int, double>(const csc_matrix_t<int, double>& A,
-                                         int j,
-                                         double alpha,
-                                         std::vector<double>& x,
-                                         std::vector<int>& mark,
-                                         std::vector<int>& indices);
+template void scatter_dense<int, double, std::vector<double>, std::vector<int>>(
+  const csc_matrix_t<int, double>& A,
+  int j,
+  double alpha,
+  std::vector<double>& x,
+  std::vector<int>& mark,
+  std::vector<int>& indices);
 
-template void scatter_dense<int, double>(const csc_matrix_t<int, double>& A,
-                                         int j,
-                                         double alpha,
-                                         ins_vector<double>& x);
+template void scatter_dense<int, double, ins_vector<double>>(const csc_matrix_t<int, double>& A,
+                                                             int j,
+                                                             double alpha,
+                                                             ins_vector<double>& x);
 
-template void scatter_dense<int, double>(const csc_matrix_t<int, double>& A,
-                                         int j,
-                                         double alpha,
-                                         ins_vector<double>& x,
-                                         ins_vector<int>& mark,
-                                         ins_vector<int>& indices);
+template void scatter_dense<int, double, ins_vector<double>, ins_vector<int>>(
+  const csc_matrix_t<int, double>& A,
+  int j,
+  double alpha,
+  ins_vector<double>& x,
+  ins_vector<int>& mark,
+  ins_vector<int>& indices);
 
 template int multiply<int, double>(const csc_matrix_t<int, double>& A,
                                    const csc_matrix_t<int, double>& B,

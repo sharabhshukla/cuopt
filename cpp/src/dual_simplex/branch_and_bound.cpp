@@ -19,6 +19,7 @@
 #include <dual_simplex/tic_toc.hpp>
 #include <dual_simplex/user_problem.hpp>
 #include <raft/common/nvtx.hpp>
+#include <utilities/hashing.hpp>
 
 #include <omp.h>
 
@@ -2098,22 +2099,18 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     state_data.push_back(static_cast<uint64_t>(lb * 1000000));
 
     for (auto& worker : *bsp_workers_) {
-      if (worker.current_node != nullptr) { state_data.push_back(worker.current_node->get_hash()); }
+      if (worker.current_node != nullptr) {
+        state_data.push_back(worker.current_node->get_id_packed());
+      }
       for (auto* node : worker.plunge_stack) {
-        state_data.push_back(node->get_hash());
+        state_data.push_back(node->get_id_packed());
       }
       for (auto* node : worker.backlog) {
-        state_data.push_back(node->get_hash());
+        state_data.push_back(node->get_id_packed());
       }
     }
 
-    state_hash = 0x811c9dc5u;  // FNV-1a initial value
-    for (uint64_t val : state_data) {
-      state_hash ^= static_cast<uint32_t>(val & 0xFFFFFFFF);
-      state_hash *= 0x01000193u;
-      state_hash ^= static_cast<uint32_t>(val >> 32);
-      state_hash *= 0x01000193u;
-    }
+    state_hash = detail::compute_hash(state_data);
     BSP_DEBUG_LOG_HORIZON_HASH(
       bsp_debug_settings_, bsp_debug_logger_, bsp_horizon_number_, horizon_end, state_hash);
   }
@@ -2365,25 +2362,10 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
 
   // Debug: Log LP input for determinism analysis
   if (bsp_debug_settings_.any_enabled()) {
-    uint64_t path_hash = node_ptr->compute_path_hash();
-    // Compute vstatus hash
-    uint64_t vstatus_hash = leaf_vstatus.size();
-    for (size_t i = 0; i < leaf_vstatus.size(); ++i) {
-      vstatus_hash ^= (static_cast<uint64_t>(leaf_vstatus[i]) << (i % 56));
-      vstatus_hash *= 0x100000001b3ULL;
-    }
-    // Compute bounds hash
-    uint64_t bounds_hash = 0;
-    for (i_t j = 0; j < worker.leaf_problem->num_cols; ++j) {
-      union {
-        f_t f;
-        uint64_t u;
-      } lb_bits, ub_bits;
-      lb_bits.f = worker.leaf_problem->lower[j];
-      ub_bits.f = worker.leaf_problem->upper[j];
-      bounds_hash ^= lb_bits.u + ub_bits.u;
-      bounds_hash *= 0x100000001b3ULL;
-    }
+    uint64_t path_hash    = node_ptr->compute_path_hash();
+    uint64_t vstatus_hash = detail::compute_hash(leaf_vstatus);
+    uint64_t bounds_hash  = detail::compute_hash(worker.leaf_problem->lower) ^
+                           detail::compute_hash(worker.leaf_problem->upper);
     BSP_DEBUG_LOG_LP_INPUT(bsp_debug_settings_,
                            bsp_debug_logger_,
                            worker.worker_id,
@@ -2411,27 +2393,11 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
 
   if (bsp_debug_settings_.any_enabled()) {
     uint64_t path_hash = node_ptr->compute_path_hash();
-    // Compute solution hash
-    uint64_t sol_hash = 0;
-    for (i_t j = 0;
-         j < worker.leaf_problem->num_cols && j < static_cast<i_t>(leaf_solution.x.size());
-         ++j) {
-      union {
-        f_t f;
-        uint64_t u;
-      } val_bits;
-      val_bits.f = leaf_solution.x[j];
-      sol_hash ^= val_bits.u;
-      sol_hash *= 0x100000001b3ULL;
-    }
-    f_t obj = (lp_status == dual::status_t::OPTIMAL)
-                ? compute_objective(*worker.leaf_problem, leaf_solution.x)
-                : std::numeric_limits<f_t>::infinity();
-    union {
-      f_t f;
-      uint64_t u;
-    } obj_bits;
-    obj_bits.f = obj;
+    uint64_t sol_hash  = detail::compute_hash(leaf_solution.x);
+    f_t obj            = (lp_status == dual::status_t::OPTIMAL)
+                           ? compute_objective(*worker.leaf_problem, leaf_solution.x)
+                           : std::numeric_limits<f_t>::infinity();
+    uint64_t obj_hash  = detail::compute_hash(obj);
     BSP_DEBUG_LOG_LP_OUTPUT(bsp_debug_settings_,
                             bsp_debug_logger_,
                             worker.worker_id,
@@ -2439,7 +2405,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
                             path_hash,
                             static_cast<int>(lp_status),
                             node_iter,
-                            obj_bits.u,
+                            obj_hash,
                             sol_hash);
   }
 

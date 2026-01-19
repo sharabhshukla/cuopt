@@ -9,6 +9,7 @@
 
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/types.hpp>
+#include <utilities/hashing.hpp>
 #include <utilities/omp_helpers.hpp>
 
 #include <cmath>
@@ -264,40 +265,29 @@ class mip_node_t {
   f_t accumulated_vt{0.0};  // Virtual time spent on this node so far
 
   // Worker-local identification for deterministic BSP ordering:
-  // - origin_worker_id: which worker created this node (-1 for pre-BSP/initial nodes)
+  // - origin_worker_id: which worker created this node
   // - creation_seq: sequence number within that worker (cumulative across horizons)
-  // The tuple (origin_worker_id, creation_seq) is unique and stable (never changes after
-  // assignment) This replaces the old final_id approach which required sync-time assignment
+  // The tuple (origin_worker_id, creation_seq) is unique and stable
   int32_t origin_worker_id{-1};
   int32_t creation_seq{-1};
 
-  // Check if this node has been assigned a BSP identity
-  bool has_bsp_identity() const { return origin_worker_id >= -1 && creation_seq >= 0; }
-
-  // Get a 64-bit identity value for hashing (combines worker_id and seq)
-  // Uses origin_worker_id + 1 to handle -1 (pre-BSP nodes) gracefully
-  uint64_t get_hash() const
+  uint64_t get_id_packed() const
   {
     return (static_cast<uint64_t>(origin_worker_id + 1) << 32) |
            static_cast<uint64_t>(static_cast<uint32_t>(creation_seq));
   }
 
-  // Compute a deterministic path hash based on branching decisions from root
-  // This uniquely identifies the node regardless of creation order
   uint64_t compute_path_hash() const
   {
-    uint64_t hash          = 0;
+    std::vector<uint64_t> path_steps;
     const mip_node_t* node = this;
     while (node != nullptr && node->branch_var >= 0) {
-      // Combine branch_var and branch_dir into hash
       uint64_t step = static_cast<uint64_t>(node->branch_var) << 1;
       step |= (node->branch_dir == rounding_direction_t::UP) ? 1 : 0;
-      // FNV-1a style mixing
-      hash ^= step;
-      hash *= 0x100000001b3ULL;
+      path_steps.push_back(step);
       node = node->parent;
     }
-    return hash;
+    return detail::compute_hash(path_steps);
   }
 };
 
@@ -311,42 +301,23 @@ void remove_fathomed_nodes(std::vector<mip_node_t<i_t, f_t>*>& stack)
   }
 }
 
-// Comparator for global heap (used in non-BSP mode and for initial distribution in BSP)
-// Uses path_hash for deterministic tie-breaking when BSP identity is not available
+// Comparator for global heap (used in non-BSP mode)
 template <typename i_t, typename f_t>
 class node_compare_t {
  public:
   // Comparison for priority queue: returns true if 'a' has lower priority than 'b'
-  // (elements with lower priority are output last from the heap).
   // Primary: prefer lower bound (best-first search)
-  // Tie-breaker: use deterministic comparison for reproducibility
+  // Tie-breaker: prefer deeper nodes
   bool operator()(const mip_node_t<i_t, f_t>& a, const mip_node_t<i_t, f_t>& b) const
   {
     if (a.lower_bound != b.lower_bound) { return a.lower_bound > b.lower_bound; }
-    return deterministic_compare(a, b);
+    return a.depth > b.depth;
   }
 
   bool operator()(const mip_node_t<i_t, f_t>* a, const mip_node_t<i_t, f_t>* b) const
   {
     if (a->lower_bound != b->lower_bound) { return a->lower_bound > b->lower_bound; }
-    return deterministic_compare(*a, *b);
-  }
-
- private:
-  // Deterministic comparison using BSP identity tuple or path_hash fallback
-  bool deterministic_compare(const mip_node_t<i_t, f_t>& a, const mip_node_t<i_t, f_t>& b) const
-  {
-    // non-BSP case
-    if (!a.has_bsp_identity() || !b.has_bsp_identity()) {
-      return a.depth > b.depth;
-    }
-    // If both have BSP identity, use lexicographic comparison of (origin_worker_id, creation_seq)
-    else {
-      if (a.origin_worker_id != b.origin_worker_id) {
-        return a.origin_worker_id > b.origin_worker_id;
-      }
-      return a.creation_seq > b.creation_seq;
-    }
+    return a->depth > b->depth;
   }
 };
 

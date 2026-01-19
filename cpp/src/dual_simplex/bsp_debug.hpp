@@ -953,8 +953,7 @@ class bsp_debug_logger_t {
     }
 
     file << "  N" << node->node_id << " [label=\"N" << node->node_id;
-    if (node->has_bsp_identity())
-      file << " (w" << node->origin_worker_id << ":" << node->creation_seq << ")";
+    file << " (w" << node->origin_worker_id << ":" << node->creation_seq << ")";
     file << "\\nlb=" << std::fixed << std::setprecision(1) << node->lower_bound;
     file << "\\n" << status_str;
     file << "\" style=filled fillcolor=" << color << "];\n";

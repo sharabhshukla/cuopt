@@ -165,7 +165,6 @@ static double get_available_memory_gb()
 
 double get_cpu_max_clock_mhz()
 {
-  // Cache the result - CPU max clock doesn't change during execution
   // thread_local to avoid an unecessary sync inserted by the compiler
   // due to the standard mandating thread-safe static local variable initialization
   // the extra work here is minimal.

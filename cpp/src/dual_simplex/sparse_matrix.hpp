@@ -201,28 +201,12 @@ i_t scatter(const csc_matrix_t<i_t, f_t>& A,
             i_t nz);
 
 // x <- x + alpha * A(:, j)
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, std::vector<f_t>& x);
+template <typename i_t, typename f_t, typename VectorF>
+void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, VectorF& x);
 
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A,
-                   i_t j,
-                   f_t alpha,
-                   std::vector<f_t>& x,
-                   std::vector<i_t>& mark,
-                   std::vector<i_t>& indices);
-
-// Instrumented vector overloads
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, ins_vector<f_t>& x);
-
-template <typename i_t, typename f_t>
-void scatter_dense(const csc_matrix_t<i_t, f_t>& A,
-                   i_t j,
-                   f_t alpha,
-                   ins_vector<f_t>& x,
-                   ins_vector<i_t>& mark,
-                   ins_vector<i_t>& indices);
+template <typename i_t, typename f_t, typename VectorF, typename VectorI>
+void scatter_dense(
+  const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, VectorF& x, VectorI& mark, VectorI& indices);
 
 // Compute C = A*B where C is m x n, A is m x k, and B = k x n
 // Do this by computing C(:, j) = A*B(:, j) = sum (i=1 to k) A(:, k)*B(i, j)

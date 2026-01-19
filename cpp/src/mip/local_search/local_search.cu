@@ -59,7 +59,6 @@ static population_t<int, double>* pop_ptr = nullptr;
 template <typename i_t, typename f_t>
 void local_search_t<i_t, f_t>::start_cpufj_scratch_threads(population_t<i_t, f_t>& population)
 {
-  // CPUFJ is non-deterministic, skip in deterministic mode
   if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) { return; }
 
   pop_ptr = &population;
@@ -107,7 +106,6 @@ template <typename i_t, typename f_t>
 void local_search_t<i_t, f_t>::start_cpufj_lptopt_scratch_threads(
   population_t<i_t, f_t>& population)
 {
-  // CPUFJ is non-deterministic, skip in deterministic mode
   if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) { return; }
 
   pop_ptr = &population;

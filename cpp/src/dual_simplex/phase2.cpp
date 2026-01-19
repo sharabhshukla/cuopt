@@ -3287,7 +3287,6 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       return dual::status_t::CONCURRENT_LIMIT;
     }
   }
-  // printf("NODE SOLVE FINISHED\n");
   if (iter >= iter_limit) { status = dual::status_t::ITERATION_LIMIT; }
 
   if (phase == 2) {
@@ -3307,8 +3306,6 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
       *settings.concurrent_halt = 1;
     }
   }
-
-  // printf("Iterations: %d, time taken: %f\n", iter, toc(start_time));
   return status;
 }
 
