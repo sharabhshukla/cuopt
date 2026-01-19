@@ -707,7 +707,7 @@ class MQuadraticExpression:
     >>> x = problem.addVariable()
     >>> y = problem.addVariable()
     >>> # Create x^2 + 2*x*y + 3*x + 4
-    >>> quad_expr = QuadraticExpression(
+    >>> quad_expr = MQuadraticExpression(
     ...     [[1.0, 2.0], [0.0, 0.0]], [x, y],
     ...     [x], [3.0], 4.0
     ... )
@@ -731,16 +731,132 @@ class MQuadraticExpression:
         Returns the value of the expression computed with the
         current solution.
         """
+        # TODO: improve efficiency
         value = 0.0
         for i, var in enumerate(self.vars):
             value += var.Value * self.coefficients[i]
         for i, var1 in enumerate(self.qvars):
             for j, var2 in enumerate(self.qvars):
-                value += var1.Value * var2.Value * int(self.qmatrix[i,j])
+                value += var1.Value * var2.Value * float(self.qmatrix[i,j])
         return value + self.constant
 
     def __size__(self):
         return np.size(self.qmatrix)
+
+    def __iadd__(self, other):
+        # Compute quad_expr += lin_expr
+        match other:
+            case int() | float():
+                # Update just the constant value
+                self.constant += float(other)
+                return self
+            case Variable():
+                # Append just a variable with coefficient 1.0
+                self.vars.append(other)
+                self.coefficients.append(1.0)
+                return self
+            case LinearExpression():
+                # Append all linear variables, coefficients and constants
+                self.vars.extend(other.vars)
+                self.coefficients.extend(other.coefficients)
+                self.constant += other.constant
+                return self
+
+    def __add__(self, other):
+        # Compute quad_expr1 = quar_expr2 + lin_expr
+        match other:
+            case int() | float():
+                # Update just the constant value
+                return MQuadraticExpression(
+                    self.qmatrix,
+                    self.qvars,
+                    self.vars,
+                    self.coefficients,
+                    self.constant + float(other),
+                )
+            case Variable():
+                # Append just a variable with coefficient 1.0
+                vars = self.vars + [other]
+                coeffs = self.coefficients + [1.0]
+                return MQuadraticExpression(
+                    self.qmatrix,
+                    self.qvars,
+                    vars,
+                    coeffs,
+                    self.constant,
+                )
+            case LinearExpression():
+                # Append all linear variables, coefficients and constants
+                vars = self.vars + other.vars
+                coeffs = self.coefficients + other.coefficients
+                constant = self.constant + other.constant
+                return MQuadraticExpression(
+                    self.qmatrix,
+                    self.qvars,
+                    vars,
+                    coeffs,
+                    constant,
+                )
+
+    def __isub__(self, other):
+        # Compute quad_expr -= lin_expr
+        match other:
+            case int() | float():
+                # Update just the constant value
+                self.constant -= float(other)
+                return self
+            case Variable():
+                # Append just a variable with coefficient -1.0
+                self.vars.append(other)
+                self.coefficients.append(-1.0)
+                return self
+            case LinearExpression():
+                # Append all linear variables, coefficients and constants
+                self.vars.extend(other.vars)
+                for coeff in other.coefficients:
+                    self.coefficients.append(-coeff)
+                self.constant -= other.constant
+                return self
+
+    def __sub__(self, other):
+        # Compute quad_expr2 = quad_expr1 - lin_expr
+        match other:
+            case int() | float():
+                # Update just the constant value
+                return MQuadraticExpression(
+                    self.qmatrix,
+                    self.qvars,
+                    self.vars,
+                    self.coefficients,
+                    self.constant - float(other),
+                )
+            case Variable():
+                # Append just a variable with coefficient -1.0
+                vars = self.vars + [other]
+                coeffs = self.coefficients + [-1.0]
+                return MQuadraticExpression(
+                    self.qmatrix,
+                    self.qvars,
+                    vars,
+                    coeffs,
+                    self.constant,
+                )
+            case LinearExpression():
+                # Append all linear variables, coefficients and constants
+                vars = self.vars + other.vars
+                coeffs = []
+                for i in self.coefficients:
+                    coeffs.append(i)
+                for i in other.coefficients:
+                    coeffs.append(-1.0 * i)
+                constant = self.constant - other.constant
+                return MQuadraticExpression(
+                    self.qmatrix,
+                    self.qvars,
+                    vars,
+                    coeffs,
+                    constant,
+                )
 
     ## TODO: Add matrix multiplication
     #def __matmul__(self, qcols):
@@ -754,6 +870,15 @@ class MQuadraticExpression:
     #        self.qrows = qrows
     #    else:
     #        raise Exception("")
+
+    def __le__(self, other):
+        raise Exception("Quadratic constraints not supported")
+
+    def __ge__(self, other):
+        raise Exception("Quadratic constraints not supported")
+
+    def __eq__(self, other):
+        raise Exception("Quadratic constraints not supported")
 
 
 class LinearExpression:
@@ -1386,7 +1511,6 @@ class Problem:
         self.constraint_csr_matrix = None
         self.objective_qcoo_matrix = None
         self.objective_qcsr_matrix = None
-        self.ObjValue = float("nan")
         self.warmstart_data = None
         self.solved = False
 
@@ -1744,7 +1868,7 @@ class Problem:
 
     @property
     def ObjValue(self):
-        self.Obj.getValue()
+        return self.Obj.getValue()
 
     def getCSR(self):
         """

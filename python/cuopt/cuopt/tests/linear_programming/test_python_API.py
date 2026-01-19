@@ -20,6 +20,7 @@ from cuopt.linear_programming.problem import (
     Problem,
     VType,
     sense,
+    MQuadraticExpression
 )
 from cuopt.linear_programming.solver.solver_parameters import (
     CUOPT_AUGMENTED,
@@ -754,9 +755,9 @@ def test_quadratic_expression_and_matrix():
     exp_col_inds = [0, 1, 2, 0, 1, 2]
     exp_vals = [21, -7, 7, 3, -1, 1]
 
-    assert Qcsr.row_pointers == exp_row_ptrs
-    assert Qcsr.column_indices == exp_col_inds
-    assert Qcsr.values == exp_vals
+    assert list(Qcsr.row_pointers) == exp_row_ptrs
+    assert list(Qcsr.column_indices) == exp_col_inds
+    assert list(Qcsr.values) == exp_vals
 
 
 def test_quadratic_objective_1():
@@ -813,3 +814,35 @@ def test_quadratic_objective_2():
     assert x2.getValue() == pytest.approx(0.0000000, abs=0.000001)
     assert x3.getValue() == pytest.approx(0.1092896, abs=1e-3)
     assert problem.ObjValue == pytest.approx(-0.284153, abs=1e-3)
+
+
+def test_quadratic_matrix():
+    # Minimize 4 x1^2 + 2 x2^2 + 3 x3^2 + 1.5 x1 x3 - 2 x1 + 0.5 x2 - x3 + 4
+    # subject to x1 + 2*x2 + x3 <= 3
+    #         x1 >= 0
+    #         x2 >= 0
+    #         x3 >= 0
+
+    problem = Problem()
+    x1 = problem.addVariable(lb=0, name="x")
+    x2 = problem.addVariable(lb=0, name="y")
+    x3 = problem.addVariable(lb=0, name="z")
+
+    problem.addConstraint(x1 + 2 * x2 + x3 <= 3)
+
+    Q = [[4, 0, 1.5], [0, 2, 0], [0, 0, 3]]
+    quad_expr = MQuadraticExpression(Q)
+    quad_expr1 = quad_expr + 4  # Quad_matrix add constant
+    quad_expr2 = quad_expr1 - x3  # Quad_matrix sub variable
+    quad_expr2 -= 2 * x1  # Quad_matrix isub lin_expr
+    quad_expr2 += 0.5 * x2  # Quad_matrix iadd lin_expr
+
+    problem.setObjective(quad_expr2)
+
+    problem.solve()
+
+    assert problem.Status.name == "Optimal"
+    assert x1.getValue() == pytest.approx(0.2295081, abs=1e-3)
+    assert x2.getValue() == pytest.approx(0.0000000, abs=0.000001)
+    assert x3.getValue() == pytest.approx(0.1092896, abs=1e-3)
+    assert problem.ObjValue == pytest.approx(3.715847, abs=1e-3)
