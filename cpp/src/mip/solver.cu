@@ -109,8 +109,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
   diversity_manager_t<i_t, f_t> dm(context);
   dm.timer              = timer_;
-  //bool presolve_success = dm.run_presolve(timer_.remaining_time());
-  bool presolve_success = true;
+  const bool run_presolve = context.settings.presolve;
+  bool presolve_success = run_presolve ? dm.run_presolve(timer_.remaining_time()) : true;
   if (!presolve_success) {
     CUOPT_LOG_INFO("Problem proven infeasible in presolve");
     solution_t<i_t, f_t> sol(*context.problem_ptr);
@@ -118,7 +118,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     context.problem_ptr->post_process_solution(sol);
     return sol;
   }
-  if (0 && context.problem_ptr->empty) {
+  if (run_presolve && context.problem_ptr->empty) {
     CUOPT_LOG_INFO("Problem full reduced in presolve");
     solution_t<i_t, f_t> sol(*context.problem_ptr);
     sol.set_problem_fully_reduced();
@@ -127,7 +127,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
   }
 
   // if the problem was reduced to a LP: run concurrent LP
-  if (0 && context.problem_ptr->n_integer_vars == 0) {
+  if (run_presolve && context.problem_ptr->n_integer_vars == 0) {
     CUOPT_LOG_INFO("Problem reduced to a LP, running concurrent LP");
     pdlp_solver_settings_t<i_t, f_t> settings{};
     settings.time_limit = timer_.remaining_time();
@@ -164,7 +164,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     // Fill in the settings for branch and bound
     branch_and_bound_settings.time_limit           = timer_.remaining_time();
     branch_and_bound_settings.node_limit           = context.settings.node_limit;
-    branch_and_bound_settings.reliability_branching = context.settings.reliability_branching; 
+    branch_and_bound_settings.reliability_branching = context.settings.reliability_branching;
     branch_and_bound_settings.print_presolve_stats = false;
     branch_and_bound_settings.absolute_mip_gap_tol = context.settings.tolerances.absolute_mip_gap;
     branch_and_bound_settings.relative_mip_gap_tol = context.settings.tolerances.relative_mip_gap;
@@ -236,9 +236,6 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
                                                 branch_and_bound.get(),
                                                 std::ref(branch_and_bound_solution));
   }
-
-  //auto bb_status = branch_and_bound_status_future.get();
-  //CUOPT_LOG_INFO("BB status: %d", bb_status);
 
   // Start the primal heuristics
   auto sol = dm.run_solver();

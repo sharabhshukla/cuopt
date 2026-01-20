@@ -72,7 +72,7 @@ struct simplex_solver_settings_t {
       num_threads(omp_get_max_threads() - 1),
       num_bfs_threads(std::min(num_threads / 4, 1)),
       num_diving_threads(std::min(num_threads - num_bfs_threads, 1)),
-      max_cut_passes(10),
+      max_cut_passes(0),
       random_seed(0),
       inside_mip(0),
       reliability_branching(-1),
