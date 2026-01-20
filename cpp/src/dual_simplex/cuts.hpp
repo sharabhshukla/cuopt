@@ -53,6 +53,10 @@ void print_cut_types(const std::string& prefix,
                       num_cg_cuts);
 }
 
+template <typename f_t>
+f_t fractional_part(f_t a) { return a - std::floor(a); }
+
+
 template <typename i_t, typename f_t>
 void read_saved_solution_for_cut_verification(const lp_problem_t<i_t, f_t>& lp,
                                               const simplex_solver_settings_t<i_t, f_t>& settings,
@@ -226,21 +230,6 @@ class cut_generation_t {
                               const std::vector<variable_type_t>& var_types,
                               const std::vector<f_t>& xstar);
 
-
-  // Generate a single MIR cut
-  bool generate_single_mir_cut(const lp_problem_t<i_t, f_t>& lp,
-                               const simplex_solver_settings_t<i_t, f_t>& settings,
-                               csr_matrix_t<i_t, f_t>& Arow,
-                               const std::vector<variable_type_t>& var_types,
-                               const std::vector<f_t>& xstar,
-                               const sparse_vector_t<i_t, f_t>& inequality,
-                               f_t inequality_rhs,
-                               mixed_integer_rounding_cut_t<i_t, f_t>& mir,
-                               sparse_vector_t<i_t, f_t>& cut,
-                              f_t& cut_rhs);
-
-
-
   cut_pool_t<i_t, f_t>& cut_pool_;
   knapsack_generation_t<i_t, f_t> knapsack_generation_;
 };
@@ -408,6 +397,14 @@ class strong_cg_cut_t {
                                           f_t& cut_rhs);
 
  private:
+
+ i_t generate_strong_cg_cut_helper(const std::vector<i_t>& indicies,
+                                   const std::vector<f_t>& coefficients,
+                                   f_t rhs,
+                                   const std::vector<variable_type_t>& var_types,
+                                   sparse_vector_t<i_t, f_t>& cut,
+                                   f_t& cut_rhs);
+
   std::vector<i_t> transformed_variables_;
 };
 

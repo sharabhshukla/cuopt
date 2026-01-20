@@ -191,7 +191,7 @@ std::string user_mip_gap(f_t obj_value, f_t lower_bound)
   } else {
     constexpr int BUFFER_LEN = 32;
     char buffer[BUFFER_LEN];
-    snprintf(buffer, BUFFER_LEN - 1, "%4.1f%%", user_mip_gap * 100);
+    snprintf(buffer, BUFFER_LEN - 1, "%5.1f%%", user_mip_gap * 100);
     return std::string(buffer);
   }
 }
@@ -227,6 +227,11 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
     solver_status_(mip_exploration_status_t::UNSET)
 {
   exploration_stats_.start_time = tic();
+#ifdef PRINT_CONSTRAINT_MATRIX
+  settings_.log.printf("A");
+  original_problem_.A.print_matrix();
+#endif
+
   dualize_info_t<i_t, f_t> dualize_info;
   convert_user_problem(original_problem_, settings_, original_lp_, new_slacks_, dualize_info);
   full_variable_types(original_problem_, original_lp_, var_types_);
@@ -299,7 +304,6 @@ i_t branch_and_bound_t<i_t, f_t>::get_heap_size()
 template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
 {
-  printf("Finding reduced cost fixings\n");
   mutex_original_lp_.lock();
   std::vector<f_t> reduced_costs = root_relax_soln_.z;
   std::vector<f_t> lower_bounds = original_lp_.lower;
@@ -351,7 +355,9 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
     }
   }
 
-  printf("Reduced costs: Found %d improved bounds and %d fixed variables (%.1f%%)\n", num_improved, num_fixed, 100.0*static_cast<f_t>(num_fixed)/static_cast<f_t>(num_integer_variables_));
+  if (num_fixed > 0) {
+    printf("Reduced costs: Found %d improved bounds and %d fixed variables (%.1f%%)\n", num_improved, num_fixed, 100.0*static_cast<f_t>(num_fixed)/static_cast<f_t>(num_integer_variables_));
+  }
 
   if (num_improved > 0) {
     lp_problem_t<i_t, f_t> new_lp = original_lp_;
@@ -363,12 +369,14 @@ void branch_and_bound_t<i_t, f_t>::find_reduced_cost_fixings(f_t upper_bound)
     bounds_strengthening_t<i_t, f_t> node_presolve(new_lp, Arow, row_sense, var_types_);
     bool feasible = node_presolve.bounds_strengthening(new_lp.lower, new_lp.upper, settings_);
 
-    num_improved = 0;
+    i_t bnd_num_improved = 0;
     for (i_t j = 0; j < original_lp_.num_cols; j++) {
-      if (new_lp.lower[j] > original_lp_.lower[j]) { num_improved++; }
-      if (new_lp.upper[j] < original_lp_.upper[j]) { num_improved++; }
+      if (new_lp.lower[j] > original_lp_.lower[j]) { bnd_num_improved++; }
+      if (new_lp.upper[j] < original_lp_.upper[j]) { bnd_num_improved++; }
     }
-    printf("Bound strengthening: Found %d improved bounds\n", num_improved);
+    if (bnd_num_improved != num_improved) {
+      printf("Bound strengthening: Found %d improved bounds\n", bnd_num_improved);
+    }
   }
 
   mutex_original_lp_.unlock();
@@ -426,7 +434,7 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
       std::string gap = user_mip_gap<f_t>(user_obj, user_lower);
 
       settings_.log.printf(
-        "H                           %+13.6e    %+10.6e                               %s %9.2f\n",
+        "H                           %+13.6e    %+10.6e                              %s %9.2f\n",
         user_obj,
         user_lower,
         gap.c_str(),
@@ -742,12 +750,30 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node(
   const f_t upper_bound    = get_upper_bound();
 
   if (node_ptr->depth > num_integer_variables_) {
-    printf("Depth %d > num_integer_variables %d\n", node_ptr->depth, num_integer_variables_);
+    std::vector<i_t> branched_variables(original_lp_.num_cols, 0);
+    std::vector<f_t> branched_lower(original_lp_.num_cols, std::numeric_limits<f_t>::quiet_NaN());
+    std::vector<f_t> branched_upper(original_lp_.num_cols, std::numeric_limits<f_t>::quiet_NaN());
     mip_node_t<i_t, f_t>* parent = node_ptr->parent;
     while (parent != nullptr) {
-      printf("Parent depth %d\n", parent->depth);
-      printf("Parent branch var %d dir %d lower %e upper %e\n", parent->branch_var, parent->branch_dir, parent->branch_var_lower, parent->branch_var_upper);
+      if (original_lp_.lower[parent->branch_var] != 0.0 || original_lp_.upper[parent->branch_var] != 1.0) {
+        break;
+      }
+      if (branched_variables[parent->branch_var] == 1) {
+        printf(
+          "Variable %d already branched. Previous lower %e upper %e. Current lower %e upper %e.\n",
+          parent->branch_var,
+          branched_lower[parent->branch_var],
+          branched_upper[parent->branch_var],
+          parent->branch_var_lower,
+          parent->branch_var_upper);
+      }
+      branched_variables[parent->branch_var] = 1;
+      branched_lower[parent->branch_var] = parent->branch_var_lower;
+      branched_upper[parent->branch_var] = parent->branch_var_upper;
       parent = parent->parent;
+    }
+    if (parent == nullptr) {
+      printf("Depth %d > num_integer_variables %d\n", node_ptr->depth, num_integer_variables_);
     }
   }
 
@@ -1694,8 +1720,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 #endif
 
       // Generate cuts and add them to the cut pool
+      f_t cut_start_time = tic();
       cut_generation.generate_cuts(original_lp_, settings_, Arow, new_slacks_, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
-
+      f_t cut_generation_time = toc(cut_start_time);
+      if (cut_generation_time > 1.0) {
+        settings_.log.printf("Cut generation time %.2f seconds\n", cut_generation_time);
+      }
       // Score the cuts
       cut_pool.score_cuts(root_relax_soln_.x);
       // Get the best cuts from the cut pool
@@ -1743,8 +1773,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         for (i_t k = 0; k < num_cuts; k++) {
           //printf("Cx[%d] = %e cut_rhs[%d] = %e\n", k, Cx[k], k, cut_rhs[k]);
           if (Cx[k] > cut_rhs[k] + 1e-6) {
-            printf("Cut %d is violated by saved solution. Cx %e cut_rhs %e\n", k, Cx[k], cut_rhs[k]);
-            return mip_status_t::NUMERICAL;
+            printf("Cut %d is violated by saved solution. Cx %e cut_rhs %e Diff: %e\n", k, Cx[k], cut_rhs[k], Cx[k] - cut_rhs[k]);
           }
         }
       }
@@ -1860,7 +1889,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       std::string gap = num_fractional != 0 ? user_mip_gap<f_t>(user_obj, user_lower) : "0.0%";
 
 
-      settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d %6d   %7.1e     %s %9.2f\n",
+      settings_.log.printf(" %10d   %10lu    %+13.6e    %+10.6e   %6d %6d  %7.1e     %s %9.2f\n",
         0,
         0,
         user_obj,

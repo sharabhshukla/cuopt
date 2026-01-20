@@ -7,7 +7,7 @@
 
 #include <dual_simplex/cuts.hpp>
 #include <dual_simplex/dense_matrix.hpp>
-
+#include <dual_simplex/tic_toc.hpp>
 #include <dual_simplex/basis_solves.hpp>
 
 
@@ -605,14 +605,29 @@ void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                const std::vector<i_t>& nonbasic_list)
 {
   // Generate Gomory and CG Cuts
+  f_t cut_start_time = tic();
   generate_gomory_cuts(
     lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
+  f_t cut_generation_time = toc(cut_start_time);
+  if (cut_generation_time > 1.0) {
+    settings.log.printf("Gomory and CG cut generation time %.2f seconds\n", cut_generation_time);
+  }
 
   // Generate Knapsack cuts
+  cut_start_time = tic();
   generate_knapsack_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
+  cut_generation_time = toc(cut_start_time);
+  if (cut_generation_time > 1.0) {
+    settings.log.printf("Knapsack cut generation time %.2f seconds\n", cut_generation_time);
+  }
 
- // Generate MIR cuts
+ // Generate MIR and CG cuts
+  cut_start_time = tic();
   generate_mir_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
+  cut_generation_time = toc(cut_start_time);
+  if (cut_generation_time > 1.0) {
+    settings.log.printf("MIR and CG cut generation time %.2f seconds\n", cut_generation_time);
+  }
 }
 
 template <typename i_t, typename f_t>
@@ -645,6 +660,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
                                                    const std::vector<variable_type_t>& var_types,
                                                    const std::vector<f_t>& xstar)
 {
+  f_t mir_start_time = tic();
   mixed_integer_rounding_cut_t<i_t, f_t> mir(lp, settings, new_slacks, xstar);
   strong_cg_cut_t<i_t, f_t> cg(lp, var_types, xstar);
 
@@ -666,12 +682,15 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
 
     const i_t row_nz = row_end - row_start;
     i_t num_integer_in_row = 0;
+    i_t num_continuous_in_row = 0;
     for (i_t p = row_start; p < row_end; p++)
     {
       const i_t j = Arow.j[p];
       if (var_types[j] == variable_type_t::INTEGER)
       {
         num_integer_in_row++;
+      } else {
+        num_continuous_in_row++;
       }
     }
 
@@ -725,27 +744,33 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
 
     sparse_vector_t<i_t, f_t> inequality(Arow, i);
     f_t inequality_rhs = lp.rhs[i];
-
-
-
-    // Remove the slack from the equality to get an inequality
-    for (i_t k = 0; k < inequality.i.size(); k++) {
-      const i_t j = inequality.i[k];
-      if (j == slack) { inequality.x[k] = 0.0; }
-    }
-
+    const bool generate_cg_cut = true;
+    f_t fractional_part_rhs = fractional_part(inequality_rhs);
+    if (generate_cg_cut && fractional_part_rhs > 1e-6 && fractional_part_rhs < (1-1e-6))
     {
       // Try to generate a CG cut
+      //printf("Trying to generate a CG cut from row %d\n", i);
       sparse_vector_t<i_t, f_t> cg_inequality = inequality;
       f_t cg_inequality_rhs = inequality_rhs;
+      if (fractional_part(inequality_rhs) < 0.5) {
+        // Multiply by -1 to force the fractional part to be greater than 0.5
+        cg_inequality_rhs *= -1;
+        cg_inequality.negate();
+      }
       sparse_vector_t<i_t, f_t> cg_cut(lp.num_cols, 0);
       f_t cg_cut_rhs;
       i_t cg_status = cg.generate_strong_cg_cut(
         lp, settings, var_types, cg_inequality, cg_inequality_rhs, xstar, cg_cut, cg_cut_rhs);
       if (cg_status == 0) {
-        printf("Adding CG cut nz %ld\n", cg_cut.i.size());
+        printf("Adding CG cut nz %ld status %d row %d rhs %e inequality nz %d\n", cg_cut.i.size(), cg_status, i, cg_inequality_rhs, cg_inequality.i.size());
         cut_pool_.add_cut(cut_type_t::CHVATAL_GOMORY, cg_cut, cg_cut_rhs);
       }
+    }
+
+    // Remove the slack from the equality to get an inequality
+    for (i_t k = 0; k < inequality.i.size(); k++) {
+      const i_t j = inequality.i[k];
+      if (j == slack) { inequality.x[k] = 0.0; }
     }
 
     // inequaility'*x <= inequality_rhs
@@ -904,6 +929,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
           const i_t col_start = lp.A.col_start[max_off_bound_var];
           const i_t col_end   = lp.A.col_start[max_off_bound_var + 1];
           const i_t col_len   = col_end - col_start;
+          const i_t max_potential_rows = 10;
           if (col_len > 1) {
             std::vector<i_t> potential_rows;
             potential_rows.reserve(col_len);
@@ -914,6 +940,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
               const f_t val = lp.A.x[q];
               // Can't use rows that have already been aggregated
               if (std::abs(val) > threshold && aggregated_mark[i] == 0) { potential_rows.push_back(i); }
+              if (potential_rows.size() >= max_potential_rows) { break; }
             }
 
             if (!potential_rows.empty()) {
@@ -981,47 +1008,6 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
   }
 }
 
-template <typename i_t, typename f_t>
-bool cut_generation_t<i_t, f_t>::generate_single_mir_cut(
-  const lp_problem_t<i_t, f_t>& lp,
-  const simplex_solver_settings_t<i_t, f_t>& settings,
-  csr_matrix_t<i_t, f_t>& Arow,
-  const std::vector<variable_type_t>& var_types,
-  const std::vector<f_t>& xstar,
-  const sparse_vector_t<i_t, f_t>& inequality,
-  f_t inequality_rhs,
-  mixed_integer_rounding_cut_t<i_t, f_t>& mir,
-  sparse_vector_t<i_t, f_t>& cut,
-  f_t& cut_rhs)
-{
-  i_t mir_status =
-    mir.generate_cut(inequality, inequality_rhs, lp.upper, lp.lower, var_types, cut, cut_rhs);
-  bool add_cut = false;
-  const f_t min_cut_distance = 1e-4;
-  if (mir_status == 0) {
-    if (cut.i.size() == 0) {
-      return false;
-    }
-    mir.substitute_slacks(lp, Arow, cut, cut_rhs);
-    if (cut.i.size() == 0) {
-      return false;
-    }
-     // Check that the cut is violated
-     // The cut is of the form cut'*x >= cut_rhs
-     // We need that cut'*xstar < cut_rhs for the cut to be violated by the current relaxation solution xstar
-     f_t dot      = cut.dot(xstar);
-     f_t cut_norm = cut.norm2_squared();
-     if (dot < cut_rhs && cut_norm > 0.0) {
-      // Cut is violated. Compute it's distance
-       f_t cut_distance = (cut_rhs - dot) / std::sqrt(cut_norm);
-       if (cut_distance > min_cut_distance) {
-         add_cut = true;
-       }
-     }
-  }
-  return add_cut;
-}
-
 
 template <typename i_t, typename f_t>
 void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
@@ -1059,11 +1045,17 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
                                                        inequality_rhs);
     if (tableau_status == 0) {
       // Generate a CG cut
-      if (1)
+      const bool generate_cg_cut = false;
+      if (generate_cg_cut)
       {
         // Try to generate a CG cut
         sparse_vector_t<i_t, f_t> cg_inequality = inequality;
         f_t cg_inequality_rhs                   = inequality_rhs;
+        if (fractional_part(inequality_rhs) < 0.5) {
+          // Multiply by -1 to force the fractional part to be greater than 0.5
+          cg_inequality_rhs *= -1;
+          cg_inequality.negate();
+        }
         sparse_vector_t<i_t, f_t> cg_cut(lp.num_cols, 0);
         f_t cg_cut_rhs;
         i_t cg_status = cg.generate_strong_cg_cut(
@@ -1229,19 +1221,21 @@ i_t tableau_equality_t<i_t, f_t>::generate_base_equality(
 
     i_t small_coeff = 0;
     const f_t drop_tol = 1e-12;
+    const bool drop_coefficients = true;
     sparse_vector_t<i_t, f_t> a_bar(lp.num_cols, 0) ;
     a_bar.i.reserve(abar_indices.size() + 1);
     a_bar.x.reserve(abar_indices.size() + 1);
     for (i_t k = 0; k < abar_indices.size(); k++) {
       const i_t jj = abar_indices[k];
-      if (1 && std::abs(x_workspace_[jj]) < drop_tol) {
+      if (drop_coefficients && std::abs(x_workspace_[jj]) < drop_tol) {
         small_coeff++;
       } else {
         a_bar.i.push_back(jj);
         a_bar.x.push_back(x_workspace_[jj]);
       }
     }
-    if (small_coeff > 0) {
+    const bool verbose = false;
+    if (verbose && small_coeff > 0) {
       settings.log.printf("Small coeff dropped %d\n", small_coeff);
     }
 
@@ -2238,20 +2232,122 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_integer_only(
   cut.i.clear();
   cut.x.clear();
 
-  for (i_t k = 0; k < inequality.i.size(); k++) {
-    const i_t j = inequality.i[k];
-    const f_t a_j = inequality.x[k];
-    if (var_types[j] == variable_type_t::INTEGER) {
-      cut.i.push_back(j);
-      cut.x.push_back(std::floor(a_j));
-    } else {
-      return -1;
+  f_t a_0   = inequality_rhs;
+  f_t f_a_0 = fractional_part(a_0);
+
+  if (f_a_0 == 0.0) {
+    // f(a_0) == 0.0 so we do a weak CG cut
+    cut.i.reserve(inequality.i.size());
+    cut.x.reserve(inequality.i.size());
+    cut.i.clear();
+    cut.x.clear();
+    for (i_t k = 0; k < inequality.i.size(); k++) {
+      const i_t j   = inequality.i[k];
+      const f_t a_j = inequality.x[k];
+      if (var_types[j] == variable_type_t::INTEGER) {
+        cut.i.push_back(j);
+        cut.x.push_back(std::floor(a_j));
+      } else {
+        return -1;
+      }
+    }
+    cut_rhs = std::floor(inequality_rhs);
+  } else {
+    return generate_strong_cg_cut_helper(
+      inequality.i, inequality.x, inequality_rhs, var_types, cut, cut_rhs);
+  }
+  return 0;
+}
+
+template <typename i_t, typename f_t>
+i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_helper(
+  const std::vector<i_t>& indicies,
+  const std::vector<f_t>& coefficients,
+  f_t rhs,
+  const std::vector<variable_type_t>& var_types,
+  sparse_vector_t<i_t, f_t>& cut,
+  f_t& cut_rhs)
+{
+  const bool verbose = false;
+  const i_t nz    = indicies.size();
+  const f_t f_a_0 = fractional_part(rhs);
+  // We will try to generat a strong CG cut.
+  // Find the unique integer k such that
+  // 1/(k+1) <= f(a_0) < 1/k
+  f_t k_upper = 1.0 / f_a_0;
+  i_t k       = static_cast<i_t>(std::floor(k_upper));
+  if (k_upper - static_cast<f_t>(k) < 1e-6) {
+    k--;
+    if (verbose) {
+      printf("Decreased k to %d\n", k);
     }
   }
 
-  cut_rhs = std::floor(inequality_rhs);
-
-  cut.sort();
+  const f_t alpha = 1.0 - f_a_0;
+  f_t lower       = 1.0 / static_cast<f_t>(k + 1);
+  f_t upper       = 1.0 / static_cast<f_t>(k);
+  if (verbose) {
+    printf("f_a_0 %e lower %e upper %e alpha %e\n", f_a_0, lower, upper, alpha);
+  }
+  if (f_a_0 >= lower && f_a_0 < upper) {
+    cut.i.reserve(nz);
+    cut.x.reserve(nz);
+    cut.i.clear();
+    cut.x.clear();
+    for (i_t q = 0; q < nz; q++) {
+      const i_t j   = indicies[q];
+      const f_t a_j = coefficients[q];
+      if (var_types[j] == variable_type_t::INTEGER) {
+        const f_t f_a_j = fractional_part(a_j);
+        if (f_a_j <= f_a_0) {
+          cut.i.push_back(j);
+          cut.x.push_back((k + 1.0) * std::floor(a_j));
+          if (verbose) {
+            printf("j %d a_j %e f_a_j %e k %d\n", j, a_j, f_a_j, k);
+          }
+        } else {
+          // Need to compute the p such that
+          // f(a_0) + (p-1)/k * alpha < f(a_j) <= f(a_0) + p/k * alpha
+          const f_t value = static_cast<f_t>(k) * (f_a_j - f_a_0) / alpha;
+          i_t p           = static_cast<i_t>(std::ceil(value));
+          if (fractional_part(value) < 1e-12) {
+            printf("Warning: p %d value %.16e is close to an integer\n", p, value, p + 1);
+          }
+          if (verbose) {
+            printf("j %d a_j %e f_a_j %e p %d value %.16e\n", j, a_j, f_a_j, p, value);
+          }
+          if (f_a_0 + static_cast<f_t>(p - 1) / static_cast<f_t>(k) * alpha < f_a_j &&
+              f_a_j <= f_a_0 + static_cast<f_t>(p) / static_cast<f_t>(k) * alpha) {
+            cut.i.push_back(j);
+            cut.x.push_back((k + 1.0) * std::floor(a_j) + p);
+          } else {
+            printf("Error: p %d f_a_0 %e f_a_j %e alpha %e value %.16e\n", p, f_a_0, f_a_j, alpha, value);
+            return -1;
+          }
+        }
+      } else {
+        return -1;
+      }
+    }
+  } else {
+    printf("Error: k %d lower %e f(a_0) %e upper %e\n", k, lower, f_a_0, upper);
+    return -1;
+  }
+  cut_rhs = (k + 1.0) * std::floor(rhs);
+  if (verbose) {
+    printf("Generated strong CG cut: k %d f_a_0 %e cut_rhs %e\n", k, f_a_0, cut_rhs);
+    for (i_t q = 0; q < cut.i.size(); q++) {
+      if (cut.x[q] != 0.0) {
+        printf("%.16e x%d ", cut.x[q], cut.i[q]);
+      }
+    }
+    printf("\n");
+    printf("Original inequality rhs %e nz %d\n", rhs,  coefficients.size());
+    for (i_t q = 0; q < nz; q++) {
+      printf("%e x%d ", coefficients[q], indicies[q]);
+    }
+    printf("\n");
+  }
   return 0;
 }
 
@@ -2298,8 +2394,11 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut(
     // We have an inequality with no continuous variables
 
     // Generate a CG cut
-    generate_strong_cg_cut_integer_only(
+    status = generate_strong_cg_cut_integer_only(
       settings, var_types, cg_inequality, cg_inequality_rhs, cut, cut_rhs);
+    if (status != 0) {
+      return -1;
+    }
 
     // Convert the CG cut back to the original variables
     to_original_integer_variables(lp, cut, cut_rhs);
