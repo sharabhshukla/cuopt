@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,22 +30,9 @@
 #include "models/fj_predictor/header.h"
 #include "models/pdlp_predictor/header.h"
 
+#include "hashing.hpp"
+
 namespace cuopt {
-
-template <typename i_t>
-static inline uint32_t compute_hash(std::vector<i_t> h_contents)
-{
-  // FNV-1a hash
-
-  uint32_t hash = 2166136261u;  // FNV-1a 32-bit offset basis
-  std::vector<uint8_t> byte_contents(h_contents.size() * sizeof(i_t));
-  std::memcpy(byte_contents.data(), h_contents.data(), h_contents.size() * sizeof(i_t));
-  for (size_t i = 0; i < byte_contents.size(); ++i) {
-    hash ^= byte_contents[i];
-    hash *= 16777619u;
-  }
-  return hash;
-}
 
 template <typename model_t, typename scaler_t>
 float work_unit_predictor_t<model_t, scaler_t>::predict_scalar(
@@ -69,7 +56,7 @@ float work_unit_predictor_t<model_t, scaler_t>::predict_scalar(
     cache_vec.push_back(data[i].missing != -1 ? data[i].fvalue
                                               : std::numeric_limits<float>::quiet_NaN());
   }
-  uint32_t key = compute_hash(cache_vec);
+  uint32_t key = cuopt::linear_programming::detail::compute_hash(cache_vec);
 
   auto cached_it = prediction_cache.find(key);
   if (cached_it != prediction_cache.end()) { return cached_it->second; }

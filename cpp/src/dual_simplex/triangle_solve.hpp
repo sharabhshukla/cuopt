@@ -35,7 +35,8 @@ i_t lower_triangular_solve(const csc_matrix_t<i_t, f_t>& L, VectorF& x)
     i_t col_end   = L.col_start[j + 1];
     if (x[j] != 0.0) {
       x[j] /= L.x[col_start];
-      auto x_j = x[j];
+      auto x_j = x[j];  // hoist this load out of the loop
+      // as the compiler cannot guess that x[j] never aliases to x[L.i[p]]
       for (i_t p = col_start + 1; p < col_end; ++p) {
         x[L.i[p]] -= L.x[p] * x_j;
       }
@@ -74,7 +75,7 @@ i_t upper_triangular_solve(const csc_matrix_t<i_t, f_t>& U, VectorF& x)
     const i_t col_end   = U.col_start[j + 1] - 1;
     if (x[j] != 0.0) {
       x[j] /= U.x[col_end];
-      auto x_j = x[j];
+      auto x_j = x[j];  // same x_j load hoisting
       for (i_t p = col_start; p < col_end; ++p) {
         x[U.i[p]] -= U.x[p] * x_j;
       }

@@ -27,7 +27,7 @@ namespace cuopt {
  * One-way synchronization utility for producer threads.
  *
  * Producers (e.g., CPUFJ) register their work unit progress atomics and advance independently.
- * The consumer (e.g., B&B BSP coordinator) can wait until all producers have reached a
+ * The consumer (e.g., B&B coordinator) can wait until all producers have reached a
  * target work unit threshold before proceeding.
  *
  * Key invariant: Producers must not fall behind the consumer's horizon. The consumer
@@ -37,10 +37,6 @@ class producer_sync_t {
  public:
   producer_sync_t() = default;
 
-  /**
-   * Register a producer's work unit progress atomic.
-   * Must be called before registration_complete().
-   */
   void register_producer(std::atomic<double>* progress_ptr)
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -48,9 +44,6 @@ class producer_sync_t {
     cv_.notify_all();
   }
 
-  /**
-   * Deregister a producer (e.g., when it terminates).
-   */
   void deregister_producer(std::atomic<double>* progress_ptr)
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -70,9 +63,6 @@ class producer_sync_t {
     cv_.notify_all();
   }
 
-  /**
-   * Check if registration is complete (non-blocking).
-   */
   bool is_registration_complete() const
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -100,25 +90,6 @@ class producer_sync_t {
    */
   void notify_progress() { cv_.notify_all(); }
 
-  /**
-   * Get the minimum work units among all registered producers.
-   * Returns infinity if no producers are registered.
-   */
-  double get_min_producer_progress() const
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (producers_.empty()) { return std::numeric_limits<double>::infinity(); }
-
-    double min_progress = std::numeric_limits<double>::infinity();
-    for (const auto* progress_ptr : producers_) {
-      min_progress = std::min(min_progress, progress_ptr->load(std::memory_order_acquire));
-    }
-    return min_progress;
-  }
-
-  /**
-   * Get the number of registered producers.
-   */
   size_t num_producers() const
   {
     std::lock_guard<std::mutex> lock(mutex_);

@@ -194,7 +194,6 @@ template <typename i_t, typename f_t>
 void local_search_t<i_t, f_t>::stop_cpufj_deterministic()
 {
   if (deterministic_cpu_fj.fj_cpu) {
-    // Deregister from producer_sync before stopping
     if (deterministic_cpu_fj.fj_cpu->producer_sync) {
       deterministic_cpu_fj.fj_cpu->producer_sync->deregister_producer(
         &deterministic_cpu_fj.fj_cpu->work_units_elapsed);

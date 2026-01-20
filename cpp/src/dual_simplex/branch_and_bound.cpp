@@ -609,7 +609,6 @@ void branch_and_bound_t<i_t, f_t>::add_feasible_solution(f_t leaf_objective,
   mutex_upper_.unlock();
 }
 
-// Martin's criteria for the preferred rounding direction (see [1])
 // [1] A. Martin, “Integer Programs with Block Structure,”
 // Technische Universit¨at Berlin, Berlin, 1999. Accessed: Aug. 08, 2025.
 // [Online]. Available: https://opus4.kobv.de/opus4-zib/frontdoor/index/index/docId/391
@@ -807,111 +806,202 @@ dual::status_t branch_and_bound_t<i_t, f_t>::solve_node_lp(
   return lp_status;
 }
 
+// =============================================================================
+// Unified node solving with policy-based callbacks
+// =============================================================================
+
 template <typename i_t, typename f_t>
-std::pair<node_status_t, rounding_direction_t> branch_and_bound_t<i_t, f_t>::update_tree(
+template <typename Policy>
+node_solve_result_t<i_t, f_t> branch_and_bound_t<i_t, f_t>::solve_node_with_policy(
   mip_node_t<i_t, f_t>* node_ptr,
-  search_tree_t<i_t, f_t>& search_tree,
   lp_problem_t<i_t, f_t>& leaf_problem,
   lp_solution_t<i_t, f_t>& leaf_solution,
-  bnb_worker_type_t thread_type,
-  dual::status_t lp_status,
-  logger_t& log)
+  basis_update_mpf_t<i_t, f_t>& basis_factors,
+  std::vector<i_t>& basic_list,
+  std::vector<i_t>& nonbasic_list,
+  bounds_strengthening_t<i_t, f_t>& node_presolver,
+  bool recompute_bounds_and_basis,
+  search_tree_t<i_t, f_t>& search_tree,
+  Policy& policy)
 {
-  const f_t abs_fathom_tol                     = settings_.absolute_mip_gap_tol / 10;
+  raft::common::nvtx::range scope("BB::solve_node_with_policy");
+
+  node_solve_result_t<i_t, f_t> result;
+  result.status                = node_status_t::PENDING;
+  result.preferred_direction   = rounding_direction_t::NONE;
+  result.needs_recompute_basis = true;
+
   std::vector<variable_status_t>& leaf_vstatus = node_ptr->vstatus;
 
+  // Notify policy that solve is starting
+  policy.on_solve_start(node_ptr);
+
+  // Reset bounds_changed markers
+  std::fill(node_presolver.bounds_changed.begin(), node_presolver.bounds_changed.end(), false);
+
+  // Set up bounds from node path
+  const std::vector<f_t>& root_lower = policy.get_root_lower();
+  const std::vector<f_t>& root_upper = policy.get_root_upper();
+
+  if (recompute_bounds_and_basis) {
+    leaf_problem.lower = root_lower;
+    leaf_problem.upper = root_upper;
+    node_ptr->get_variable_bounds(
+      leaf_problem.lower, leaf_problem.upper, node_presolver.bounds_changed);
+  } else {
+    node_ptr->update_branched_variable_bounds(
+      leaf_problem.lower, leaf_problem.upper, node_presolver.bounds_changed);
+  }
+
+  // Check time limit
+  double remaining_time = settings_.time_limit - toc(exploration_stats_.start_time);
+  if (remaining_time <= 0) {
+    result.status = node_status_t::PENDING;
+    return result;
+  }
+
+  // LP settings
+  simplex_solver_settings_t<i_t, f_t> lp_settings = settings_;
+  lp_settings.set_log(false);
+  lp_settings.cut_off       = policy.get_upper_bound() + settings_.dual_tol;
+  lp_settings.inside_mip    = 2;
+  lp_settings.time_limit    = remaining_time;
+  lp_settings.scale_columns = false;
+
+  // Bounds strengthening (policy controls whether to run)
+  bool feasible = true;
+  if (policy.should_run_bounds_strengthening()) {
+    feasible =
+      node_presolver.bounds_strengthening(leaf_problem.lower, leaf_problem.upper, lp_settings);
+  }
+
+  if (!feasible) {
+    policy.on_infeasible(node_ptr, search_tree);
+    policy.track_node_explored();
+    policy.track_node_unexplored_delta(-1);
+    result.status                = node_status_t::INFEASIBLE;
+    result.needs_recompute_basis = true;
+    return result;
+  }
+
+  // Solve LP relaxation
+  i_t node_iter                    = 0;
+  f_t lp_start_time                = tic();
+  std::vector<f_t> leaf_edge_norms = policy.get_edge_norms();
+
+  // Debug hook: log LP input
+  policy.on_lp_input(node_ptr, leaf_problem, leaf_vstatus);
+
+  dual::status_t lp_status = dual_phase2_with_advanced_basis(2,
+                                                             0,
+                                                             recompute_bounds_and_basis,
+                                                             lp_start_time,
+                                                             leaf_problem,
+                                                             lp_settings,
+                                                             leaf_vstatus,
+                                                             basis_factors,
+                                                             basic_list,
+                                                             nonbasic_list,
+                                                             leaf_solution,
+                                                             node_iter,
+                                                             leaf_edge_norms,
+                                                             policy.get_work_context());
+
+  // Debug hook: log LP output
+  policy.on_lp_output(node_ptr, lp_status, node_iter, leaf_solution, leaf_problem);
+
+  f_t solve_time = toc(lp_start_time);
+  policy.on_lp_solve_complete(node_ptr, node_iter, solve_time, lp_status);
+  policy.track_node_explored();
+  policy.track_node_unexplored_delta(-1);
+
+  // Process LP result
+  const f_t abs_fathom_tol = policy.get_fathom_tolerance();
+
   if (lp_status == dual::status_t::DUAL_UNBOUNDED) {
-    // Node was infeasible. Do not branch
-    node_ptr->lower_bound = inf;
-    search_tree.graphviz_node(log, node_ptr, "infeasible", 0.0);
-    search_tree.update(node_ptr, node_status_t::INFEASIBLE);
-    return {node_status_t::INFEASIBLE, rounding_direction_t::NONE};
+    node_ptr->lower_bound = std::numeric_limits<f_t>::infinity();
+    policy.on_infeasible(node_ptr, search_tree);
+    result.status                = node_status_t::INFEASIBLE;
+    result.needs_recompute_basis = true;
 
   } else if (lp_status == dual::status_t::CUTOFF) {
-    // Node was cut off. Do not branch
-    node_ptr->lower_bound = upper_bound_;
-    f_t leaf_objective    = compute_objective(leaf_problem, leaf_solution.x);
-    search_tree.graphviz_node(log, node_ptr, "cut off", leaf_objective);
-    search_tree.update(node_ptr, node_status_t::FATHOMED);
-    return {node_status_t::FATHOMED, rounding_direction_t::NONE};
+    node_ptr->lower_bound = policy.get_upper_bound();
+    policy.on_fathomed(node_ptr, node_ptr->lower_bound, search_tree);
+    result.status                = node_status_t::FATHOMED;
+    result.needs_recompute_basis = true;
 
   } else if (lp_status == dual::status_t::OPTIMAL) {
-    // LP was feasible
     std::vector<i_t> leaf_fractional;
     i_t leaf_num_fractional =
       fractional_variables(settings_, leaf_solution.x, var_types_, leaf_fractional);
 
     f_t leaf_objective    = compute_objective(leaf_problem, leaf_solution.x);
     node_ptr->lower_bound = leaf_objective;
-    search_tree.graphviz_node(log, node_ptr, "lower bound", leaf_objective);
-    pc_.update_pseudo_costs(node_ptr, leaf_objective);
 
-    if (thread_type == bnb_worker_type_t::BEST_FIRST) {
-      if (settings_.node_processed_callback != nullptr) {
-        std::vector<f_t> original_x;
-        uncrush_primal_solution(original_problem_, original_lp_, leaf_solution.x, original_x);
-        settings_.node_processed_callback(original_x, leaf_objective);
-      }
-    }
+    // Update pseudo-costs via policy
+    policy.update_pseudo_costs(node_ptr, leaf_objective);
 
     if (leaf_num_fractional == 0) {
-      // Found a integer feasible solution
-      add_feasible_solution(leaf_objective, leaf_solution.x, node_ptr->depth, thread_type);
-      search_tree.graphviz_node(log, node_ptr, "integer feasible", leaf_objective);
-      search_tree.update(node_ptr, node_status_t::INTEGER_FEASIBLE);
-      return {node_status_t::INTEGER_FEASIBLE, rounding_direction_t::NONE};
+      // Integer feasible solution
+      policy.on_integer_solution(
+        node_ptr, leaf_objective, leaf_solution.x, node_ptr->depth, search_tree);
+      result.status                = node_status_t::INTEGER_FEASIBLE;
+      result.needs_recompute_basis = true;
 
-    } else if (leaf_objective <= upper_bound_ + abs_fathom_tol) {
-      // Choose fractional variable to branch on
-      auto [branch_var, round_dir] =
-        variable_selection(node_ptr, leaf_fractional, leaf_solution.x, thread_type);
+    } else if (leaf_objective <= policy.get_upper_bound() + abs_fathom_tol) {
+      // Branch
+      i_t branch_var = policy.select_branch_variable(leaf_fractional, leaf_solution.x);
 
-      assert(leaf_vstatus.size() == leaf_problem.num_cols);
-      assert(branch_var >= 0);
-      assert(round_dir != rounding_direction_t::NONE);
-
-      // Note that the exploration thread is the only one that can insert new nodes into the heap,
-      // and thus, we only need to calculate the objective estimate here (it is used for
-      // sorting the nodes for diving).
-      if (thread_type == bnb_worker_type_t::BEST_FIRST) {
-        logger_t pc_log;
-        pc_log.log = false;
-        node_ptr->objective_estimate =
-          pc_.obj_estimate(leaf_fractional, leaf_solution.x, node_ptr->lower_bound, pc_log);
+      if (branch_var < 0) {
+        result.status                = node_status_t::NUMERICAL;
+        result.needs_recompute_basis = true;
+        return result;
       }
 
-      search_tree.branch(
-        node_ptr, branch_var, leaf_solution.x[branch_var], leaf_vstatus, leaf_problem, log);
-      search_tree.update(node_ptr, node_status_t::HAS_CHILDREN);
-      return {node_status_t::HAS_CHILDREN, round_dir};
+      f_t branch_val = leaf_solution.x[branch_var];
+
+      logger_t log;
+      log.log = false;
+      search_tree.branch(node_ptr, branch_var, branch_val, leaf_vstatus, leaf_problem, log);
+
+      i_t down_child_id = node_ptr->get_down_child()->node_id;
+      i_t up_child_id   = node_ptr->get_up_child()->node_id;
+
+      rounding_direction_t preferred = policy.get_preferred_direction(branch_var, branch_val);
+      policy.on_branched(node_ptr,
+                         branch_var,
+                         branch_val,
+                         down_child_id,
+                         up_child_id,
+                         preferred,
+                         search_tree,
+                         leaf_fractional,
+                         leaf_solution.x);
+      policy.track_node_unexplored_delta(2);
+
+      result.status                = node_status_t::HAS_CHILDREN;
+      result.preferred_direction   = preferred;
+      result.needs_recompute_basis = false;
 
     } else {
-      search_tree.graphviz_node(log, node_ptr, "fathomed", leaf_objective);
-      search_tree.update(node_ptr, node_status_t::FATHOMED);
-      return {node_status_t::FATHOMED, rounding_direction_t::NONE};
-    }
-  } else if (lp_status == dual::status_t::TIME_LIMIT) {
-    search_tree.graphviz_node(log, node_ptr, "timeout", 0.0);
-    return {node_status_t::PENDING, rounding_direction_t::NONE};
-  } else if (lp_status == dual::status_t::WORK_LIMIT) {
-    search_tree.graphviz_node(log, node_ptr, "work limit", 0.0);
-    return {node_status_t::PENDING, rounding_direction_t::NONE};
-  } else {
-    if (thread_type == bnb_worker_type_t::BEST_FIRST) {
-      fetch_min(lower_bound_ceiling_, node_ptr->lower_bound);
-      log.printf(
-        "LP returned status %d on node %d. This indicates a numerical issue. The best bound is set "
-        "to "
-        "%+10.6e.\n",
-        lp_status,
-        node_ptr->node_id,
-        compute_user_objective(original_lp_, lower_bound_ceiling_.load()));
+      // Fathomed by bound
+      policy.on_fathomed(node_ptr, leaf_objective, search_tree);
+      result.status                = node_status_t::FATHOMED;
+      result.needs_recompute_basis = true;
     }
 
-    search_tree.graphviz_node(log, node_ptr, "numerical", 0.0);
-    search_tree.update(node_ptr, node_status_t::NUMERICAL);
-    return {node_status_t::NUMERICAL, rounding_direction_t::NONE};
+  } else if (lp_status == dual::status_t::TIME_LIMIT || lp_status == dual::status_t::WORK_LIMIT) {
+    result.status                = node_status_t::PENDING;
+    result.needs_recompute_basis = true;
+
+  } else {
+    // Numerical error
+    policy.on_numerical(node_ptr, search_tree);
+    result.status                = node_status_t::NUMERICAL;
+    result.needs_recompute_basis = true;
   }
+
+  return result;
 }
 
 template <typename i_t, typename f_t>
@@ -971,39 +1061,60 @@ void branch_and_bound_t<i_t, f_t>::exploration_ramp_up(mip_node_t<i_t, f_t>* nod
   std::vector<i_t> nonbasic_list;
 
   lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
-  dual::status_t lp_status = solve_node_lp(node,
-                                           leaf_problem,
-                                           leaf_solution,
-                                           basis_factors,
-                                           basic_list,
-                                           nonbasic_list,
-                                           node_presolver,
-                                           bnb_worker_type_t::BEST_FIRST,
-                                           true,
-                                           original_lp_.lower,
-                                           original_lp_.upper,
-                                           exploration_stats_,
-                                           settings_.log);
-  if (lp_status == dual::status_t::TIME_LIMIT) {
+
+  // Set up callbacks for the policy
+  auto add_solution_fn =
+    [this](f_t obj, const std::vector<f_t>& sol, i_t depth, bnb_worker_type_t type) {
+      add_feasible_solution(obj, sol, depth, type);
+    };
+
+  auto node_processed_callback = [this](const std::vector<f_t>& sol, f_t objective) {
+    if (settings_.node_processed_callback != nullptr) {
+      std::vector<f_t> original_x;
+      uncrush_primal_solution(original_problem_, original_lp_, sol, original_x);
+      settings_.node_processed_callback(original_x, objective);
+    }
+  };
+
+  auto objective_estimate_fn =
+    [this](const std::vector<i_t>& fractional, const std::vector<f_t>& solution, f_t lower_bound) {
+      logger_t pc_log;
+      pc_log.log = false;
+      return pc_.obj_estimate(fractional, solution, lower_bound, pc_log);
+    };
+
+  standard_solve_policy_t<i_t, f_t> solve_policy(upper_bound_,
+                                                 settings_.absolute_mip_gap_tol / 10,
+                                                 original_lp_.lower,
+                                                 original_lp_.upper,
+                                                 edge_norms_,
+                                                 root_relax_soln_.x,
+                                                 pc_,
+                                                 exploration_stats_,
+                                                 settings_.log,
+                                                 add_solution_fn,
+                                                 node_processed_callback,
+                                                 objective_estimate_fn);
+
+  node_solve_result_t<i_t, f_t> result = solve_node_with_policy(node,
+                                                                leaf_problem,
+                                                                leaf_solution,
+                                                                basis_factors,
+                                                                basic_list,
+                                                                nonbasic_list,
+                                                                node_presolver,
+                                                                true,
+                                                                search_tree_,
+                                                                solve_policy);
+
+  if (result.status == node_status_t::PENDING) {
     solver_status_ = mip_status_t::TIME_LIMIT;
     return;
   }
 
   ++exploration_stats_.nodes_since_last_log;
-  ++exploration_stats_.nodes_explored;
-  --exploration_stats_.nodes_unexplored;
 
-  auto [node_status, round_dir] = update_tree(node,
-                                              search_tree_,
-                                              leaf_problem,
-                                              leaf_solution,
-                                              bnb_worker_type_t::BEST_FIRST,
-                                              lp_status,
-                                              settings_.log);
-
-  if (node_status == node_status_t::HAS_CHILDREN) {
-    exploration_stats_.nodes_unexplored += 2;
-
+  if (result.status == node_status_t::HAS_CHILDREN) {
     // If we haven't generated enough nodes to keep the threads busy, continue the ramp up phase
     if (exploration_stats_.nodes_unexplored < initial_heap_size) {
 #pragma omp task
@@ -1034,6 +1145,41 @@ void branch_and_bound_t<i_t, f_t>::plunge_from(i_t task_id,
   std::deque<mip_node_t<i_t, f_t>*> stack;
   stack.push_front(start_node);
 
+  auto add_solution_fn =
+    [this](f_t obj, const std::vector<f_t>& sol, i_t depth, bnb_worker_type_t type) {
+      add_feasible_solution(obj, sol, depth, type);
+    };
+
+  auto node_processed_callback = [this](const std::vector<f_t>& sol, f_t objective) {
+    if (settings_.node_processed_callback != nullptr) {
+      std::vector<f_t> original_x;
+      uncrush_primal_solution(original_problem_, original_lp_, sol, original_x);
+      settings_.node_processed_callback(original_x, objective);
+    }
+  };
+
+  auto objective_estimate_fn =
+    [this](const std::vector<i_t>& fractional, const std::vector<f_t>& solution, f_t lower_bound) {
+      logger_t pc_log;
+      pc_log.log = false;
+      return pc_.obj_estimate(fractional, solution, lower_bound, pc_log);
+    };
+
+  standard_solve_policy_t<i_t, f_t> solve_policy(upper_bound_,
+                                                 settings_.absolute_mip_gap_tol / 10,
+                                                 original_lp_.lower,
+                                                 original_lp_.upper,
+                                                 edge_norms_,
+                                                 root_relax_soln_.x,
+                                                 pc_,
+                                                 exploration_stats_,
+                                                 settings_.log,
+                                                 add_solution_fn,
+                                                 node_processed_callback,
+                                                 objective_estimate_fn);
+
+  lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
+
   while (stack.size() > 0 && solver_status_ == mip_status_t::UNSET && is_running) {
     if (task_id == 0) { repair_heuristic_solutions(); }
 
@@ -1045,13 +1191,7 @@ void branch_and_bound_t<i_t, f_t>::plunge_from(i_t task_id,
     f_t abs_gap     = upper_bound - lower_bound;
     f_t rel_gap     = user_relative_gap(original_lp_, upper_bound, lower_bound);
 
-    // This is based on three assumptions:
-    // - The stack only contains sibling nodes, i.e., the current node and it sibling (if
-    // applicable)
-    // - The current node and its siblings uses the lower bound of the parent before solving the LP
-    // relaxation
-    // - The lower bound of the parent is lower or equal to its children
-    assert(task_id < local_lower_bounds_.size());
+    assert(task_id < (i_t)local_lower_bounds_.size());
     local_lower_bounds_[task_id] = lower_bound;
 
     if (lower_bound > upper_bound || rel_gap < settings_.relative_mip_gap_tol) {
@@ -1087,56 +1227,34 @@ void branch_and_bound_t<i_t, f_t>::plunge_from(i_t task_id,
       break;
     }
 
-    lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
-    dual::status_t lp_status = solve_node_lp(node_ptr,
-                                             leaf_problem,
-                                             leaf_solution,
-                                             basis_factors,
-                                             basic_list,
-                                             nonbasic_list,
-                                             node_presolver,
-                                             bnb_worker_type_t::BEST_FIRST,
-                                             recompute_bounds_and_basis,
-                                             original_lp_.lower,
-                                             original_lp_.upper,
-                                             exploration_stats_,
-                                             settings_.log);
+    node_solve_result_t<i_t, f_t> result = solve_node_with_policy(node_ptr,
+                                                                  leaf_problem,
+                                                                  leaf_solution,
+                                                                  basis_factors,
+                                                                  basic_list,
+                                                                  nonbasic_list,
+                                                                  node_presolver,
+                                                                  recompute_bounds_and_basis,
+                                                                  search_tree_,
+                                                                  solve_policy);
 
-    if (lp_status == dual::status_t::TIME_LIMIT) {
+    if (result.status == node_status_t::PENDING) {
       solver_status_ = mip_status_t::TIME_LIMIT;
-      break;
-    } else if (lp_status == dual::status_t::ITERATION_LIMIT) {
       break;
     }
 
     ++exploration_stats_.nodes_since_last_log;
-    ++exploration_stats_.nodes_explored;
-    --exploration_stats_.nodes_unexplored;
 
-    auto [node_status, round_dir] = update_tree(node_ptr,
-                                                search_tree_,
-                                                leaf_problem,
-                                                leaf_solution,
-                                                bnb_worker_type_t::BEST_FIRST,
-                                                lp_status,
-                                                settings_.log);
+    recompute_bounds_and_basis = result.needs_recompute_basis;
 
-    recompute_bounds_and_basis = node_status != node_status_t::HAS_CHILDREN;
-
-    if (node_status == node_status_t::HAS_CHILDREN) {
-      // The stack should only contain the children of the current parent.
-      // If the stack size is greater than 0,
-      // we pop the current node from the stack and place it in the global heap,
-      // since we are about to add the two children to the stack
+    if (result.status == node_status_t::HAS_CHILDREN) {
       if (stack.size() > 0) {
-        mip_node_t<i_t, f_t>* node = stack.back();
+        mip_node_t<i_t, f_t>* sibling = stack.back();
         stack.pop_back();
-        node_queue_.push(node);
+        node_queue_.push(sibling);
       }
 
-      exploration_stats_.nodes_unexplored += 2;
-
-      if (round_dir == rounding_direction_t::UP) {
+      if (result.preferred_direction == rounding_direction_t::UP) {
         stack.push_front(node_ptr->get_down_child());
         stack.push_front(node_ptr->get_up_child());
       } else {
@@ -1228,8 +1346,6 @@ void branch_and_bound_t<i_t, f_t>::dive_from(mip_node_t<i_t, f_t>& start_node,
                                              bnb_worker_type_t diving_type)
 {
   raft::common::nvtx::range scope("BB::diving_thread");
-  logger_t log;
-  log.log = false;
 
   const i_t diving_node_limit      = settings_.diving_settings.node_limit;
   const i_t diving_backtrack_limit = settings_.diving_settings.backtrack_limit;
@@ -1244,13 +1360,37 @@ void branch_and_bound_t<i_t, f_t>::dive_from(mip_node_t<i_t, f_t>& start_node,
   dive_stats.nodes_explored      = 0;
   dive_stats.nodes_unexplored    = 1;
 
+  auto add_solution_fn =
+    [this](f_t obj, const std::vector<f_t>& sol, i_t depth, bnb_worker_type_t type) {
+      add_feasible_solution(obj, sol, depth, type);
+    };
+
+  standard_diving_solve_policy_t<i_t, f_t> policy(upper_bound_,
+                                                  settings_.absolute_mip_gap_tol / 10,
+                                                  start_lower,
+                                                  start_upper,
+                                                  edge_norms_,
+                                                  root_relax_soln_.x,
+                                                  pc_,
+                                                  dive_stats,
+                                                  add_solution_fn,
+                                                  diving_type,
+                                                  &leaf_problem,
+                                                  &var_up_locks_,
+                                                  &var_down_locks_);
+
+  if (diving_type == bnb_worker_type_t::GUIDED_DIVING && incumbent_.has_incumbent) {
+    policy.set_incumbent(incumbent_.x);
+  }
+
+  lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
+
   while (stack.size() > 0 && solver_status_ == mip_status_t::UNSET && is_running) {
     mip_node_t<i_t, f_t>* node_ptr = stack.front();
     stack.pop_front();
 
-    f_t lower_bound = node_ptr->lower_bound;
     f_t upper_bound = upper_bound_;
-    f_t rel_gap     = user_relative_gap(original_lp_, upper_bound, lower_bound);
+    f_t rel_gap     = user_relative_gap(original_lp_, upper_bound, node_ptr->lower_bound);
 
     if (node_ptr->lower_bound > upper_bound || rel_gap < settings_.relative_mip_gap_tol) {
       recompute_bounds_and_basis = true;
@@ -1260,36 +1400,26 @@ void branch_and_bound_t<i_t, f_t>::dive_from(mip_node_t<i_t, f_t>& start_node,
     if (toc(exploration_stats_.start_time) > settings_.time_limit) { break; }
     if (dive_stats.nodes_explored > diving_node_limit) { break; }
 
-    lp_solution_t<i_t, f_t> leaf_solution(leaf_problem.num_rows, leaf_problem.num_cols);
-    dual::status_t lp_status = solve_node_lp(node_ptr,
-                                             leaf_problem,
-                                             leaf_solution,
-                                             basis_factors,
-                                             basic_list,
-                                             nonbasic_list,
-                                             node_presolver,
-                                             diving_type,
-                                             recompute_bounds_and_basis,
-                                             start_lower,
-                                             start_upper,
-                                             dive_stats,
-                                             log);
+    node_solve_result_t<i_t, f_t> result = solve_node_with_policy(node_ptr,
+                                                                  leaf_problem,
+                                                                  leaf_solution,
+                                                                  basis_factors,
+                                                                  basic_list,
+                                                                  nonbasic_list,
+                                                                  node_presolver,
+                                                                  recompute_bounds_and_basis,
+                                                                  dive_tree,
+                                                                  policy);
 
-    if (lp_status == dual::status_t::TIME_LIMIT) {
+    if (result.status == node_status_t::PENDING) {
       solver_status_ = mip_status_t::TIME_LIMIT;
-      break;
-    } else if (lp_status == dual::status_t::ITERATION_LIMIT) {
       break;
     }
 
-    ++dive_stats.nodes_explored;
+    recompute_bounds_and_basis = result.needs_recompute_basis;
 
-    auto [node_status, round_dir] =
-      update_tree(node_ptr, dive_tree, leaf_problem, leaf_solution, diving_type, lp_status, log);
-    recompute_bounds_and_basis = node_status != node_status_t::HAS_CHILDREN;
-
-    if (node_status == node_status_t::HAS_CHILDREN) {
-      if (round_dir == rounding_direction_t::UP) {
+    if (result.status == node_status_t::HAS_CHILDREN) {
+      if (result.preferred_direction == rounding_direction_t::UP) {
         stack.push_front(node_ptr->get_down_child());
         stack.push_front(node_ptr->get_up_child());
       } else {
@@ -1298,8 +1428,6 @@ void branch_and_bound_t<i_t, f_t>::dive_from(mip_node_t<i_t, f_t>& start_node,
       }
     }
 
-    // Remove nodes that we no longer can backtrack to (i.e., from the current node, we can only
-    // backtrack to a node that is has a depth of at most 5 levels lower than the current node).
     if (stack.size() > 1 && stack.front()->depth - stack.back()->depth > diving_backtrack_limit) {
       stack.pop_back();
     }
@@ -2274,6 +2402,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
 {
   raft::common::nvtx::range scope("BB::solve_node_bsp");
 
+  // Validate vstatus before solving - check for corruption
   {
     const i_t expected_basic_count = original_lp_.num_rows;
     i_t actual_basic_count         = 0;
@@ -2296,332 +2425,52 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
     }
   }
 
-  double work_units_at_start = worker.work_context.global_work_units_elapsed;
-  double clock_at_start      = worker.clock;
+  // Create BSP policy
+  bsp_solve_policy_t<i_t, f_t> policy(worker,
+                                      settings_.absolute_mip_gap_tol / 10,
+                                      original_lp_.lower,
+                                      original_lp_.upper,
+                                      edge_norms_,
+                                      root_relax_soln_.x,
+                                      exploration_stats_,
+                                      bsp_debug_settings_,
+                                      bsp_debug_logger_);
 
-  double work_limit = worker.horizon_end - worker.clock;
-  BSP_DEBUG_LOG_SOLVE_START(bsp_debug_settings_,
-                            bsp_debug_logger_,
-                            worker.clock,
-                            worker.worker_id,
-                            node_ptr->node_id,
-                            node_ptr->origin_worker_id,
-                            work_limit,
-                            false);
-
-  std::fill(worker.node_presolver->bounds_changed.begin(),
-            worker.node_presolver->bounds_changed.end(),
-            false);
-
-  if (worker.recompute_bounds_and_basis) {
-    worker.leaf_problem->lower = original_lp_.lower;
-    worker.leaf_problem->upper = original_lp_.upper;
-    node_ptr->get_variable_bounds(worker.leaf_problem->lower,
-                                  worker.leaf_problem->upper,
-                                  worker.node_presolver->bounds_changed);
-  } else {
-    node_ptr->update_branched_variable_bounds(worker.leaf_problem->lower,
-                                              worker.leaf_problem->upper,
-                                              worker.node_presolver->bounds_changed);
-  }
-
-  double remaining_time = settings_.time_limit - toc(exploration_stats_.start_time);
-  if (remaining_time <= 0) { return node_solve_info_t::TIME_LIMIT; }
-
-  // Bounds strengthening
-  simplex_solver_settings_t<i_t, f_t> lp_settings = settings_;
-  lp_settings.set_log(false);
-
-  lp_settings.cut_off       = worker.local_upper_bound + settings_.dual_tol;
-  lp_settings.inside_mip    = 2;
-  lp_settings.time_limit    = remaining_time;
-  lp_settings.scale_columns = false;
-
-  bool feasible = true;
-  // TODO: incorporate into work unit estimation
-  if (!settings_.deterministic) {
-    feasible = worker.node_presolver->bounds_strengthening(
-      worker.leaf_problem->lower, worker.leaf_problem->upper, lp_settings);
-  }
-
-  if (!feasible) {
-    node_ptr->lower_bound = std::numeric_limits<f_t>::infinity();
-    search_tree.update(node_ptr, node_status_t::INFEASIBLE);
-    worker.record_infeasible(node_ptr);
-    worker.track_node_infeasible();
-    worker.track_node_processed();
-    --exploration_stats_.nodes_unexplored;
-    ++exploration_stats_.nodes_explored;
-    worker.recompute_bounds_and_basis = true;
-    return node_solve_info_t::NO_CHILDREN;
-  }
-
-  // Solve LP relaxation
+  // Allocate solution buffer
   lp_solution_t<i_t, f_t> leaf_solution(worker.leaf_problem->num_rows,
                                         worker.leaf_problem->num_cols);
-  std::vector<variable_status_t>& leaf_vstatus = node_ptr->vstatus;
-  i_t node_iter                                = 0;
-  f_t lp_start_time                            = tic();
-  std::vector<f_t> leaf_edge_norms             = edge_norms_;
 
-  // Debug: Log LP input for determinism analysis
-  if (bsp_debug_settings_.any_enabled()) {
-    uint64_t path_hash    = node_ptr->compute_path_hash();
-    uint64_t vstatus_hash = detail::compute_hash(leaf_vstatus);
-    uint64_t bounds_hash  = detail::compute_hash(worker.leaf_problem->lower) ^
-                           detail::compute_hash(worker.leaf_problem->upper);
-    BSP_DEBUG_LOG_LP_INPUT(bsp_debug_settings_,
-                           bsp_debug_logger_,
-                           worker.worker_id,
-                           node_ptr->node_id,
-                           path_hash,
-                           node_ptr->depth,
-                           vstatus_hash,
-                           bounds_hash);
-  }
+  // Solve using unified function
+  node_solve_result_t<i_t, f_t> result = solve_node_with_policy(node_ptr,
+                                                                *worker.leaf_problem,
+                                                                leaf_solution,
+                                                                *worker.basis_factors,
+                                                                worker.basic_list,
+                                                                worker.nonbasic_list,
+                                                                *worker.node_presolver,
+                                                                worker.recompute_bounds_and_basis,
+                                                                search_tree,
+                                                                policy);
 
-  dual::status_t lp_status = dual_phase2_with_advanced_basis(2,
-                                                             0,
-                                                             worker.recompute_bounds_and_basis,
-                                                             lp_start_time,
-                                                             *worker.leaf_problem,
-                                                             lp_settings,
-                                                             leaf_vstatus,
-                                                             *worker.basis_factors,
-                                                             worker.basic_list,
-                                                             worker.nonbasic_list,
-                                                             leaf_solution,
-                                                             node_iter,
-                                                             leaf_edge_norms,
-                                                             &worker.work_context);
+  // Update worker state
+  worker.recompute_bounds_and_basis = result.needs_recompute_basis;
 
-  if (bsp_debug_settings_.any_enabled()) {
-    uint64_t path_hash = node_ptr->compute_path_hash();
-    uint64_t sol_hash  = detail::compute_hash(leaf_solution.x);
-    f_t obj            = (lp_status == dual::status_t::OPTIMAL)
-                           ? compute_objective(*worker.leaf_problem, leaf_solution.x)
-                           : std::numeric_limits<f_t>::infinity();
-    uint64_t obj_hash  = detail::compute_hash(obj);
-    BSP_DEBUG_LOG_LP_OUTPUT(bsp_debug_settings_,
-                            bsp_debug_logger_,
-                            worker.worker_id,
-                            node_ptr->node_id,
-                            path_hash,
-                            static_cast<int>(lp_status),
-                            node_iter,
-                            obj_hash,
-                            sol_hash);
-  }
+  // Convert result to node_solve_info_t
+  switch (result.status) {
+    case node_status_t::INFEASIBLE:
+    case node_status_t::INTEGER_FEASIBLE:
+    case node_status_t::FATHOMED: return node_solve_info_t::NO_CHILDREN;
 
-  // Validate vstatus after LP solve - check for corruption during simplex
-  {
-    const i_t expected_basic_count = original_lp_.num_rows;
-    i_t actual_basic_count         = 0;
-    for (const auto& status : leaf_vstatus) {
-      if (status == variable_status_t::BASIC) { actual_basic_count++; }
-    }
-    if (actual_basic_count != expected_basic_count) {
-      settings_.log.printf(
-        "ERROR: After LP solve, node %d vstatus has %d BASIC entries, expected %d\n",
-        node_ptr->node_id,
-        actual_basic_count,
-        expected_basic_count);
-      settings_.log.printf("       lp_status = %d, recompute_basis = %d\n",
-                           static_cast<int>(lp_status),
-                           worker.recompute_bounds_and_basis ? 1 : 0);
-      assert(actual_basic_count == expected_basic_count && "vstatus corrupted during LP solve");
-    }
-  }
+    case node_status_t::HAS_CHILDREN:
+      return result.preferred_direction == rounding_direction_t::DOWN
+               ? node_solve_info_t::DOWN_CHILD_FIRST
+               : node_solve_info_t::UP_CHILD_FIRST;
 
-  double work_performed = worker.work_context.global_work_units_elapsed - work_units_at_start;
-  worker.clock += work_performed;
-  worker.work_units_this_horizon += work_performed;
+    case node_status_t::PENDING: return node_solve_info_t::TIME_LIMIT;
 
-  exploration_stats_.total_lp_solve_time += toc(lp_start_time);
-  exploration_stats_.total_lp_iters += node_iter;
-  ++exploration_stats_.nodes_explored;
-  --exploration_stats_.nodes_unexplored;
+    case node_status_t::NUMERICAL: return node_solve_info_t::NUMERICAL;
 
-  // Process LP result
-  if (lp_status == dual::status_t::DUAL_UNBOUNDED) {
-    node_ptr->lower_bound = std::numeric_limits<f_t>::infinity();
-
-    worker.record_infeasible(node_ptr);
-    worker.track_node_infeasible();
-    worker.track_node_processed();
-    worker.recompute_bounds_and_basis = true;
-
-    BSP_DEBUG_LOG_SOLVE_END(bsp_debug_settings_,
-                            bsp_debug_logger_,
-                            worker.clock,
-                            worker.worker_id,
-                            node_ptr->node_id,
-                            node_ptr->origin_worker_id,
-                            "INFEASIBLE",
-                            node_ptr->lower_bound);
-    BSP_DEBUG_LOG_INFEASIBLE(
-      bsp_debug_settings_, bsp_debug_logger_, worker.clock, worker.worker_id, node_ptr->node_id);
-
-    search_tree.update(node_ptr, node_status_t::INFEASIBLE);
-    return node_solve_info_t::NO_CHILDREN;
-
-  } else if (lp_status == dual::status_t::CUTOFF) {
-    node_ptr->lower_bound = worker.local_upper_bound;
-
-    worker.record_fathomed(node_ptr, node_ptr->lower_bound);
-    worker.track_node_pruned();
-    worker.track_node_processed();
-    worker.recompute_bounds_and_basis = true;
-
-    BSP_DEBUG_LOG_SOLVE_END(bsp_debug_settings_,
-                            bsp_debug_logger_,
-                            worker.clock,
-                            worker.worker_id,
-                            node_ptr->node_id,
-                            node_ptr->origin_worker_id,
-                            "FATHOMED",
-                            node_ptr->lower_bound);
-    BSP_DEBUG_LOG_FATHOMED(bsp_debug_settings_,
-                           bsp_debug_logger_,
-                           worker.clock,
-                           worker.worker_id,
-                           node_ptr->node_id,
-                           node_ptr->lower_bound);
-
-    search_tree.update(node_ptr, node_status_t::FATHOMED);
-    return node_solve_info_t::NO_CHILDREN;
-
-  } else if (lp_status == dual::status_t::OPTIMAL) {
-    std::vector<i_t> leaf_fractional;
-    i_t leaf_num_fractional =
-      fractional_variables(settings_, leaf_solution.x, var_types_, leaf_fractional);
-
-    f_t leaf_objective    = compute_objective(*worker.leaf_problem, leaf_solution.x);
-    node_ptr->lower_bound = leaf_objective;
-
-    // Queue pseudo-cost update for deterministic application at sync
-    if (node_ptr->branch_var >= 0) {
-      const f_t change_in_obj = leaf_objective - node_ptr->lower_bound;
-      const f_t frac          = node_ptr->branch_dir == rounding_direction_t::DOWN
-                                  ? node_ptr->fractional_val - std::floor(node_ptr->fractional_val)
-                                  : std::ceil(node_ptr->fractional_val) - node_ptr->fractional_val;
-      if (frac > 1e-10) {
-        worker.queue_pseudo_cost_update(
-          node_ptr->branch_var, node_ptr->branch_dir, change_in_obj / frac);
-      }
-    }
-
-    if (leaf_num_fractional == 0) {
-      // Integer feasible - queue for deterministic processing at sync
-      if (leaf_objective < worker.local_upper_bound) {
-        worker.local_upper_bound = leaf_objective;
-        worker.integer_solutions.push_back({leaf_objective, leaf_solution.x, node_ptr->depth});
-      }
-
-      worker.record_integer_solution(node_ptr, leaf_objective);
-      worker.track_integer_solution();
-      worker.track_node_processed();
-      worker.recompute_bounds_and_basis = true;
-
-      BSP_DEBUG_LOG_SOLVE_END(bsp_debug_settings_,
-                              bsp_debug_logger_,
-                              worker.clock,
-                              worker.worker_id,
-                              node_ptr->node_id,
-                              node_ptr->origin_worker_id,
-                              "INTEGER",
-                              leaf_objective);
-      BSP_DEBUG_LOG_INTEGER(bsp_debug_settings_,
-                            bsp_debug_logger_,
-                            worker.clock,
-                            worker.worker_id,
-                            node_ptr->node_id,
-                            leaf_objective);
-
-      search_tree.update(node_ptr, node_status_t::INTEGER_FEASIBLE);
-      return node_solve_info_t::NO_CHILDREN;
-
-    } else if (leaf_objective <= worker.local_upper_bound + settings_.absolute_mip_gap_tol / 10) {
-      // Branch - use worker-local upper bound for deterministic pruning decision
-      // Use pseudo-cost snapshot for variable selection
-      const i_t branch_var =
-        worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
-
-      logger_t log;
-      log.log = false;
-
-      search_tree.branch(
-        node_ptr, branch_var, leaf_solution.x[branch_var], leaf_vstatus, *worker.leaf_problem, log);
-      search_tree.update(node_ptr, node_status_t::HAS_CHILDREN);
-
-      i_t down_child_id = node_ptr->get_down_child()->node_id;
-      i_t up_child_id   = node_ptr->get_up_child()->node_id;
-      worker.record_branched(
-        node_ptr, down_child_id, up_child_id, branch_var, leaf_solution.x[branch_var]);
-      worker.track_node_branched();
-      worker.track_node_processed();
-
-      BSP_DEBUG_LOG_SOLVE_END(bsp_debug_settings_,
-                              bsp_debug_logger_,
-                              worker.clock,
-                              worker.worker_id,
-                              node_ptr->node_id,
-                              node_ptr->origin_worker_id,
-                              "BRANCH",
-                              leaf_objective);
-      BSP_DEBUG_LOG_BRANCHED(bsp_debug_settings_,
-                             bsp_debug_logger_,
-                             worker.clock,
-                             worker.worker_id,
-                             node_ptr->node_id,
-                             node_ptr->origin_worker_id,
-                             down_child_id,
-                             up_child_id);
-
-      exploration_stats_.nodes_unexplored += 2;
-
-      rounding_direction_t preferred =
-        martin_criteria(leaf_solution.x[branch_var], root_relax_soln_.x[branch_var]);
-      worker.enqueue_children_for_plunge(
-        node_ptr->get_down_child(), node_ptr->get_up_child(), preferred);
-
-      return preferred == rounding_direction_t::DOWN ? node_solve_info_t::DOWN_CHILD_FIRST
-                                                     : node_solve_info_t::UP_CHILD_FIRST;
-
-    } else {
-      // Record event and debug logs BEFORE search_tree.update() which may delete the node
-      worker.record_fathomed(node_ptr, leaf_objective);
-      worker.track_node_pruned();
-      worker.track_node_processed();
-      worker.recompute_bounds_and_basis = true;
-
-      BSP_DEBUG_LOG_SOLVE_END(bsp_debug_settings_,
-                              bsp_debug_logger_,
-                              worker.clock,
-                              worker.worker_id,
-                              node_ptr->node_id,
-                              node_ptr->origin_worker_id,
-                              "FATHOMED",
-                              leaf_objective);
-      BSP_DEBUG_LOG_FATHOMED(bsp_debug_settings_,
-                             bsp_debug_logger_,
-                             worker.clock,
-                             worker.worker_id,
-                             node_ptr->node_id,
-                             leaf_objective);
-
-      search_tree.update(node_ptr, node_status_t::FATHOMED);
-      return node_solve_info_t::NO_CHILDREN;
-    }
-
-  } else if (lp_status == dual::status_t::TIME_LIMIT) {
-    return node_solve_info_t::TIME_LIMIT;
-
-  } else {
-    worker.record_numerical(node_ptr);
-    worker.recompute_bounds_and_basis = true;
-    search_tree.update(node_ptr, node_status_t::NUMERICAL);
-    return node_solve_info_t::NUMERICAL;
+    default: return node_solve_info_t::NUMERICAL;
   }
 }
 
@@ -3144,12 +2993,10 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
 {
   raft::common::nvtx::range scope("BB::dive_from_bsp");
 
-  // Create local search tree for the dive
   search_tree_t<i_t, f_t> dive_tree(std::move(starting_node));
   std::deque<mip_node_t<i_t, f_t>*> stack;
   stack.push_front(&dive_tree.root);
 
-  // Initialize bounds from root node
   worker.dive_lower = original_lp_.lower;
   worker.dive_upper = original_lp_.upper;
   std::fill(worker.node_presolver->bounds_changed.begin(),
@@ -3158,22 +3005,39 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
   dive_tree.root.get_variable_bounds(
     worker.dive_lower, worker.dive_upper, worker.node_presolver->bounds_changed);
 
-  const i_t max_nodes_per_dive      = 100;
-  const i_t max_backtrack_depth     = 5;
-  i_t nodes_this_dive               = 0;
-  worker.recompute_bounds_and_basis = true;
+  const i_t max_nodes_per_dive  = 100;
+  const i_t max_backtrack_depth = 5;
+  i_t nodes_this_dive           = 0;
+
+  bnb_stats_t<i_t, f_t> dive_stats;
+  dive_stats.total_lp_iters      = 0;
+  dive_stats.total_lp_solve_time = 0;
+  dive_stats.nodes_explored      = 0;
+  dive_stats.nodes_unexplored    = 1;
+
+  bsp_diving_solve_policy_t<i_t, f_t> policy(worker,
+                                             settings_.absolute_mip_gap_tol / 10,
+                                             worker.dive_lower,
+                                             worker.dive_upper,
+                                             edge_norms_,
+                                             root_relax_soln_.x,
+                                             dive_stats,
+                                             worker.leaf_problem.get(),
+                                             &var_up_locks_,
+                                             &var_down_locks_);
+
+  lp_solution_t<i_t, f_t> leaf_solution(worker.leaf_problem->num_rows,
+                                        worker.leaf_problem->num_cols);
 
   while (!stack.empty() && solver_status_ == mip_status_t::UNSET && !bsp_terminated_.load() &&
          nodes_this_dive < max_nodes_per_dive) {
-    // Check time limit directly
     if (toc(exploration_stats_.start_time) > settings_.time_limit) {
       solver_status_ = mip_status_t::TIME_LIMIT;
       bsp_terminated_.store(true);
-      bsp_scheduler_->stop();  // Wake up workers waiting at barrier
+      bsp_scheduler_->stop();
       break;
     }
 
-    // Check horizon budget
     if (worker.work_context.global_work_units_elapsed >= worker.horizon_end) {
       bsp_scheduler_->wait_for_next_sync(worker.work_context);
       if (bsp_terminated_.load()) break;
@@ -3182,177 +3046,40 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
     mip_node_t<i_t, f_t>* node_ptr = stack.front();
     stack.pop_front();
 
-    // Prune check using snapshot upper bound
     if (node_ptr->lower_bound >= worker.local_upper_bound) {
       worker.recompute_bounds_and_basis = true;
       continue;
     }
 
-    // Setup bounds for this node
-    std::fill(worker.node_presolver->bounds_changed.begin(),
-              worker.node_presolver->bounds_changed.end(),
-              false);
-
-    if (worker.recompute_bounds_and_basis) {
-      worker.leaf_problem->lower = worker.dive_lower;
-      worker.leaf_problem->upper = worker.dive_upper;
-      node_ptr->get_variable_bounds(worker.leaf_problem->lower,
-                                    worker.leaf_problem->upper,
-                                    worker.node_presolver->bounds_changed);
-    } else {
-      node_ptr->update_branched_variable_bounds(worker.leaf_problem->lower,
-                                                worker.leaf_problem->upper,
-                                                worker.node_presolver->bounds_changed);
-    }
-
-    double remaining_time = settings_.time_limit - toc(exploration_stats_.start_time);
-    if (remaining_time <= 0) { break; }
-
-    // Setup LP settings
-    simplex_solver_settings_t<i_t, f_t> lp_settings = settings_;
-    lp_settings.set_log(false);
-    lp_settings.cut_off       = worker.local_upper_bound + settings_.dual_tol;
-    lp_settings.inside_mip    = 2;
-    lp_settings.time_limit    = remaining_time;
-    lp_settings.scale_columns = false;
-
-    // Solve LP relaxation
-    lp_solution_t<i_t, f_t> leaf_solution(worker.leaf_problem->num_rows,
-                                          worker.leaf_problem->num_cols);
-    std::vector<variable_status_t>& leaf_vstatus = node_ptr->vstatus;
-    i_t node_iter                                = 0;
-    f_t lp_start_time                            = tic();
-    std::vector<f_t> leaf_edge_norms             = edge_norms_;
-
-    dual::status_t lp_status = dual_phase2_with_advanced_basis(2,
-                                                               0,
-                                                               worker.recompute_bounds_and_basis,
-                                                               lp_start_time,
-                                                               *worker.leaf_problem,
-                                                               lp_settings,
-                                                               leaf_vstatus,
-                                                               *worker.basis_factors,
-                                                               worker.basic_list,
-                                                               worker.nonbasic_list,
-                                                               leaf_solution,
-                                                               node_iter,
-                                                               leaf_edge_norms,
-                                                               &worker.work_context);
+    node_solve_result_t<i_t, f_t> result = solve_node_with_policy(node_ptr,
+                                                                  *worker.leaf_problem,
+                                                                  leaf_solution,
+                                                                  *worker.basis_factors,
+                                                                  worker.basic_list,
+                                                                  worker.nonbasic_list,
+                                                                  *worker.node_presolver,
+                                                                  worker.recompute_bounds_and_basis,
+                                                                  dive_tree,
+                                                                  policy);
 
     ++nodes_this_dive;
-    ++worker.nodes_explored_this_horizon;
-    ++worker.total_nodes_explored;
 
-    worker.clock = worker.work_context.global_work_units_elapsed;
+    if (result.status == node_status_t::PENDING) { break; }
 
-    if (lp_status == dual::status_t::TIME_LIMIT || lp_status == dual::status_t::WORK_LIMIT) {
-      break;
-    }
+    worker.recompute_bounds_and_basis = result.needs_recompute_basis;
 
-    if (lp_status == dual::status_t::DUAL_UNBOUNDED || lp_status == dual::status_t::CUTOFF) {
-      worker.recompute_bounds_and_basis = true;
-      continue;
-    }
-
-    if (lp_status == dual::status_t::OPTIMAL) {
-      std::vector<i_t> leaf_fractional;
-      fractional_variables(settings_, leaf_solution.x, var_types_, leaf_fractional);
-
-      f_t leaf_objective    = compute_objective(*worker.leaf_problem, leaf_solution.x);
-      node_ptr->lower_bound = leaf_objective;
-
-      if (leaf_fractional.empty()) {
-        // Integer feasible solution found!
-        if (leaf_objective < worker.local_upper_bound) {
-          worker.queue_integer_solution(leaf_objective, leaf_solution.x, node_ptr->depth);
-        }
-        worker.recompute_bounds_and_basis = true;
-        continue;
-      }
-
-      if (leaf_objective <= worker.local_upper_bound + settings_.absolute_mip_gap_tol / 10) {
-        // Branch - select variable using diving-type-specific strategy
-        branch_variable_t<i_t> branch_result;
-
-        switch (worker.diving_type) {
-          case bnb_worker_type_t::PSEUDOCOST_DIVING:
-            branch_result =
-              worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
-            break;
-
-          case bnb_worker_type_t::LINE_SEARCH_DIVING:
-            if (worker.root_solution) {
-              logger_t log;
-              log.log       = false;
-              branch_result = line_search_diving<i_t, f_t>(
-                leaf_fractional, leaf_solution.x, *worker.root_solution, log);
-            } else {
-              branch_result =
-                worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
-            }
-            break;
-
-          case bnb_worker_type_t::GUIDED_DIVING:
-            branch_result = worker.guided_variable_selection(leaf_fractional, leaf_solution.x);
-            break;
-
-          case bnb_worker_type_t::COEFFICIENT_DIVING: {
-            logger_t log;
-            log.log       = false;
-            branch_result = coefficient_diving<i_t, f_t>(*worker.leaf_problem,
-                                                         leaf_fractional,
-                                                         leaf_solution.x,
-                                                         var_up_locks_,
-                                                         var_down_locks_,
-                                                         log);
-          } break;
-
-          default:
-            branch_result =
-              worker.variable_selection_from_snapshot(leaf_fractional, leaf_solution.x);
-            break;
-        }
-
-        i_t branch_var                 = branch_result.variable;
-        rounding_direction_t round_dir = branch_result.direction;
-
-        if (branch_var < 0) {
-          worker.recompute_bounds_and_basis = true;
-          continue;
-        }
-
-        // Create children
-        logger_t log;
-        log.log = false;
-        dive_tree.branch(node_ptr,
-                         branch_var,
-                         leaf_solution.x[branch_var],
-                         leaf_vstatus,
-                         *worker.leaf_problem,
-                         log);
-
-        // Add children to stack (preferred direction first)
-        if (round_dir == rounding_direction_t::UP) {
-          stack.push_front(node_ptr->get_down_child());
-          stack.push_front(node_ptr->get_up_child());
-        } else {
-          stack.push_front(node_ptr->get_up_child());
-          stack.push_front(node_ptr->get_down_child());
-        }
-
-        // Limit backtracking depth
-        if (stack.size() > 1 && stack.front()->depth - stack.back()->depth > max_backtrack_depth) {
-          stack.pop_back();
-        }
-
-        worker.recompute_bounds_and_basis = false;
+    if (result.status == node_status_t::HAS_CHILDREN) {
+      if (result.preferred_direction == rounding_direction_t::UP) {
+        stack.push_front(node_ptr->get_down_child());
+        stack.push_front(node_ptr->get_up_child());
       } else {
-        // Fathomed by bound
-        worker.recompute_bounds_and_basis = true;
+        stack.push_front(node_ptr->get_up_child());
+        stack.push_front(node_ptr->get_down_child());
       }
-    } else {
-      // Numerical or other error
-      worker.recompute_bounds_and_basis = true;
+
+      if (stack.size() > 1 && stack.front()->depth - stack.back()->depth > max_backtrack_depth) {
+        stack.pop_back();
+      }
     }
   }
 }
@@ -3360,6 +3087,56 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
 #ifdef DUAL_SIMPLEX_INSTANTIATE_DOUBLE
 
 template class branch_and_bound_t<int, double>;
+
+// Explicit instantiations for solve_node_with_policy with both policy types
+template node_solve_result_t<int, double> branch_and_bound_t<int, double>::solve_node_with_policy<
+  bsp_solve_policy_t<int, double>>(mip_node_t<int, double>*,
+                                   lp_problem_t<int, double>&,
+                                   lp_solution_t<int, double>&,
+                                   basis_update_mpf_t<int, double>&,
+                                   std::vector<int>&,
+                                   std::vector<int>&,
+                                   bounds_strengthening_t<int, double>&,
+                                   bool,
+                                   search_tree_t<int, double>&,
+                                   bsp_solve_policy_t<int, double>&);
+
+template node_solve_result_t<int, double> branch_and_bound_t<int, double>::solve_node_with_policy<
+  standard_solve_policy_t<int, double>>(mip_node_t<int, double>*,
+                                        lp_problem_t<int, double>&,
+                                        lp_solution_t<int, double>&,
+                                        basis_update_mpf_t<int, double>&,
+                                        std::vector<int>&,
+                                        std::vector<int>&,
+                                        bounds_strengthening_t<int, double>&,
+                                        bool,
+                                        search_tree_t<int, double>&,
+                                        standard_solve_policy_t<int, double>&);
+
+// Explicit instantiations for diving policies
+template node_solve_result_t<int, double> branch_and_bound_t<int, double>::solve_node_with_policy<
+  standard_diving_solve_policy_t<int, double>>(mip_node_t<int, double>*,
+                                               lp_problem_t<int, double>&,
+                                               lp_solution_t<int, double>&,
+                                               basis_update_mpf_t<int, double>&,
+                                               std::vector<int>&,
+                                               std::vector<int>&,
+                                               bounds_strengthening_t<int, double>&,
+                                               bool,
+                                               search_tree_t<int, double>&,
+                                               standard_diving_solve_policy_t<int, double>&);
+
+template node_solve_result_t<int, double> branch_and_bound_t<int, double>::solve_node_with_policy<
+  bsp_diving_solve_policy_t<int, double>>(mip_node_t<int, double>*,
+                                          lp_problem_t<int, double>&,
+                                          lp_solution_t<int, double>&,
+                                          basis_update_mpf_t<int, double>&,
+                                          std::vector<int>&,
+                                          std::vector<int>&,
+                                          bounds_strengthening_t<int, double>&,
+                                          bool,
+                                          search_tree_t<int, double>&,
+                                          bsp_diving_solve_policy_t<int, double>&);
 
 #endif
 

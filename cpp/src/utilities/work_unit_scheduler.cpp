@@ -102,15 +102,15 @@ sync_result_t work_unit_scheduler_t::wait_for_next_sync(work_limit_context_t& ct
   return stopped_.load() ? sync_result_t::STOPPED : sync_result_t::CONTINUE;
 }
 
-void work_unit_scheduler_t::queue_callback(work_limit_context_t& source,
-                                           work_limit_context_t& destination,
-                                           callback_t callback)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  double tag = source.global_work_units_elapsed;
-  auto it    = callback_queues_.find(&destination);
-  if (it != callback_queues_.end()) { it->second.push({tag, std::move(callback)}); }
-}
+// void work_unit_scheduler_t::queue_callback(work_limit_context_t& source,
+//                                            work_limit_context_t& destination,
+//                                            callback_t callback)
+// {
+//   std::lock_guard<std::mutex> lock(mutex_);
+//   double tag = source.global_work_units_elapsed;
+//   auto it    = callback_queues_.find(&destination);
+//   if (it != callback_queues_.end()) { it->second.push({tag, std::move(callback)}); }
+// }
 
 double work_unit_scheduler_t::current_sync_target() const
 {
@@ -167,9 +167,9 @@ void work_unit_scheduler_t::wait_at_sync_point(work_limit_context_t& ctx, double
   size_t my_exit_generation = exit_generation_;
 
   if (verbose) { CUOPT_LOG_DEBUG("[%s] Processing callbacks", ctx.name.c_str()); }
-  lock.unlock();
-  process_callbacks_for_context(ctx, sync_target);
-  lock.lock();
+  // lock.unlock();
+  // process_callbacks_for_context(ctx, sync_target);
+  // lock.lock();
   if (verbose) { CUOPT_LOG_DEBUG("[%s] Done processing callbacks", ctx.name.c_str()); }
 
   contexts_at_barrier_--;
@@ -205,26 +205,10 @@ void work_unit_scheduler_t::wait_at_sync_point(work_limit_context_t& ctx, double
   }
 }
 
-void work_unit_scheduler_t::process_callbacks_for_context(work_limit_context_t& ctx,
-                                                          double up_to_work_units)
-{
-  std::vector<callback_t> to_execute;
+// void work_unit_scheduler_t::process_callbacks_for_context(work_limit_context_t& ctx,
+//                                                           double up_to_work_units)
+// {
 
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = callback_queues_.find(&ctx);
-    if (it == callback_queues_.end()) return;
-
-    auto& queue = it->second;
-    while (!queue.empty() && queue.top().work_unit_tag <= up_to_work_units) {
-      to_execute.push_back(std::move(const_cast<tagged_callback_t&>(queue.top()).callback));
-      queue.pop();
-    }
-  }
-
-  for (auto& cb : to_execute) {
-    cb();
-  }
-}
+// }
 
 }  // namespace cuopt

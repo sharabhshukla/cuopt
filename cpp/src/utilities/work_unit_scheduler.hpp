@@ -45,9 +45,9 @@ class work_unit_scheduler_t {
   void register_context(work_limit_context_t& ctx);
   void deregister_context(work_limit_context_t& ctx);
   void on_work_recorded(work_limit_context_t& ctx, double total_work);
-  void queue_callback(work_limit_context_t& source,
-                      work_limit_context_t& destination,
-                      callback_t callback);
+  // void queue_callback(work_limit_context_t& source,
+  //                     work_limit_context_t& destination,
+  //                     callback_t callback);
 
   // Sync callback support - callback is executed when all contexts reach sync point
   // If callback returns true, scheduler stops and all workers exit cleanly

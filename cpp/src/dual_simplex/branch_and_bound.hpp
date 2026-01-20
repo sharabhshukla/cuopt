@@ -8,6 +8,7 @@
 #pragma once
 
 #include <dual_simplex/bb_event.hpp>
+#include <dual_simplex/bb_solve_policy.hpp>
 #include <dual_simplex/bb_worker_state.hpp>
 #include <dual_simplex/bsp_debug.hpp>
 #include <dual_simplex/diving_heuristics.hpp>
@@ -279,17 +280,6 @@ class branch_and_bound_t {
                                bnb_stats_t<i_t, f_t>& stats,
                                logger_t& log);
 
-  // Update the tree based on the LP relaxation. Returns the status
-  // of the node and, if appropriated, the preferred rounding direction
-  // when visiting the children.
-  std::pair<node_status_t, rounding_direction_t> update_tree(mip_node_t<i_t, f_t>* node_ptr,
-                                                             search_tree_t<i_t, f_t>& search_tree,
-                                                             lp_problem_t<i_t, f_t>& leaf_problem,
-                                                             lp_solution_t<i_t, f_t>& leaf_solution,
-                                                             bnb_worker_type_t thread_type,
-                                                             dual::status_t lp_status,
-                                                             logger_t& log);
-
   // Selects the variable to branch on.
   branch_variable_t<i_t> variable_selection(mip_node_t<i_t, f_t>* node_ptr,
                                             const std::vector<i_t>& fractional,
@@ -325,6 +315,20 @@ class branch_and_bound_t {
                                    mip_node_t<i_t, f_t>* node_ptr,
                                    search_tree_t<i_t, f_t>& search_tree,
                                    double current_horizon);
+
+  // Unified node solving with policy-based callbacks (compile-time polymorphism)
+  template <typename Policy>
+  node_solve_result_t<i_t, f_t> solve_node_with_policy(
+    mip_node_t<i_t, f_t>* node_ptr,
+    lp_problem_t<i_t, f_t>& leaf_problem,
+    lp_solution_t<i_t, f_t>& leaf_solution,
+    basis_update_mpf_t<i_t, f_t>& basis_factors,
+    std::vector<i_t>& basic_list,
+    std::vector<i_t>& nonbasic_list,
+    bounds_strengthening_t<i_t, f_t>& node_presolver,
+    bool recompute_bounds_and_basis,
+    search_tree_t<i_t, f_t>& search_tree,
+    Policy& policy);
 
   // Compute accurate lower bound from all BSP sources (called during sync phase)
   f_t compute_bsp_lower_bound();

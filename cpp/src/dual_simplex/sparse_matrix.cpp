@@ -591,7 +591,7 @@ void scatter_dense(const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, VectorF& x
   }
 }
 
-// x <- x + alpha * A(:, j) with mark/indices tracking
+// x <- x + alpha * A(:, j)
 template <typename i_t, typename f_t, typename VectorF, typename VectorI>
 void scatter_dense(
   const csc_matrix_t<i_t, f_t>& A, i_t j, f_t alpha, VectorF& x, VectorI& mark, VectorI& indices)
