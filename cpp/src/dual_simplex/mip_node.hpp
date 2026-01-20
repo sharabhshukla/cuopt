@@ -239,7 +239,7 @@ class mip_node_t {
     copy.objective_estimate = objective_estimate;
     copy.node_id            = node_id;
     // Copy BSP fields
-    copy.accumulated_vt   = accumulated_vt;
+    copy.accumulated_wut  = accumulated_wut;
     copy.origin_worker_id = origin_worker_id;
     copy.creation_seq     = creation_seq;
     return copy;
@@ -262,7 +262,7 @@ class mip_node_t {
   std::vector<variable_status_t> vstatus;
 
   // BSP fields for deterministic parallel B&B
-  f_t accumulated_vt{0.0};  // Virtual time spent on this node so far
+  f_t accumulated_wut{0.0};  // Work units accumulated on this node so far
 
   // Worker-local identification for deterministic BSP ordering:
   // - origin_worker_id: which worker created this node

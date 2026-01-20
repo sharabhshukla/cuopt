@@ -115,8 +115,8 @@ class branch_and_bound_t {
   void set_new_solution(const std::vector<f_t>& solution);
 
   // BSP-aware solution injection for deterministic mode
-  // This queues the solution to be processed at the correct virtual time
-  void set_new_solution_deterministic(const std::vector<f_t>& solution, double vt_timestamp);
+  // This queues the solution to be processed at the correct work unit timestamp
+  void set_new_solution_deterministic(const std::vector<f_t>& solution, double work_unit_ts);
 
   void set_concurrent_lp_root_solve(bool enable) { enable_concurrent_lp_root_solve_ = enable; }
 
@@ -360,7 +360,7 @@ class branch_and_bound_t {
   std::unique_ptr<bb_worker_pool_t<i_t, f_t>> bsp_workers_;
   std::unique_ptr<cuopt::work_unit_scheduler_t> bsp_scheduler_;
   std::atomic<bool> bsp_terminated_{false};
-  double bsp_horizon_step_{5.0};     // Virtual time step per horizon (tunable)
+  double bsp_horizon_step_{5.0};     // Work unit step per horizon (tunable)
   double bsp_current_horizon_{0.0};  // Current horizon target
   bool bsp_mode_enabled_{false};     // Whether BSP mode is active
   int bsp_horizon_number_{0};        // Current horizon number (for debugging)
@@ -380,11 +380,11 @@ class branch_and_bound_t {
   omp_mutex_t mutex_heap_;
 
   // BSP heuristic solution queue - solutions received from GPU heuristics
-  // Stored with VT timestamp for deterministic ordering
+  // Stored with work unit timestamp for deterministic ordering
   struct queued_heuristic_solution_t {
     std::vector<f_t> solution;
     f_t objective;
-    double vt_timestamp;
+    double wut;
   };
   omp_mutex_t mutex_heuristic_queue_;
   std::vector<queued_heuristic_solution_t> heuristic_solution_queue_;

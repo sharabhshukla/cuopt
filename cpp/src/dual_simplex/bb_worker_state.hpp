@@ -47,7 +47,7 @@ struct pseudo_cost_update_t {
   i_t variable;
   rounding_direction_t direction;
   f_t delta;      // change_in_obj / frac
-  double vt;      // virtual time when update occurred (for deterministic ordering)
+  double wut;     // work unit timestamp when update occurred (for deterministic ordering)
   int worker_id;  // for tie-breaking in sort
 };
 
@@ -78,7 +78,7 @@ struct bb_worker_state_t {
   // If next node's parent == last_solved_node, we can reuse basis
   mip_node_t<i_t, f_t>* last_solved_node{nullptr};
 
-  // Worker's virtual time clock (cumulative work units)
+  // Worker's work unit clock (cumulative)
   double clock{0.0};
 
   // Current horizon boundaries (for BSP sync)
@@ -581,7 +581,7 @@ struct bsp_diving_worker_state_t {
   int worker_id{0};
   bnb_worker_type_t diving_type{bnb_worker_type_t::PSEUDOCOST_DIVING};
 
-  // Worker's virtual time clock (cumulative work units)
+  // Worker's work unit clock (cumulative)
   double clock{0.0};
 
   // Current horizon boundaries

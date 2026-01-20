@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -47,7 +47,7 @@ struct fathomed_payload_t {
 
 template <typename f_t>
 struct paused_payload_t {
-  f_t accumulated_vt;
+  f_t accumulated_wut;
 };
 
 template <typename f_t>
@@ -59,7 +59,7 @@ struct heuristic_solution_payload_t {
 template <typename i_t, typename f_t>
 struct bb_event_t {
   bb_event_type_t type;
-  double vt_timestamp;
+  double wut;
   int worker_id;
   i_t node_id;
   int event_sequence;
@@ -73,22 +73,18 @@ struct bb_event_t {
   } payload;
 
   bb_event_t()
-    : type(bb_event_type_t::NODE_FATHOMED),
-      vt_timestamp(0.0),
-      worker_id(0),
-      node_id(0),
-      event_sequence(0)
+    : type(bb_event_type_t::NODE_FATHOMED), wut(0.0), worker_id(0), node_id(0), event_sequence(0)
   {
     payload.fathomed = {0.0};
   }
 
   bool operator<(const bb_event_t& other) const
   {
-    return std::tie(vt_timestamp, worker_id, event_sequence) <
-           std::tie(other.vt_timestamp, other.worker_id, other.event_sequence);
+    return std::tie(wut, worker_id, event_sequence) <
+           std::tie(other.wut, other.worker_id, other.event_sequence);
   }
 
-  static bb_event_t make_branched(double vt,
+  static bb_event_t make_branched(double work_unit_ts,
                                   int worker,
                                   i_t node,
                                   int seq,
@@ -100,7 +96,7 @@ struct bb_event_t {
   {
     bb_event_t e;
     e.type             = bb_event_type_t::NODE_BRANCHED;
-    e.vt_timestamp     = vt;
+    e.wut              = work_unit_ts;
     e.worker_id        = worker;
     e.node_id          = node;
     e.event_sequence   = seq;
@@ -108,11 +104,12 @@ struct bb_event_t {
     return e;
   }
 
-  static bb_event_t make_integer_solution(double vt, int worker, i_t node, int seq, f_t objective)
+  static bb_event_t make_integer_solution(
+    double work_unit_ts, int worker, i_t node, int seq, f_t objective)
   {
     bb_event_t e;
     e.type                     = bb_event_type_t::NODE_INTEGER;
-    e.vt_timestamp             = vt;
+    e.wut                      = work_unit_ts;
     e.worker_id                = worker;
     e.node_id                  = node;
     e.event_sequence           = seq;
@@ -120,11 +117,12 @@ struct bb_event_t {
     return e;
   }
 
-  static bb_event_t make_fathomed(double vt, int worker, i_t node, int seq, f_t lower_bound)
+  static bb_event_t make_fathomed(
+    double work_unit_ts, int worker, i_t node, int seq, f_t lower_bound)
   {
     bb_event_t e;
     e.type             = bb_event_type_t::NODE_FATHOMED;
-    e.vt_timestamp     = vt;
+    e.wut              = work_unit_ts;
     e.worker_id        = worker;
     e.node_id          = node;
     e.event_sequence   = seq;
@@ -132,11 +130,11 @@ struct bb_event_t {
     return e;
   }
 
-  static bb_event_t make_infeasible(double vt, int worker, i_t node, int seq)
+  static bb_event_t make_infeasible(double work_unit_ts, int worker, i_t node, int seq)
   {
     bb_event_t e;
     e.type             = bb_event_type_t::NODE_INFEASIBLE;
-    e.vt_timestamp     = vt;
+    e.wut              = work_unit_ts;
     e.worker_id        = worker;
     e.node_id          = node;
     e.event_sequence   = seq;
@@ -144,11 +142,11 @@ struct bb_event_t {
     return e;
   }
 
-  static bb_event_t make_paused(double vt, int worker, i_t node, int seq, f_t accumulated)
+  static bb_event_t make_paused(double work_unit_ts, int worker, i_t node, int seq, f_t accumulated)
   {
     bb_event_t e;
     e.type           = bb_event_type_t::NODE_PAUSED;
-    e.vt_timestamp   = vt;
+    e.wut            = work_unit_ts;
     e.worker_id      = worker;
     e.node_id        = node;
     e.event_sequence = seq;
@@ -156,11 +154,11 @@ struct bb_event_t {
     return e;
   }
 
-  static bb_event_t make_numerical(double vt, int worker, i_t node, int seq)
+  static bb_event_t make_numerical(double work_unit_ts, int worker, i_t node, int seq)
   {
     bb_event_t e;
     e.type             = bb_event_type_t::NODE_NUMERICAL;
-    e.vt_timestamp     = vt;
+    e.wut              = work_unit_ts;
     e.worker_id        = worker;
     e.node_id          = node;
     e.event_sequence   = seq;
@@ -169,11 +167,11 @@ struct bb_event_t {
   }
 
   static bb_event_t make_heuristic_solution(
-    double vt, int worker, int seq, f_t objective, size_t sol_idx)
+    double work_unit_ts, int worker, int seq, f_t objective, size_t sol_idx)
   {
     bb_event_t e;
     e.type              = bb_event_type_t::HEURISTIC_SOLUTION;
-    e.vt_timestamp      = vt;
+    e.wut               = work_unit_ts;
     e.worker_id         = worker;
     e.node_id           = -1;
     e.event_sequence    = seq;

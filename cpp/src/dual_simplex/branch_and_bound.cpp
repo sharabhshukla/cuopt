@@ -357,9 +357,9 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
 
 template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::set_new_solution_deterministic(const std::vector<f_t>& solution,
-                                                                  double vt_timestamp)
+                                                                  double work_unit_ts)
 {
-  // In BSP mode, queue the solution to be processed at the correct virtual time
+  // In BSP mode, queue the solution to be processed at the correct work unit timestamp
   // This ensures deterministic ordering of solution events
 
   if (solution.size() != original_problem_.num_cols) {
@@ -388,9 +388,9 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution_deterministic(const std::vec
     return;
   }
 
-  // Queue the solution with its VT timestamp
+  // Queue the solution with its work unit timestamp
   mutex_heuristic_queue_.lock();
-  heuristic_solution_queue_.push_back({std::move(crushed_solution), obj, vt_timestamp});
+  heuristic_solution_queue_.push_back({std::move(crushed_solution), obj, work_unit_ts});
   mutex_heuristic_queue_.unlock();
 }
 
@@ -1973,10 +1973,10 @@ void branch_and_bound_t<i_t, f_t>::refill_worker_queues(i_t target_queue_size)
     (*bsp_workers_)[worker_id].track_node_assigned();
 
     // Debug: Log node assignment
-    double vt = bsp_current_horizon_ - bsp_horizon_step_;  // Start of current horizon
+    double wut = bsp_current_horizon_ - bsp_horizon_step_;  // Start of current horizon
     BSP_DEBUG_LOG_NODE_ASSIGNED(bsp_debug_settings_,
                                 bsp_debug_logger_,
-                                vt,
+                                wut,
                                 worker_id,
                                 node->node_id,
                                 node->origin_worker_id,
@@ -2665,7 +2665,7 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
   {
     std::vector<queued_heuristic_solution_t> future_solutions;
     for (auto& sol : heuristic_solution_queue_) {
-      if (sol.vt_timestamp < bsp_current_horizon_) {
+      if (sol.wut < bsp_current_horizon_) {
         heuristic_solutions.push_back(std::move(sol));
       } else {
         future_solutions.push_back(std::move(sol));
@@ -2679,7 +2679,7 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
   std::sort(heuristic_solutions.begin(),
             heuristic_solutions.end(),
             [](const queued_heuristic_solution_t& a, const queued_heuristic_solution_t& b) {
-              if (a.vt_timestamp != b.vt_timestamp) { return a.vt_timestamp < b.vt_timestamp; }
+              if (a.wut != b.wut) { return a.wut < b.wut; }
               if (a.objective != b.objective) { return a.objective < b.objective; }
               return a.solution < b.solution;  // edge-case - lexicographical comparison
             });
@@ -2697,9 +2697,8 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
     } else if (heuristic_idx >= heuristic_solutions.size()) {
       process_event = true;
     } else {
-      // Both have items - pick the one with smaller WT
-      if (events.events[event_idx].vt_timestamp <=
-          heuristic_solutions[heuristic_idx].vt_timestamp) {
+      // Both have items - pick the one with smaller WUT
+      if (events.events[event_idx].wut <= heuristic_solutions[heuristic_idx].wut) {
         process_event = true;
       } else {
         process_heuristic = true;
@@ -2723,7 +2722,7 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
 
       // Debug: Log heuristic received
       BSP_DEBUG_LOG_HEURISTIC_RECEIVED(
-        bsp_debug_settings_, bsp_debug_logger_, hsol.vt_timestamp, hsol.objective);
+        bsp_debug_settings_, bsp_debug_logger_, hsol.wut, hsol.objective);
 
       // Process heuristic solution at its correct work unit timestamp position
       f_t new_upper = std::numeric_limits<f_t>::infinity();
@@ -2736,7 +2735,7 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
 
         // Debug: Log incumbent update
         BSP_DEBUG_LOG_INCUMBENT_UPDATE(
-          bsp_debug_settings_, bsp_debug_logger_, hsol.vt_timestamp, hsol.objective, "heuristic");
+          bsp_debug_settings_, bsp_debug_logger_, hsol.wut, hsol.objective, "heuristic");
       }
       mutex_upper_.unlock();
 
@@ -2932,10 +2931,10 @@ void branch_and_bound_t<i_t, f_t>::balance_worker_loads()
     (*bsp_workers_)[worker_idx].enqueue_node_with_identity(all_nodes[i]);
     (*bsp_workers_)[worker_idx].track_node_assigned();
 
-    double vt = bsp_current_horizon_;
+    double wut = bsp_current_horizon_;
     BSP_DEBUG_LOG_NODE_ASSIGNED(bsp_debug_settings_,
                                 bsp_debug_logger_,
-                                vt,
+                                wut,
                                 static_cast<int>(worker_idx),
                                 all_nodes[i]->node_id,
                                 all_nodes[i]->origin_worker_id,

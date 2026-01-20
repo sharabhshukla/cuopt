@@ -198,8 +198,8 @@ struct bsp_debug_settings_t {
 // ============================================================================
 
 struct timeline_event_t {
-  double vt_start;
-  double vt_end;
+  double wut_start;
+  double wut_end;
   int worker_id;
   int node_id;
   int final_id;
@@ -252,46 +252,48 @@ class bsp_debug_logger_t {
   // Event Logging
   // ========================================================================
 
-  void log_horizon_start(int horizon_num, double vt_start, double vt_end)
+  void log_horizon_start(int horizon_num, double wut_start, double wut_end)
   {
-    current_horizon_  = horizon_num;
-    horizon_vt_start_ = vt_start;
-    horizon_vt_end_   = vt_end;
+    current_horizon_   = horizon_num;
+    horizon_wut_start_ = wut_start;
+    horizon_wut_end_   = wut_end;
 
     if (settings_.enable_event_log) {
-      log_event(vt_start,
+      log_event(wut_start,
                 -1,
                 bsp_log_event_t::HORIZON_START,
                 -1,
                 -1,
-                "horizon=[" + std::to_string(vt_start) + "," + std::to_string(vt_end) + ")");
+                "horizon=[" + std::to_string(wut_start) + "," + std::to_string(wut_end) + ")");
     }
 
     if (settings_.enable_determinism_trace) {
-      trace_ss_ << "H" << horizon_num << ":START:vt=[" << vt_start << "," << vt_end << ")\n";
+      trace_ss_ << "H" << horizon_num << ":START:wut=[" << wut_start << "," << wut_end << ")\n";
     }
 
     // Clear timeline events for new horizon
     timeline_events_.clear();
   }
 
-  void log_horizon_end(int horizon_num, double vt)
+  void log_horizon_end(int horizon_num, double work_unit_ts)
   {
-    if (settings_.enable_event_log) { log_event(vt, -1, bsp_log_event_t::HORIZON_END, -1, -1, ""); }
+    if (settings_.enable_event_log) {
+      log_event(work_unit_ts, -1, bsp_log_event_t::HORIZON_END, -1, -1, "");
+    }
 
     if (settings_.enable_timeline) { emit_timeline_for_horizon(horizon_num); }
   }
 
   // Log determinism fingerprint hash for the horizon
   // This hash captures all state that should be identical across deterministic runs
-  void log_horizon_hash(int horizon_num, double vt, uint32_t hash)
+  void log_horizon_hash(int horizon_num, double work_unit_ts, uint32_t hash)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
       std::stringstream ss;
       ss << "hash=0x" << std::hex << std::setfill('0') << std::setw(8) << hash;
-      log_event_unlocked(vt, -1, bsp_log_event_t::HORIZON_HASH, -1, -1, ss.str());
+      log_event_unlocked(work_unit_ts, -1, bsp_log_event_t::HORIZON_HASH, -1, -1, ss.str());
     }
 
     if (settings_.enable_determinism_trace) {
@@ -300,10 +302,11 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_node_assigned(double vt, int worker_id, i_t node_id, i_t final_id, f_t lower_bound)
+  void log_node_assigned(
+    double work_unit_ts, int worker_id, i_t node_id, i_t final_id, f_t lower_bound)
   {
     if (settings_.enable_event_log) {
-      log_event(vt,
+      log_event(work_unit_ts,
                 worker_id,
                 bsp_log_event_t::NODE_ASSIGNED,
                 node_id,
@@ -327,13 +330,17 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_solve_start(
-    double vt, int worker_id, i_t node_id, i_t final_id, double work_limit, bool is_resumed)
+  void log_solve_start(double work_unit_ts,
+                       int worker_id,
+                       i_t node_id,
+                       i_t final_id,
+                       double work_limit,
+                       bool is_resumed)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log && settings_.log_level >= 2) {
-      log_event_unlocked(vt,
+      log_event_unlocked(work_unit_ts,
                          worker_id,
                          bsp_log_event_t::NODE_SOLVE_START,
                          node_id,
@@ -342,18 +349,22 @@ class bsp_debug_logger_t {
     }
 
     // Start timeline event
-    current_solve_start_[worker_id] = vt;
+    current_solve_start_[worker_id] = work_unit_ts;
     current_solve_node_[worker_id]  = node_id;
     current_solve_fid_[worker_id]   = final_id;
   }
 
-  void log_solve_end(
-    double vt, int worker_id, i_t node_id, i_t final_id, const std::string& result, f_t lower_bound)
+  void log_solve_end(double work_unit_ts,
+                     int worker_id,
+                     i_t node_id,
+                     i_t final_id,
+                     const std::string& result,
+                     f_t lower_bound)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt,
+      log_event_unlocked(work_unit_ts,
                          worker_id,
                          bsp_log_event_t::NODE_SOLVE_END,
                          node_id,
@@ -364,8 +375,8 @@ class bsp_debug_logger_t {
     // Complete timeline event
     if (settings_.enable_timeline) {
       timeline_event_t te;
-      te.vt_start  = current_solve_start_[worker_id];
-      te.vt_end    = vt;
+      te.wut_start = current_solve_start_[worker_id];
+      te.wut_end   = work_unit_ts;
       te.worker_id = worker_id;
       te.node_id   = node_id;
       te.final_id  = final_id;
@@ -374,12 +385,13 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_branched(double vt, int worker_id, i_t parent_id, i_t parent_fid, i_t down_id, i_t up_id)
+  void log_branched(
+    double work_unit_ts, int worker_id, i_t parent_id, i_t parent_fid, i_t down_id, i_t up_id)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt,
+      log_event_unlocked(work_unit_ts,
                          worker_id,
                          bsp_log_event_t::NODE_BRANCHED,
                          parent_id,
@@ -389,35 +401,36 @@ class bsp_debug_logger_t {
 
     if (settings_.enable_determinism_trace) {
       // Log parent final_id (deterministic) and children node_ids (non-deterministic until sync)
-      events_trace_ss_ << "BRANCH(" << vt << ",W" << worker_id << ",F" << parent_fid << "->"
-                       << down_id << "," << up_id << "),";
+      events_trace_ss_ << "BRANCH(" << work_unit_ts << ",W" << worker_id << ",F" << parent_fid
+                       << "->" << down_id << "," << up_id << "),";
     }
   }
 
-  void log_paused(double vt, int worker_id, i_t node_id, i_t final_id, f_t accumulated_vt)
+  void log_paused(
+    double work_unit_ts, int worker_id, i_t node_id, i_t final_id, f_t accumulated_wut)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt,
+      log_event_unlocked(work_unit_ts,
                          worker_id,
                          bsp_log_event_t::NODE_PAUSED,
                          node_id,
                          final_id,
-                         "acc_vt=" + std::to_string(accumulated_vt));
+                         "acc_wut=" + std::to_string(accumulated_wut));
     }
 
     if (settings_.enable_determinism_trace) {
-      events_trace_ss_ << "PAUSE(" << vt << ",W" << worker_id << "," << node_id << "),";
+      events_trace_ss_ << "PAUSE(" << work_unit_ts << ",W" << worker_id << "," << node_id << "),";
     }
   }
 
-  void log_integer(double vt, int worker_id, i_t node_id, f_t objective)
+  void log_integer(double work_unit_ts, int worker_id, i_t node_id, f_t objective)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log) {
-      log_event_unlocked(vt,
+      log_event_unlocked(work_unit_ts,
                          worker_id,
                          bsp_log_event_t::NODE_INTEGER,
                          node_id,
@@ -426,16 +439,16 @@ class bsp_debug_logger_t {
     }
 
     if (settings_.enable_determinism_trace) {
-      events_trace_ss_ << "INT(" << vt << ",W" << worker_id << "," << objective << "),";
+      events_trace_ss_ << "INT(" << work_unit_ts << ",W" << worker_id << "," << objective << "),";
     }
   }
 
-  void log_fathomed(double vt, int worker_id, i_t node_id, f_t lower_bound)
+  void log_fathomed(double work_unit_ts, int worker_id, i_t node_id, f_t lower_bound)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log && settings_.log_level >= 2) {
-      log_event_unlocked(vt,
+      log_event_unlocked(work_unit_ts,
                          worker_id,
                          bsp_log_event_t::NODE_FATHOMED,
                          node_id,
@@ -444,22 +457,23 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_infeasible(double vt, int worker_id, i_t node_id)
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    if (settings_.enable_event_log && settings_.log_level >= 2) {
-      log_event_unlocked(vt, worker_id, bsp_log_event_t::NODE_INFEASIBLE, node_id, -1, "");
-    }
-  }
-
-  void log_pruned(double vt, i_t node_id, i_t final_id, f_t lower_bound, f_t upper_bound)
+  void log_infeasible(double work_unit_ts, int worker_id, i_t node_id)
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (settings_.enable_event_log && settings_.log_level >= 2) {
       log_event_unlocked(
-        vt,
+        work_unit_ts, worker_id, bsp_log_event_t::NODE_INFEASIBLE, node_id, -1, "");
+    }
+  }
+
+  void log_pruned(double work_unit_ts, i_t node_id, i_t final_id, f_t lower_bound, f_t upper_bound)
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (settings_.enable_event_log && settings_.log_level >= 2) {
+      log_event_unlocked(
+        work_unit_ts,
         -1,
         bsp_log_event_t::NODE_PRUNED,
         node_id,
@@ -468,10 +482,10 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_sync_phase_start(double vt, size_t num_events)
+  void log_sync_phase_start(double work_unit_ts, size_t num_events)
   {
     if (settings_.enable_event_log) {
-      log_event(vt,
+      log_event(work_unit_ts,
                 -1,
                 bsp_log_event_t::SYNC_PHASE_START,
                 -1,
@@ -480,10 +494,10 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_sync_phase_end(double vt)
+  void log_sync_phase_end(double work_unit_ts)
   {
     if (settings_.enable_event_log) {
-      log_event(vt, -1, bsp_log_event_t::SYNC_PHASE_END, -1, -1, "");
+      log_event(work_unit_ts, -1, bsp_log_event_t::SYNC_PHASE_END, -1, -1, "");
     }
 
     // Flush event trace
@@ -514,22 +528,27 @@ class bsp_debug_logger_t {
     }
   }
 
-  void log_heuristic_received(double vt, f_t objective)
+  void log_heuristic_received(double work_unit_ts, f_t objective)
   {
     if (settings_.enable_event_log) {
-      log_event(
-        vt, -1, bsp_log_event_t::HEURISTIC_RECEIVED, -1, -1, "obj=" + std::to_string(objective));
+      log_event(work_unit_ts,
+                -1,
+                bsp_log_event_t::HEURISTIC_RECEIVED,
+                -1,
+                -1,
+                "obj=" + std::to_string(objective));
     }
 
     if (settings_.enable_determinism_trace) {
-      trace_ss_ << "H" << current_horizon_ << ":HEURISTIC:" << objective << "@" << vt << "\n";
+      trace_ss_ << "H" << current_horizon_ << ":HEURISTIC:" << objective << "@" << work_unit_ts
+                << "\n";
     }
   }
 
-  void log_incumbent_update(double vt, f_t objective, const std::string& source)
+  void log_incumbent_update(double work_unit_ts, f_t objective, const std::string& source)
   {
     if (settings_.enable_event_log) {
-      log_event(vt,
+      log_event(work_unit_ts,
                 -1,
                 bsp_log_event_t::INCUMBENT_UPDATE,
                 -1,
@@ -538,8 +557,8 @@ class bsp_debug_logger_t {
     }
 
     if (settings_.enable_determinism_trace) {
-      trace_ss_ << "H" << current_horizon_ << ":INCUMBENT:" << objective << "@" << vt << "("
-                << source << ")\n";
+      trace_ss_ << "H" << current_horizon_ << ":INCUMBENT:" << objective << "@" << work_unit_ts
+                << "(" << source << ")\n";
     }
   }
 
@@ -683,8 +702,8 @@ class bsp_debug_logger_t {
 
   template <typename WorkerPool>
   void emit_state_json(int horizon_num,
-                       double vt_start,
-                       double vt_end,
+                       double wut_start,
+                       double wut_end,
                        i_t next_final_id,
                        f_t upper_bound,
                        f_t lower_bound,
@@ -703,7 +722,7 @@ class bsp_debug_logger_t {
 
     file << "{\n";
     file << "  \"horizon\": " << horizon_num << ",\n";
-    file << "  \"vt_range\": [" << vt_start << ", " << vt_end << "],\n";
+    file << "  \"wut_range\": [" << wut_start << ", " << wut_end << "],\n";
     file << "  \"bsp_next_final_id\": " << next_final_id << ",\n";
     file << "  \"upper_bound\": " << (upper_bound >= 1e30 ? "\"inf\"" : std::to_string(upper_bound))
          << ",\n";
@@ -722,7 +741,7 @@ class bsp_debug_logger_t {
         file << "      \"current_node\": {\"id\": " << w.current_node->node_id
              << ", \"origin_worker\": " << w.current_node->origin_worker_id
              << ", \"creation_seq\": " << w.current_node->creation_seq
-             << ", \"acc_vt\": " << w.current_node->accumulated_vt << "},\n";
+             << ", \"acc_wut\": " << w.current_node->accumulated_wut << "},\n";
       } else {
         file << "      \"current_node\": null,\n";
       }
@@ -766,8 +785,8 @@ class bsp_debug_logger_t {
   int num_workers_{0};
   double horizon_step_{5.0};
   int current_horizon_{0};
-  double horizon_vt_start_{0.0};
-  double horizon_vt_end_{0.0};
+  double horizon_wut_start_{0.0};
+  double horizon_wut_end_{0.0};
 
   std::mutex mutex_;
   std::stringstream log_ss_;
@@ -788,7 +807,7 @@ class bsp_debug_logger_t {
     return std::chrono::duration<double>(now - start_time_).count();
   }
 
-  void log_event(double vt,
+  void log_event(double work_unit_ts,
                  int worker_id,
                  bsp_log_event_t event,
                  i_t node_id,
@@ -796,17 +815,17 @@ class bsp_debug_logger_t {
                  const std::string& details)
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    log_event_unlocked(vt, worker_id, event, node_id, final_id, details);
+    log_event_unlocked(work_unit_ts, worker_id, event, node_id, final_id, details);
   }
 
-  void log_event_unlocked(double vt,
+  void log_event_unlocked(double work_unit_ts,
                           int worker_id,
                           bsp_log_event_t event,
                           i_t node_id,
                           i_t final_id,
                           const std::string& details)
   {
-    log_ss_ << std::fixed << std::setprecision(3) << vt << "\t" << get_real_time() << "\t"
+    log_ss_ << std::fixed << std::setprecision(3) << work_unit_ts << "\t" << get_real_time() << "\t"
             << current_horizon_ << "\t" << (worker_id < 0 ? "COORD" : std::to_string(worker_id))
             << "\t" << bsp_log_event_name(event) << "\t"
             << (node_id < 0 ? "-" : std::to_string(node_id)) << "\t"
@@ -842,27 +861,27 @@ class bsp_debug_logger_t {
     std::ofstream file(filename, std::ios::app);
     if (!file.is_open()) return;
 
-    const int width       = 80;
-    const double vt_min   = horizon_vt_start_;
-    const double vt_max   = horizon_vt_end_;
-    const double vt_range = vt_max - vt_min;
+    const int width        = 80;
+    const double wut_min   = horizon_wut_start_;
+    const double wut_max   = horizon_wut_end_;
+    const double wut_range = wut_max - wut_min;
 
     // Avoid division by zero
-    if (vt_range <= 0.0) {
-      file << "\nHorizon " << horizon_num << ": Empty or invalid VT range\n";
+    if (wut_range <= 0.0) {
+      file << "\nHorizon " << horizon_num << ": Empty or invalid WUT range\n";
       return;
     }
 
     file << "\n";
     file << std::string(width, '=') << "\n";
-    file << "Horizon " << horizon_num << ": VT [" << vt_min << ", " << vt_max << ")\n";
+    file << "Horizon " << horizon_num << ": WUT [" << wut_min << ", " << wut_max << ")\n";
     file << std::string(width, '-') << "\n";
 
-    // VT scale
-    file << "     VT: ";
+    // WUT scale
+    file << "    WUT: ";
     for (int i = 0; i <= 5; ++i) {
-      double vt = vt_min + (vt_range * i / 5.0);
-      file << std::setw(10) << std::fixed << std::setprecision(1) << vt;
+      double wut = wut_min + (wut_range * i / 5.0);
+      file << std::setw(10) << std::fixed << std::setprecision(1) << wut;
     }
     file << "\n";
 
@@ -875,8 +894,8 @@ class bsp_debug_logger_t {
       for (const auto& te : timeline_events_) {
         if (te.worker_id != w) continue;
 
-        int start_col = static_cast<int>((te.vt_start - vt_min) / vt_range * 60);
-        int end_col   = static_cast<int>((te.vt_end - vt_min) / vt_range * 60);
+        int start_col = static_cast<int>((te.wut_start - wut_min) / wut_range * 60);
+        int end_col   = static_cast<int>((te.wut_end - wut_min) / wut_range * 60);
         start_col     = std::max(0, std::min(59, start_col));
         end_col       = std::max(0, std::min(59, end_col));
 
@@ -900,8 +919,9 @@ class bsp_debug_logger_t {
       std::string labels(60, ' ');
       for (const auto& te : timeline_events_) {
         if (te.worker_id != w) continue;
-        int mid_col = static_cast<int>(((te.vt_start + te.vt_end) / 2 - vt_min) / vt_range * 60);
-        mid_col     = std::max(0, std::min(55, mid_col));
+        int mid_col =
+          static_cast<int>(((te.wut_start + te.wut_end) / 2 - wut_min) / wut_range * 60);
+        mid_col = std::max(0, std::min(55, mid_col));
 
         std::string label = "N" + std::to_string(te.final_id);
         for (size_t i = 0; i < label.size() && mid_col + i < 60; ++i) {
@@ -985,65 +1005,65 @@ class bsp_debug_logger_t {
 
 #ifdef BSP_DEBUG_ENABLED
 
-#define BSP_DEBUG_LOG_HORIZON_START(settings, logger, h, vs, ve)         \
+#define BSP_DEBUG_LOG_HORIZON_START(settings, logger, h, ws, we)         \
   do {                                                                   \
-    if ((settings).any_enabled()) (logger).log_horizon_start(h, vs, ve); \
+    if ((settings).any_enabled()) (logger).log_horizon_start(h, ws, we); \
   } while (0)
-#define BSP_DEBUG_LOG_HORIZON_END(settings, logger, h, vt)         \
-  do {                                                             \
-    if ((settings).any_enabled()) (logger).log_horizon_end(h, vt); \
+#define BSP_DEBUG_LOG_HORIZON_END(settings, logger, h, wut)         \
+  do {                                                              \
+    if ((settings).any_enabled()) (logger).log_horizon_end(h, wut); \
   } while (0)
-#define BSP_DEBUG_LOG_HORIZON_HASH(settings, logger, h, vt, hash)         \
-  do {                                                                    \
-    if ((settings).any_enabled()) (logger).log_horizon_hash(h, vt, hash); \
+#define BSP_DEBUG_LOG_HORIZON_HASH(settings, logger, h, wut, hash)         \
+  do {                                                                     \
+    if ((settings).any_enabled()) (logger).log_horizon_hash(h, wut, hash); \
   } while (0)
-#define BSP_DEBUG_LOG_NODE_ASSIGNED(settings, logger, vt, w, nid, fid, lb)         \
-  do {                                                                             \
-    if ((settings).any_enabled()) (logger).log_node_assigned(vt, w, nid, fid, lb); \
+#define BSP_DEBUG_LOG_NODE_ASSIGNED(settings, logger, wut, w, nid, fid, lb)         \
+  do {                                                                              \
+    if ((settings).any_enabled()) (logger).log_node_assigned(wut, w, nid, fid, lb); \
   } while (0)
 #define BSP_DEBUG_FLUSH_ASSIGN_TRACE(settings, logger)                                             \
   do {                                                                                             \
     if ((settings).any_enabled() && (settings).flush_every_horizon) (logger).flush_assign_trace(); \
   } while (0)
-#define BSP_DEBUG_LOG_SOLVE_START(settings, logger, vt, w, nid, fid, wl, resumed)         \
-  do {                                                                                    \
-    if ((settings).any_enabled()) (logger).log_solve_start(vt, w, nid, fid, wl, resumed); \
+#define BSP_DEBUG_LOG_SOLVE_START(settings, logger, wut, w, nid, fid, wl, resumed)         \
+  do {                                                                                     \
+    if ((settings).any_enabled()) (logger).log_solve_start(wut, w, nid, fid, wl, resumed); \
   } while (0)
-#define BSP_DEBUG_LOG_SOLVE_END(settings, logger, vt, w, nid, fid, result, lb)         \
-  do {                                                                                 \
-    if ((settings).any_enabled()) (logger).log_solve_end(vt, w, nid, fid, result, lb); \
+#define BSP_DEBUG_LOG_SOLVE_END(settings, logger, wut, w, nid, fid, result, lb)         \
+  do {                                                                                  \
+    if ((settings).any_enabled()) (logger).log_solve_end(wut, w, nid, fid, result, lb); \
   } while (0)
-#define BSP_DEBUG_LOG_BRANCHED(settings, logger, vt, w, pid, pfid, did, uid)         \
-  do {                                                                               \
-    if ((settings).any_enabled()) (logger).log_branched(vt, w, pid, pfid, did, uid); \
+#define BSP_DEBUG_LOG_BRANCHED(settings, logger, wut, w, pid, pfid, did, uid)         \
+  do {                                                                                \
+    if ((settings).any_enabled()) (logger).log_branched(wut, w, pid, pfid, did, uid); \
   } while (0)
-#define BSP_DEBUG_LOG_PAUSED(settings, logger, vt, w, nid, fid, acc)         \
-  do {                                                                       \
-    if ((settings).any_enabled()) (logger).log_paused(vt, w, nid, fid, acc); \
+#define BSP_DEBUG_LOG_PAUSED(settings, logger, wut, w, nid, fid, acc)         \
+  do {                                                                        \
+    if ((settings).any_enabled()) (logger).log_paused(wut, w, nid, fid, acc); \
   } while (0)
-#define BSP_DEBUG_LOG_INTEGER(settings, logger, vt, w, nid, obj)         \
-  do {                                                                   \
-    if ((settings).any_enabled()) (logger).log_integer(vt, w, nid, obj); \
+#define BSP_DEBUG_LOG_INTEGER(settings, logger, wut, w, nid, obj)         \
+  do {                                                                    \
+    if ((settings).any_enabled()) (logger).log_integer(wut, w, nid, obj); \
   } while (0)
-#define BSP_DEBUG_LOG_FATHOMED(settings, logger, vt, w, nid, lb)         \
-  do {                                                                   \
-    if ((settings).any_enabled()) (logger).log_fathomed(vt, w, nid, lb); \
+#define BSP_DEBUG_LOG_FATHOMED(settings, logger, wut, w, nid, lb)         \
+  do {                                                                    \
+    if ((settings).any_enabled()) (logger).log_fathomed(wut, w, nid, lb); \
   } while (0)
-#define BSP_DEBUG_LOG_INFEASIBLE(settings, logger, vt, w, nid)         \
-  do {                                                                 \
-    if ((settings).any_enabled()) (logger).log_infeasible(vt, w, nid); \
+#define BSP_DEBUG_LOG_INFEASIBLE(settings, logger, wut, w, nid)         \
+  do {                                                                  \
+    if ((settings).any_enabled()) (logger).log_infeasible(wut, w, nid); \
   } while (0)
-#define BSP_DEBUG_LOG_PRUNED(settings, logger, vt, nid, fid, lb, ub)         \
-  do {                                                                       \
-    if ((settings).any_enabled()) (logger).log_pruned(vt, nid, fid, lb, ub); \
+#define BSP_DEBUG_LOG_PRUNED(settings, logger, wut, nid, fid, lb, ub)         \
+  do {                                                                        \
+    if ((settings).any_enabled()) (logger).log_pruned(wut, nid, fid, lb, ub); \
   } while (0)
-#define BSP_DEBUG_LOG_SYNC_PHASE_START(settings, logger, vt, ne)         \
-  do {                                                                   \
-    if ((settings).any_enabled()) (logger).log_sync_phase_start(vt, ne); \
+#define BSP_DEBUG_LOG_SYNC_PHASE_START(settings, logger, wut, ne)         \
+  do {                                                                    \
+    if ((settings).any_enabled()) (logger).log_sync_phase_start(wut, ne); \
   } while (0)
-#define BSP_DEBUG_LOG_SYNC_PHASE_END(settings, logger, vt)         \
-  do {                                                             \
-    if ((settings).any_enabled()) (logger).log_sync_phase_end(vt); \
+#define BSP_DEBUG_LOG_SYNC_PHASE_END(settings, logger, wut)         \
+  do {                                                              \
+    if ((settings).any_enabled()) (logger).log_sync_phase_end(wut); \
   } while (0)
 #define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(settings, logger, pid, fid)         \
   do {                                                                      \
@@ -1054,13 +1074,13 @@ class bsp_debug_logger_t {
     if ((settings).any_enabled() && (settings).flush_every_horizon) \
       (logger).flush_final_ids_trace();                             \
   } while (0)
-#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(settings, logger, vt, obj)         \
-  do {                                                                      \
-    if ((settings).any_enabled()) (logger).log_heuristic_received(vt, obj); \
+#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(settings, logger, wut, obj)         \
+  do {                                                                       \
+    if ((settings).any_enabled()) (logger).log_heuristic_received(wut, obj); \
   } while (0)
-#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(settings, logger, vt, obj, src)         \
-  do {                                                                         \
-    if ((settings).any_enabled()) (logger).log_incumbent_update(vt, obj, src); \
+#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(settings, logger, wut, obj, src)         \
+  do {                                                                          \
+    if ((settings).any_enabled()) (logger).log_incumbent_update(wut, obj, src); \
   } while (0)
 #define BSP_DEBUG_LOG_HEAP_ORDER(settings, logger, fids)         \
   do {                                                           \
@@ -1084,10 +1104,10 @@ class bsp_debug_logger_t {
       (logger).emit_tree_state(h, root, ub);                        \
   } while (0)
 #define BSP_DEBUG_EMIT_STATE_JSON(                                                      \
-  settings, logger, h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events)             \
+  settings, logger, h, ws, we, nfid, ub, lb, ne, nu, workers, heap, events)             \
   do {                                                                                  \
     if ((settings).any_enabled() && (settings).flush_every_horizon)                     \
-      (logger).emit_state_json(h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events); \
+      (logger).emit_state_json(h, ws, we, nfid, ub, lb, ne, nu, workers, heap, events); \
   } while (0)
 #define BSP_DEBUG_FINALIZE(settings, logger)           \
   do {                                                 \
@@ -1096,32 +1116,32 @@ class bsp_debug_logger_t {
 
 #else
 
-#define BSP_DEBUG_LOG_HORIZON_START(settings, logger, h, vs, ve)                  ((void)0)
-#define BSP_DEBUG_LOG_HORIZON_END(settings, logger, h, vt)                        ((void)0)
-#define BSP_DEBUG_LOG_HORIZON_HASH(settings, logger, h, vt, hash)                 ((void)0)
-#define BSP_DEBUG_LOG_NODE_ASSIGNED(settings, logger, vt, w, nid, fid, lb)        ((void)0)
-#define BSP_DEBUG_FLUSH_ASSIGN_TRACE(settings, logger)                            ((void)0)
-#define BSP_DEBUG_LOG_SOLVE_START(settings, logger, vt, w, nid, fid, wl, resumed) ((void)0)
-#define BSP_DEBUG_LOG_SOLVE_END(settings, logger, vt, w, nid, fid, result, lb)    ((void)0)
-#define BSP_DEBUG_LOG_BRANCHED(settings, logger, vt, w, pid, pfid, did, uid)      ((void)0)
-#define BSP_DEBUG_LOG_PAUSED(settings, logger, vt, w, nid, fid, acc)              ((void)0)
-#define BSP_DEBUG_LOG_INTEGER(settings, logger, vt, w, nid, obj)                  ((void)0)
-#define BSP_DEBUG_LOG_FATHOMED(settings, logger, vt, w, nid, lb)                  ((void)0)
-#define BSP_DEBUG_LOG_INFEASIBLE(settings, logger, vt, w, nid)                    ((void)0)
-#define BSP_DEBUG_LOG_PRUNED(settings, logger, vt, nid, fid, lb, ub)              ((void)0)
-#define BSP_DEBUG_LOG_SYNC_PHASE_START(settings, logger, vt, ne)                  ((void)0)
-#define BSP_DEBUG_LOG_SYNC_PHASE_END(settings, logger, vt)                        ((void)0)
-#define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(settings, logger, pid, fid)               ((void)0)
-#define BSP_DEBUG_FLUSH_FINAL_IDS_TRACE(settings, logger)                         ((void)0)
-#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(settings, logger, vt, obj)               ((void)0)
-#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(settings, logger, vt, obj, src)            ((void)0)
-#define BSP_DEBUG_LOG_HEAP_ORDER(settings, logger, fids)                          ((void)0)
-#define BSP_DEBUG_LOG_LP_INPUT(settings, logger, w, nid, ph, d, vsh, bh)          ((void)0)
-#define BSP_DEBUG_LOG_LP_OUTPUT(settings, logger, w, nid, ph, st, it, ob, sh)     ((void)0)
-#define BSP_DEBUG_LOG_BRANCH_DECISION(settings, logger, bv, sh, nt)               ((void)0)
-#define BSP_DEBUG_EMIT_TREE_STATE(settings, logger, h, root, ub)                  ((void)0)
+#define BSP_DEBUG_LOG_HORIZON_START(settings, logger, h, ws, we)                   ((void)0)
+#define BSP_DEBUG_LOG_HORIZON_END(settings, logger, h, wut)                        ((void)0)
+#define BSP_DEBUG_LOG_HORIZON_HASH(settings, logger, h, wut, hash)                 ((void)0)
+#define BSP_DEBUG_LOG_NODE_ASSIGNED(settings, logger, wut, w, nid, fid, lb)        ((void)0)
+#define BSP_DEBUG_FLUSH_ASSIGN_TRACE(settings, logger)                             ((void)0)
+#define BSP_DEBUG_LOG_SOLVE_START(settings, logger, wut, w, nid, fid, wl, resumed) ((void)0)
+#define BSP_DEBUG_LOG_SOLVE_END(settings, logger, wut, w, nid, fid, result, lb)    ((void)0)
+#define BSP_DEBUG_LOG_BRANCHED(settings, logger, wut, w, pid, pfid, did, uid)      ((void)0)
+#define BSP_DEBUG_LOG_PAUSED(settings, logger, wut, w, nid, fid, acc)              ((void)0)
+#define BSP_DEBUG_LOG_INTEGER(settings, logger, wut, w, nid, obj)                  ((void)0)
+#define BSP_DEBUG_LOG_FATHOMED(settings, logger, wut, w, nid, lb)                  ((void)0)
+#define BSP_DEBUG_LOG_INFEASIBLE(settings, logger, wut, w, nid)                    ((void)0)
+#define BSP_DEBUG_LOG_PRUNED(settings, logger, wut, nid, fid, lb, ub)              ((void)0)
+#define BSP_DEBUG_LOG_SYNC_PHASE_START(settings, logger, wut, ne)                  ((void)0)
+#define BSP_DEBUG_LOG_SYNC_PHASE_END(settings, logger, wut)                        ((void)0)
+#define BSP_DEBUG_LOG_FINAL_ID_ASSIGNED(settings, logger, pid, fid)                ((void)0)
+#define BSP_DEBUG_FLUSH_FINAL_IDS_TRACE(settings, logger)                          ((void)0)
+#define BSP_DEBUG_LOG_HEURISTIC_RECEIVED(settings, logger, wut, obj)               ((void)0)
+#define BSP_DEBUG_LOG_INCUMBENT_UPDATE(settings, logger, wut, obj, src)            ((void)0)
+#define BSP_DEBUG_LOG_HEAP_ORDER(settings, logger, fids)                           ((void)0)
+#define BSP_DEBUG_LOG_LP_INPUT(settings, logger, w, nid, ph, d, vsh, bh)           ((void)0)
+#define BSP_DEBUG_LOG_LP_OUTPUT(settings, logger, w, nid, ph, st, it, ob, sh)      ((void)0)
+#define BSP_DEBUG_LOG_BRANCH_DECISION(settings, logger, bv, sh, nt)                ((void)0)
+#define BSP_DEBUG_EMIT_TREE_STATE(settings, logger, h, root, ub)                   ((void)0)
 #define BSP_DEBUG_EMIT_STATE_JSON(                                          \
-  settings, logger, h, vs, ve, nfid, ub, lb, ne, nu, workers, heap, events) \
+  settings, logger, h, ws, we, nfid, ub, lb, ne, nu, workers, heap, events) \
   ((void)0)
 #define BSP_DEBUG_FINALIZE(settings, logger) ((void)0)
 
