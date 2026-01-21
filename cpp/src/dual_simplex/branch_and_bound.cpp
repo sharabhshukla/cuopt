@@ -1655,6 +1655,30 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   i_t num_fractional =
     fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 
+  if (num_fractional == 0) {
+    mutex_upper_.lock();
+    incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
+    upper_bound_ = root_objective_;
+    mutex_upper_.unlock();
+    // We should be done here
+    uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
+    solution.objective          = incumbent_.objective;
+    solution.lower_bound        = root_objective_;
+    solution.nodes_explored     = 0;
+    solution.simplex_iterations = root_relax_soln_.iterations;
+    settings_.log.printf("Optimal solution found at root node. Objective %.16e. Time %.2f.\n",
+                         compute_user_objective(original_lp_, root_objective_),
+                         toc(exploration_stats_.start_time));
+
+    if (settings_.solution_callback != nullptr) {
+      settings_.solution_callback(solution.x, solution.objective);
+    }
+    if (settings_.heuristic_preemption_callback != nullptr) {
+      settings_.heuristic_preemption_callback();
+    }
+    return mip_status_t::OPTIMAL;
+  }
+
   csr_matrix_t<i_t, f_t> Arow(1, 1, 1);
   original_lp_.A.to_compressed_row(Arow);
 
