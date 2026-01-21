@@ -2205,7 +2205,11 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     should_terminate = true;
   }
 
-  if (work_unit_context_.global_work_units_elapsed >= settings_.work_limit) {
+  // Check if the next horizon would exceed work limit. If so, terminate now rather than
+  // letting workers continue past the limit. This is conservative (stops slightly early)
+  // but prevents workers from processing nodes beyond the work budget.
+  // bsp_current_horizon_ now holds the NEXT horizon's end value after the increment above.
+  if (bsp_current_horizon_ > settings_.work_limit) {
     solver_status_   = mip_status_t::WORK_LIMIT;
     should_terminate = true;
   }
