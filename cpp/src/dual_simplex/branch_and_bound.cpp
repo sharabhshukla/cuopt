@@ -1253,6 +1253,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   lower_bound_ceiling_                    = inf;
   min_node_queue_size_                    = 2 * settings_.num_threads;
 
+  if (settings_.diving_settings.coefficient_diving != 0) {
+    calculate_variable_locks(original_lp_, var_up_locks_, var_down_locks_);
+  }
+
   settings_.log.printf(
     "  | Explored | Unexplored |    Objective    |     Bound     | Depth | Iter/Node |   Gap    "
     "|  Time  |\n");
@@ -1291,7 +1295,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
               node_queue_.best_first_queue_size());
 
             for (auto type : worker_types) {
-              settings_.log.debug("%s: max num of workers = %d",
+              settings_.log.debug("%c: max num of workers = %d",
                                   feasible_solution_symbol(type),
                                   max_num_workers_per_type[type]);
             }
@@ -1310,7 +1314,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
 #ifdef CUOPT_LOG_DEBUG
             for (auto type : worker_types) {
-              settings_.log.debug("%s: max num of workers = %d",
+              settings_.log.debug("%c: max num of workers = %d",
                                   feasible_solution_symbol(type),
                                   max_num_workers_per_type[type]);
             }
