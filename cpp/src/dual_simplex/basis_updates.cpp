@@ -1274,7 +1274,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
   new_L.col_start[m + cuts_basic.m] = L_nz;
   if (L_nz != predicted_nz) {
     printf("L_nz %d predicted_nz %d\n", L_nz, predicted_nz);
-    exit(1);
+    assert(L_nz == predicted_nz);
   }
 
   L0_ = new_L;
