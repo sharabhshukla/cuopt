@@ -1667,7 +1667,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     settings_.log.printf("lp A.j hash: %08x\n",
                          detail::compute_hash(original_lp_.A.i.underlying()));
     lp_hash ^= detail::compute_hash(original_lp_.A.col_start.underlying());
-    settings_.log.printf("lp A.col_start hash1: %08x\n",
+    settings_.log.printf("lp A.col_start hash: %08x\n",
                          detail::compute_hash(original_lp_.A.col_start.underlying()));
     lp_hash ^= detail::compute_hash(original_lp_.rhs);
     settings_.log.printf("lp rhs hash: %08x\n", detail::compute_hash(original_lp_.rhs));
