@@ -2792,6 +2792,12 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
           user_lower,
           gap.c_str(),
           toc(exploration_stats_.start_time));
+
+        if (settings_.solution_callback != nullptr) {
+          std::vector<f_t> original_x;
+          uncrush_primal_solution(original_problem_, original_lp_, hsol.solution, original_x);
+          settings_.solution_callback(original_x, hsol.objective);
+        }
       }
     }
   }
@@ -2835,13 +2841,22 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
         toc(exploration_stats_.start_time));
 
       // Update incumbent
+      bool improved = false;
       mutex_upper_.lock();
       if (sol.objective < upper_bound_) {
         upper_bound_ = sol.objective;
         incumbent_.set_incumbent_solution(sol.objective, *sol.solution);
         current_upper = sol.objective;
+        improved      = true;
       }
       mutex_upper_.unlock();
+
+      // Notify diversity manager of new incumbent
+      if (improved && settings_.solution_callback != nullptr) {
+        std::vector<f_t> original_x;
+        uncrush_primal_solution(original_problem_, original_lp_, *sol.solution, original_x);
+        settings_.solution_callback(original_x, sol.objective);
+      }
     }
   }
 
@@ -3133,13 +3148,22 @@ void branch_and_bound_t<i_t, f_t>::merge_diving_solutions()
                            user_mip_gap<f_t>(user_obj, user_lower).c_str(),
                            toc(exploration_stats_.start_time));
 
+      bool improved = false;
       mutex_upper_.lock();
       if (sol->objective < upper_bound_) {
         upper_bound_ = sol->objective;
         incumbent_.set_incumbent_solution(sol->objective, sol->solution);
         current_upper = sol->objective;
+        improved      = true;
       }
       mutex_upper_.unlock();
+
+      // Notify diversity manager of new incumbent
+      if (improved && settings_.solution_callback != nullptr) {
+        std::vector<f_t> original_x;
+        uncrush_primal_solution(original_problem_, original_lp_, sol->solution, original_x);
+        settings_.solution_callback(original_x, sol->objective);
+      }
     }
   }
 

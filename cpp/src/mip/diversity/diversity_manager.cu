@@ -326,6 +326,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     // Stop CPUFJ when B&B is done
     ls.stop_cpufj_deterministic();
 
+    population.add_external_solutions_to_population();
     return population.best_feasible();
   }
   if (disable_heuristics_env != nullptr && std::string(disable_heuristics_env) == "1") {
