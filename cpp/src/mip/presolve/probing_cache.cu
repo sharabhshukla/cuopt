@@ -856,7 +856,7 @@ bool compute_probing_cache(bound_presolve_t<i_t, f_t>& bound_presolve,
   bound_presolve.settings.iteration_limit = 50;
   bound_presolve.settings.time_limit      = timer.remaining_time();
 
-  const int num_threads = 8;
+  const size_t num_threads = bound_presolve.settings.num_threads;
 
   // Create a vector of multi_probe_t objects
   std::vector<multi_probe_t<i_t, f_t>> multi_probe_presolve_pool;
@@ -885,7 +885,7 @@ bool compute_probing_cache(bound_presolve_t<i_t, f_t>& bound_presolve,
       if (timer.check_time_limit() || early_exit || problem_is_infeasible.load()) { break; }
       size_t step_end = std::min(step_start + step_size, priority_indices.size());
 
-#pragma omp for schedule(static, 4)
+#pragma omp for
       for (size_t i = step_start; i < step_end; ++i) {
         auto var_idx = priority_indices[i];
         if (timer.check_time_limit()) { continue; }

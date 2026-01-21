@@ -84,14 +84,16 @@ class branch_and_bound_t {
                                     f_t user_objective,
                                     i_t iterations)
   {
-    root_crossover_soln_.x              = primal;
-    root_crossover_soln_.y              = dual;
-    root_crossover_soln_.z              = reduced_costs;
-    root_objective_                     = objective;
-    root_crossover_soln_.objective      = objective;
-    root_crossover_soln_.user_objective = user_objective;
-    root_crossover_soln_.iterations     = iterations;
-    root_crossover_solution_set_.store(true, std::memory_order_release);
+    if (!is_running) {
+      root_crossover_soln_.x              = primal;
+      root_crossover_soln_.y              = dual;
+      root_crossover_soln_.z              = reduced_costs;
+      root_objective_                     = objective;
+      root_crossover_soln_.objective      = objective;
+      root_crossover_soln_.user_objective = user_objective;
+      root_crossover_soln_.iterations     = iterations;
+      root_crossover_solution_set_.store(true, std::memory_order_release);
+    }
   }
 
   // Set a solution based on the user problem during the course of the solve

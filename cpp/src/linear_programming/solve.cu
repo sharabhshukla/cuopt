@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -41,6 +41,9 @@
 #include <raft/core/handle.hpp>
 
 #include <thread>  // For std::thread
+
+#define CUOPT_LP_SOLVER_LOG_INFO(...) \
+  if (!settings.inside_mip) { CUOPT_LOG_INFO(__VA_ARGS__); }
 
 namespace cuopt::linear_programming {
 
@@ -417,7 +420,7 @@ run_barrier(dual_simplex::user_problem_t<i_t, f_t>& user_problem,
   auto status = dual_simplex::solve_linear_program_with_barrier<i_t, f_t>(
     user_problem, barrier_settings, solution);
 
-  CUOPT_LOG_INFO("Barrier finished in %.2f seconds", timer.elapsed_time());
+  CUOPT_LP_SOLVER_LOG_INFO("Barrier finished in %.2f seconds", timer.elapsed_time());
 
   if (settings.concurrent_halt != nullptr && (status == dual_simplex::lp_status_t::OPTIMAL ||
                                               status == dual_simplex::lp_status_t::UNBOUNDED ||
@@ -489,9 +492,9 @@ run_dual_simplex(dual_simplex::user_problem_t<i_t, f_t>& user_problem,
   auto status =
     dual_simplex::solve_linear_program<i_t, f_t>(user_problem, dual_simplex_settings, solution);
 
-  CUOPT_LOG_INFO("Dual simplex finished in %.2f seconds, total time %.2f",
-                 timer_dual_simplex.elapsed_time(),
-                 timer.elapsed_time());
+  CUOPT_LP_SOLVER_LOG_INFO("Dual simplex finished in %.2f seconds, total time %.2f",
+                           timer_dual_simplex.elapsed_time(),
+                           timer.elapsed_time());
 
   if (settings.concurrent_halt != nullptr && (status == dual_simplex::lp_status_t::OPTIMAL ||
                                               status == dual_simplex::lp_status_t::UNBOUNDED ||
@@ -530,7 +533,8 @@ static optimization_problem_solution_t<i_t, f_t> run_pdlp_solver(
   bool is_batch_mode)
 {
   if (problem.n_constraints == 0) {
-    CUOPT_LOG_INFO("No constraints in the problem: PDLP can't be run, use Dual Simplex instead.");
+    CUOPT_LP_SOLVER_LOG_INFO(
+      "No constraints in the problem: PDLP can't be run, use Dual Simplex instead.");
     return optimization_problem_solution_t<i_t, f_t>{pdlp_termination_status_t::NumericalError,
                                                      problem.handle_ptr->get_stream()};
   }
@@ -551,14 +555,15 @@ optimization_problem_solution_t<i_t, f_t> run_pdlp(detail::problem_t<i_t, f_t>& 
   auto sol             = run_pdlp_solver(problem, settings, timer, is_batch_mode);
   auto pdlp_solve_time = timer_pdlp.elapsed_time();
   sol.set_solve_time(timer.elapsed_time());
-  CUOPT_LOG_INFO("PDLP finished");
+  CUOPT_LP_SOLVER_LOG_INFO("PDLP finished");
   if (sol.get_termination_status() != pdlp_termination_status_t::ConcurrentLimit) {
-    CUOPT_LOG_INFO("Status: %s   Objective: %.8e  Iterations: %d  Time: %.3fs, Total time %.3fs",
-                   sol.get_termination_status_string().c_str(),
-                   sol.get_objective_value(),
-                   sol.get_additional_termination_information().number_of_steps_taken,
-                   pdlp_solve_time,
-                   sol.get_solve_time());
+    CUOPT_LP_SOLVER_LOG_INFO(
+      "Status: %s   Objective: %.8e  Iterations: %d  Time: %.3fs, Total time %.3fs",
+      sol.get_termination_status_string().c_str(),
+      sol.get_objective_value(),
+      sol.get_additional_termination_information().number_of_steps_taken,
+      pdlp_solve_time,
+      sol.get_solve_time());
   }
 
   const bool do_crossover = settings.crossover;
@@ -620,12 +625,12 @@ optimization_problem_solution_t<i_t, f_t> run_pdlp(detail::problem_t<i_t, f_t>& 
                                                                    info,
                                                                    termination_status);
     sol.copy_from(problem.handle_ptr, sol_crossover);
-    CUOPT_LOG_INFO("Crossover status %s", sol.get_termination_status_string().c_str());
+    CUOPT_LP_SOLVER_LOG_INFO("Crossover status %s", sol.get_termination_status_string().c_str());
   }
   if (settings.method == method_t::Concurrent && settings.concurrent_halt != nullptr &&
       crossover_info == 0 && sol.get_termination_status() == pdlp_termination_status_t::Optimal) {
     // We finished. Tell dual simplex to stop if it is still running.
-    CUOPT_LOG_INFO("PDLP finished. Telling others to stop");
+    CUOPT_LP_SOLVER_LOG_INFO("PDLP finished. Telling others to stop");
     *settings.concurrent_halt = 1;
   }
   return sol;
@@ -653,7 +658,7 @@ optimization_problem_solution_t<i_t, f_t> run_concurrent(
   const timer_t& timer,
   bool is_batch_mode)
 {
-  CUOPT_LOG_INFO("Running concurrent\n");
+  CUOPT_LP_SOLVER_LOG_INFO("Running concurrent\n");
   timer_t timer_concurrent(timer.remaining_time());
 
   // Copy the settings so that we can set the concurrent halt pointer
@@ -668,7 +673,7 @@ optimization_problem_solution_t<i_t, f_t> run_concurrent(
 
   if (settings.num_gpus > 1) {
     int device_count = raft::device_setter::get_device_count();
-    CUOPT_LOG_INFO("Running PDLP and Barrier on %d GPUs", device_count);
+    CUOPT_LP_SOLVER_LOG_INFO("Running PDLP and Barrier on %d GPUs", device_count);
     cuopt_expects(
       device_count > 1, error_type_t::RuntimeError, "Multi-GPU mode requires at least 2 GPUs");
   }
@@ -752,41 +757,43 @@ optimization_problem_solution_t<i_t, f_t> run_concurrent(
                                               1);
 
   f_t end_time = timer.elapsed_time();
-  CUOPT_LOG_INFO(
+  CUOPT_LP_SOLVER_LOG_INFO(
     "Concurrent time:  %.3fs, total time %.3fs", timer_concurrent.elapsed_time(), end_time);
   // Check status to see if we should return the pdlp solution or the dual simplex solution
   if (!settings.inside_mip &&
       (sol_dual_simplex.get_termination_status() == pdlp_termination_status_t::Optimal ||
        sol_dual_simplex.get_termination_status() == pdlp_termination_status_t::PrimalInfeasible ||
        sol_dual_simplex.get_termination_status() == pdlp_termination_status_t::DualInfeasible)) {
-    CUOPT_LOG_INFO("Solved with dual simplex");
+    CUOPT_LP_SOLVER_LOG_INFO("Solved with dual simplex");
     sol_pdlp.copy_from(problem.handle_ptr, sol_dual_simplex);
     sol_pdlp.set_solve_time(end_time);
-    CUOPT_LOG_INFO("Status: %s   Objective: %.8e  Iterations: %d  Time: %.3fs",
-                   sol_pdlp.get_termination_status_string().c_str(),
-                   sol_pdlp.get_objective_value(),
-                   sol_pdlp.get_additional_termination_information().number_of_steps_taken,
-                   end_time);
+    CUOPT_LP_SOLVER_LOG_INFO(
+      "Status: %s   Objective: %.8e  Iterations: %d  Time: %.3fs",
+      sol_pdlp.get_termination_status_string().c_str(),
+      sol_pdlp.get_objective_value(),
+      sol_pdlp.get_additional_termination_information().number_of_steps_taken,
+      end_time);
     return sol_pdlp;
   } else if (sol_barrier.get_termination_status() == pdlp_termination_status_t::Optimal) {
-    CUOPT_LOG_INFO("Solved with barrier");
+    CUOPT_LP_SOLVER_LOG_INFO("Solved with barrier");
     sol_pdlp.copy_from(problem.handle_ptr, sol_barrier);
     sol_pdlp.set_solve_time(end_time);
-    CUOPT_LOG_INFO("Status: %s   Objective: %.8e  Iterations: %d  Time: %.3fs",
-                   sol_pdlp.get_termination_status_string().c_str(),
-                   sol_pdlp.get_objective_value(),
-                   sol_pdlp.get_additional_termination_information().number_of_steps_taken,
-                   end_time);
+    CUOPT_LP_SOLVER_LOG_INFO(
+      "Status: %s   Objective: %.8e  Iterations: %d  Time: %.3fs",
+      sol_pdlp.get_termination_status_string().c_str(),
+      sol_pdlp.get_objective_value(),
+      sol_pdlp.get_additional_termination_information().number_of_steps_taken,
+      end_time);
     return sol_pdlp;
   } else if (sol_pdlp.get_termination_status() == pdlp_termination_status_t::Optimal) {
-    CUOPT_LOG_INFO("Solved with PDLP");
+    CUOPT_LP_SOLVER_LOG_INFO("Solved with PDLP");
     return sol_pdlp;
   } else if (!settings.inside_mip &&
              sol_pdlp.get_termination_status() == pdlp_termination_status_t::ConcurrentLimit) {
-    CUOPT_LOG_INFO("Using dual simplex solve info");
+    CUOPT_LP_SOLVER_LOG_INFO("Using dual simplex solve info");
     return sol_dual_simplex;
   } else {
-    CUOPT_LOG_INFO("Using PDLP solve info");
+    CUOPT_LP_SOLVER_LOG_INFO("Using PDLP solve info");
     return sol_pdlp;
   }
 }
