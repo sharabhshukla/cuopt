@@ -465,8 +465,8 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
   }
 
   if (num_pending != 0) {
-    printf(
-      "RB LP iterations = %d, B&B LP iterations = %d reliable_threshold = %d, num strong branches "
+    settings.log.printf(
+      "RB LP iterations = %d, B&B LP iterations = %d, reliable_threshold = %d, num strong branches "
       "= %d\n",
       total_lp_iter.load(),
       bnb_lp_iter,
@@ -475,7 +475,7 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
   }
 
   while (num_pending != 0) {
-#pragma omp taskloop if (num_pending > 1) priority(task_priority)
+#pragma omp taskloop if (num_pending > 1) priority(task_priority) grainsize(1) untied
     for (i_t i = 0; i < num_pending; ++i) {
       const i_t j    = pending[i];
       bool is_locked = pseudo_cost_mutex[j].try_lock();
