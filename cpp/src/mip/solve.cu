@@ -141,7 +141,7 @@ mip_solution_t<i_t, f_t> run_mip(detail::problem_t<i_t, f_t>& problem,
     is_feasible_before_scaling || is_feasible_after_unscaling, solver.get_solver_stats(), false);
 
   int hidesol =
-    std::getenv("CUOPT_MIP_PRINT_SOLUTION") ? atoi(std::getenv("CUOPT_MIP_PRINT_SOLUTION")) : 0;
+    std::getenv("CUOPT_MIP_HIDE_SOLUTION") ? atoi(std::getenv("CUOPT_MIP_HIDE_SOLUTION")) : 0;
   if (!hidesol) { detail::print_solution(scaled_problem.handle_ptr, sol.get_solution()); }
   return sol;
 }
