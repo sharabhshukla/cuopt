@@ -86,7 +86,7 @@ class sub_mip_recombiner_t : public recombiner_t<i_t, f_t> {
     trivial_presolve(fixed_problem);
     fixed_problem.check_problem_representation(true);
     // brute force rounding threshold is 8
-    const bool run_sub_mip                             = 0 && fixed_problem.n_integer_vars > 8;
+    const bool run_sub_mip                             = fixed_problem.n_integer_vars > 8;
     dual_simplex::mip_status_t branch_and_bound_status = dual_simplex::mip_status_t::UNSET;
     dual_simplex::mip_solution_t<i_t, f_t> branch_and_bound_solution(1);
     if (run_sub_mip) {
@@ -105,6 +105,7 @@ class sub_mip_recombiner_t : public recombiner_t<i_t, f_t> {
       branch_and_bound_settings.num_threads     = 2;
       branch_and_bound_settings.num_bfs_threads = 1;
       branch_and_bound_settings.num_diving_threads = 1;
+      branch_and_bound_settings.max_cut_passes = 0;
       branch_and_bound_settings.solution_callback  = [this](std::vector<f_t>& solution,
                                                            f_t objective) {
         this->solution_callback(solution, objective);
