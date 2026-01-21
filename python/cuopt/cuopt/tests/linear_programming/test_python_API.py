@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import math
@@ -20,7 +20,7 @@ from cuopt.linear_programming.problem import (
     Problem,
     VType,
     sense,
-    MQuadraticExpression
+    MQuadraticExpression,
 )
 from cuopt.linear_programming.solver.solver_parameters import (
     CUOPT_AUGMENTED,

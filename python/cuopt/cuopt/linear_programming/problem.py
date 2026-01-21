@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 
@@ -327,7 +327,13 @@ class QuadraticExpression:
     """
 
     def __init__(
-        self, qvars1, qvars2, qcoefficients, vars=[], coefficients=[], constant=0.0
+        self,
+        qvars1,
+        qvars2,
+        qcoefficients,
+        vars=[],
+        coefficients=[],
+        constant=0.0,
     ):
         self.qvars1 = qvars1
         self.qvars2 = qvars2
@@ -722,7 +728,6 @@ class MQuadraticExpression:
         self.coefficients = coefficients
         self.constant = constant
 
-
     def shape(self):
         return np.shape(self.qmatrix)
 
@@ -737,7 +742,7 @@ class MQuadraticExpression:
             value += var.Value * self.coefficients[i]
         for i, var1 in enumerate(self.qvars):
             for j, var2 in enumerate(self.qvars):
-                value += var1.Value * var2.Value * float(self.qmatrix[i,j])
+                value += var1.Value * var2.Value * float(self.qmatrix[i, j])
         return value + self.constant
 
     def __size__(self):
@@ -859,13 +864,13 @@ class MQuadraticExpression:
                 )
 
     ## TODO: Add matrix multiplication
-    #def __matmul__(self, qcols):
+    # def __matmul__(self, qcols):
     #    if not self.qcols:
     #        self.qcols = qcols
     #    else:
     #        raise Exception("")
 
-    #def __rmatmul__(self, qcols):
+    # def __rmatmul__(self, qcols):
     #    if not self.qrows:
     #        self.qrows = qrows
     #    else:
@@ -1681,9 +1686,11 @@ class Problem:
                 qrows = [var.getIndex() for var in expr.qvars1]
                 qcols = [var.getIndex() for var in expr.qvars2]
                 self.objective_qcoo_matrix = coo_matrix(
-                    (np.array(expr.qcoefficients),
-                    (np.array(qrows), np.array(qcols))),
-                    shape=(self.NumVariables, self.NumVariables)
+                    (
+                        np.array(expr.qcoefficients),
+                        (np.array(qrows), np.array(qcols)),
+                    ),
+                    shape=(self.NumVariables, self.NumVariables),
                 )
             case MQuadraticExpression():
                 for var in self.vars:
@@ -1695,8 +1702,7 @@ class Problem:
                         sum_coeff
                     )
                 self.ObjConstant = expr.constant
-                self.objective_qcoo_matrix = coo_matrix(
-                    expr.qmatrix)
+                self.objective_qcoo_matrix = coo_matrix(expr.qmatrix)
             case _:
                 raise ValueError(
                     "Objective must be a LinearExpression or a constant"
@@ -1893,11 +1899,12 @@ class Problem:
         if self.objective_qcoo_matrix is None:
             return None
         qcsr_matrix = self.objective_qcoo_matrix.tocsr()
-        self.objective_qcsr_matrix = {"row_pointers": qcsr_matrix.indptr,
-                                      "column_indices": qcsr_matrix.indices,
-                                      "values": qcsr_matrix.data}
+        self.objective_qcsr_matrix = {
+            "row_pointers": qcsr_matrix.indptr,
+            "column_indices": qcsr_matrix.indices,
+            "values": qcsr_matrix.data,
+        }
         return self.dict_to_object(self.objective_qcsr_matrix)
-
 
     def relax(self):
         """
