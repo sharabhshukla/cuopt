@@ -2311,7 +2311,7 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_helper(
           const f_t value = static_cast<f_t>(k) * (f_a_j - f_a_0) / alpha;
           i_t p           = static_cast<i_t>(std::ceil(value));
           if (fractional_part(value) < 1e-12) {
-            printf("Warning: p %d value %.16e is close to an integer\n", p, value, p + 1);
+            //printf("Warning: p %d value %.16e is close to an integer\n", p, value, p + 1);
           }
           if (verbose) {
             printf("j %d a_j %e f_a_j %e p %d value %.16e\n", j, a_j, f_a_j, p, value);

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -137,7 +137,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     auto opt_sol = solve_lp_with_method<i_t, f_t>(*context.problem_ptr, settings, lp_timer);
 
     solution_t<i_t, f_t> sol(*context.problem_ptr);
-    sol.copy_new_assignment(host_copy(opt_sol.get_primal_solution()));
+    sol.copy_new_assignment(
+      host_copy(opt_sol.get_primal_solution(), context.problem_ptr->handle_ptr->get_stream()));
     if (opt_sol.get_termination_status() == pdlp_termination_status_t::Optimal ||
         opt_sol.get_termination_status() == pdlp_termination_status_t::PrimalInfeasible ||
         opt_sol.get_termination_status() == pdlp_termination_status_t::DualInfeasible) {
@@ -162,7 +163,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound_solution.resize(branch_and_bound_problem.num_cols);
 
     // Fill in the settings for branch and bound
-    branch_and_bound_settings.time_limit           = timer_.remaining_time();
+    branch_and_bound_settings.time_limit           = timer_.get_time_limit();
     branch_and_bound_settings.node_limit           = context.settings.node_limit;
     branch_and_bound_settings.reliability_branching = context.settings.reliability_branching;
     branch_and_bound_settings.print_presolve_stats = false;
@@ -176,13 +177,12 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     } else {
       branch_and_bound_settings.num_threads = std::max(1, context.settings.num_cpu_threads);
     }
-    CUOPT_LOG_INFO("Using %d CPU threads for B&B", branch_and_bound_settings.num_threads);
 
-    i_t num_threads                              = branch_and_bound_settings.num_threads;
-    i_t num_bfs_threads                          = std::max(1, num_threads / 4);
-    i_t num_diving_threads                       = std::max(1, num_threads - num_bfs_threads);
-    branch_and_bound_settings.num_bfs_threads    = num_bfs_threads;
-    branch_and_bound_settings.num_diving_threads = num_diving_threads;
+    i_t num_threads                           = branch_and_bound_settings.num_threads;
+    i_t num_bfs_workers                       = std::max(1, num_threads / 4);
+    i_t num_diving_workers                    = std::max(1, num_threads - num_bfs_workers);
+    branch_and_bound_settings.num_bfs_workers = num_bfs_workers;
+    branch_and_bound_settings.diving_settings.num_diving_workers = num_diving_workers;
 
     // Set the branch and bound -> primal heuristics callback
     branch_and_bound_settings.solution_callback =
@@ -208,7 +208,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
     // Create the branch and bound object
     branch_and_bound = std::make_unique<dual_simplex::branch_and_bound_t<i_t, f_t>>(
-      branch_and_bound_problem, branch_and_bound_settings);
+      branch_and_bound_problem, branch_and_bound_settings, timer_.get_tic_start());
     context.branch_and_bound_ptr = branch_and_bound.get();
     branch_and_bound->set_concurrent_lp_root_solve(true);
 

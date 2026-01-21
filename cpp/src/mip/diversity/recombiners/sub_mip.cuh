@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -13,6 +13,7 @@
 #include <dual_simplex/branch_and_bound.hpp>
 #include <dual_simplex/simplex_solver_settings.hpp>
 #include <dual_simplex/solve.hpp>
+#include <dual_simplex/tic_toc.hpp>
 
 namespace cuopt::linear_programming::detail {
 
@@ -103,10 +104,16 @@ class sub_mip_recombiner_t : public recombiner_t<i_t, f_t> {
       branch_and_bound_settings.relative_mip_gap_tol = context.settings.tolerances.relative_mip_gap;
       branch_and_bound_settings.integer_tol     = context.settings.tolerances.integrality_tolerance;
       branch_and_bound_settings.num_threads     = 2;
-      branch_and_bound_settings.num_bfs_threads = 1;
-      branch_and_bound_settings.num_diving_threads = 1;
-      branch_and_bound_settings.max_cut_passes = 0;
-      branch_and_bound_settings.solution_callback  = [this](std::vector<f_t>& solution,
+      branch_and_bound_settings.num_bfs_workers = 1;
+      branch_and_bound_settings.max_cut_passes  = 0;
+
+      // In the future, let SubMIP use all the diving heuristics. For now,
+      // restricting to guided diving.
+      branch_and_bound_settings.diving_settings.num_diving_workers = 1;
+      branch_and_bound_settings.diving_settings.line_search_diving = 0;
+      branch_and_bound_settings.diving_settings.coefficient_diving = 0;
+      branch_and_bound_settings.diving_settings.pseudocost_diving  = 0;
+      branch_and_bound_settings.solution_callback = [this](std::vector<f_t>& solution,
                                                            f_t objective) {
         this->solution_callback(solution, objective);
       };
@@ -114,7 +121,8 @@ class sub_mip_recombiner_t : public recombiner_t<i_t, f_t> {
       // disable B&B logs, so that it is not interfering with the main B&B thread
       branch_and_bound_settings.log.log = false;
       dual_simplex::branch_and_bound_t<i_t, f_t> branch_and_bound(branch_and_bound_problem,
-                                                                  branch_and_bound_settings);
+                                                                  branch_and_bound_settings,
+                                                                  dual_simplex::tic());
       branch_and_bound_status = branch_and_bound.solve(branch_and_bound_solution);
       if (solution_vector.size() > 0) {
         cuopt_assert(fixed_assignment.size() == branch_and_bound_solution.x.size(),

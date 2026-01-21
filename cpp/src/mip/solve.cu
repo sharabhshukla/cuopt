@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -222,7 +222,7 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
         CUOPT_LOG_INFO("%d implied integers", result->implied_integer_indices.size());
       }
       if (problem.is_objective_integral()) { CUOPT_LOG_INFO("Objective function is integral"); }
-      CUOPT_LOG_INFO("Papilo presolve time: %f", presolve_time);
+      CUOPT_LOG_INFO("Papilo presolve time: %.2f", presolve_time);
     }
     if (settings.user_problem_file != "") {
       CUOPT_LOG_INFO("Writing user problem to file: %s", settings.user_problem_file.c_str());
@@ -259,7 +259,8 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
                      std::numeric_limits<f_t>::signaling_NaN());
         detail::problem_t<i_t, f_t> full_problem(op_problem);
         detail::solution_t<i_t, f_t> full_sol(full_problem);
-        full_sol.copy_new_assignment(cuopt::host_copy(primal_solution));
+        full_sol.copy_new_assignment(
+          cuopt::host_copy(primal_solution, op_problem.get_handle_ptr()->get_stream()));
         full_sol.compute_feasibility();
         if (!full_sol.get_feasible()) {
           CUOPT_LOG_WARN("The solution is not feasible after post solve");

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -158,11 +158,7 @@ void optimization_problem_t<i_t, f_t>::set_quadratic_objective_matrix(
   // Replace Q with Q + Q^T
   i_t qn    = size_offsets - 1;  // Number of variables
   i_t q_nnz = size_indices;
-
-
   // Construct H = Q + Q^T in triplet form first
-  // Then covert the triplet to CSR
-
   std::vector<i_t> H_i;
   std::vector<i_t> H_j;
   std::vector<f_t> H_x;
@@ -180,14 +176,16 @@ void optimization_problem_t<i_t, f_t>::set_quadratic_objective_matrix(
       // Add H(i,j)
       H_i.push_back(i);
       H_j.push_back(j);
-      H_x.push_back(x);
-      // Add H(j,i)
-      H_i.push_back(j);
-      H_j.push_back(i);
-      H_x.push_back(x);
+      if (i == j) { H_x.push_back(2 * x); }
+      if (i != j) {
+        H_x.push_back(x);
+        // Add H(j,i)
+        H_i.push_back(j);
+        H_j.push_back(i);
+        H_x.push_back(x);
+      }
     }
   }
-
   // Convert H to CSR format
   // Get row counts
   i_t H_nz = H_x.size();
@@ -200,43 +198,13 @@ void optimization_problem_t<i_t, f_t>::set_quadratic_objective_matrix(
     H_cumulative_counts[k + 1] = H_cumulative_counts[k] + H_row_counts[k];
   }
   std::vector<i_t> H_row_starts = H_cumulative_counts;
-  std::vector<i_t> H_map(H_nz);
   std::vector<i_t> H_indices(H_nz);
   std::vector<f_t> H_values(H_nz);
   for (i_t k = 0; k < H_nz; ++k) {
-    const i_t p = H_cumulative_counts[H_i[k]]++;
-    H_map[k] = p;
+    i_t p        = H_cumulative_counts[H_i[k]]++;
+    H_indices[p] = H_j[k];
+    H_values[p]  = H_x[k];
   }
-  rmm::device_uvector<i_t> d_H_map(H_nz, stream_view_);
-  rmm::device_uvector<i_t> d_H_j(H_nz, stream_view_);
-  rmm::device_uvector<f_t> d_H_x(H_nz, stream_view_);
-  rmm::device_uvector<i_t> d_H_indices(H_nz, stream_view_);
-  rmm::device_uvector<f_t> d_H_values(H_nz, stream_view_);
-
-  raft::copy(d_H_map.data(), H_map.data(), H_nz, stream_view_);
-  raft::copy(d_H_j.data(), H_j.data(), H_nz, stream_view_);
-  raft::copy(d_H_x.data(), H_x.data(), H_nz, stream_view_);
-  stream_view_.synchronize();
-  thrust::for_each_n(rmm::exec_policy(stream_view_),
-                     thrust::make_counting_iterator<i_t>(0),
-                     H_nz,
-                     [span_H_map = cuopt::make_span(d_H_map),
-                      span_H_j = cuopt::make_span(d_H_j),
-                      span_H_indices = cuopt::make_span(d_H_indices)] __device__(i_t k) {
-                      span_H_indices[span_H_map[k]] = span_H_j[k];
-                     });
-  thrust::for_each_n(rmm::exec_policy(stream_view_),
-                     thrust::make_counting_iterator<i_t>(0),
-                     H_nz,
-                     [span_H_map = cuopt::make_span(d_H_map),
-                      span_H_x = cuopt::make_span(d_H_x),
-                      span_H_values = cuopt::make_span(d_H_values)] __device__(i_t k) {
-                      span_H_values[span_H_map[k]] = span_H_x[k];
-                     });
-
-  raft::copy(H_indices.data(), d_H_indices.data(), H_nz, stream_view_);
-  raft::copy(H_values.data(), d_H_values.data(), H_nz, stream_view_);
-  stream_view_.synchronize();
 
   // H_row_starts, H_indices, H_values are the CSR representation of H
   // But this contains duplicate entries
@@ -247,28 +215,27 @@ void optimization_problem_t<i_t, f_t>::set_quadratic_objective_matrix(
   Q_indices_.resize(H_nz);
   Q_values_.resize(H_nz);
   i_t nz = 0;
-  for (i_t i = 0; i < qn; ++i)
-  {
-    i_t q = nz;                                 // row i will start at q
+  for (i_t i = 0; i < qn; ++i) {
+    i_t q               = nz;  // row i will start at q
     const i_t row_start = H_row_starts[i];
-    const i_t row_end = H_row_starts[i + 1];
+    const i_t row_end   = H_row_starts[i + 1];
     for (i_t p = row_start; p < row_end; ++p) {
       i_t j = H_indices[p];
       if (workspace[j] >= q) {
         Q_values_[workspace[j]] += H_values[p];  // H(i,j) is duplicate
       } else {
-        workspace[j] = nz;                      // record where column j occurs
-        Q_indices_[nz] = j;                     // keep H(i,j)
-        Q_values_[nz] = H_values[p];
+        workspace[j]   = nz;  // record where column j occurs
+        Q_indices_[nz] = j;   // keep H(i,j)
+        Q_values_[nz]  = H_values[p];
         nz++;
       }
     }
-    Q_offsets_[i] = q;                          // record start of row i
+    Q_offsets_[i] = q;  // record start of row i
   }
-  Q_offsets_[qn] = nz;                          // finalize Q
+
+  Q_offsets_[qn] = nz;  // finalize Q
   Q_indices_.resize(nz);
   Q_values_.resize(nz);
-
   // FIX ME:: check for positive semi definite matrix
 }
 
@@ -408,7 +375,7 @@ i_t optimization_problem_t<i_t, f_t>::get_n_integers() const
 {
   i_t n_integers = 0;
   if (get_n_variables() != 0) {
-    auto enum_variable_types = cuopt::host_copy(get_variable_types());
+    auto enum_variable_types = cuopt::host_copy(get_variable_types(), handle_ptr_->get_stream());
 
     for (size_t i = 0; i < enum_variable_types.size(); ++i) {
       if (enum_variable_types[i] == var_t::INTEGER) { n_integers++; }
@@ -662,16 +629,17 @@ void optimization_problem_t<i_t, f_t>::write_to_mps(const std::string& mps_file_
   data_model_view.set_maximize(get_sense());
 
   // Copy to host
-  auto constraint_matrix_values  = cuopt::host_copy(get_constraint_matrix_values());
-  auto constraint_matrix_indices = cuopt::host_copy(get_constraint_matrix_indices());
-  auto constraint_matrix_offsets = cuopt::host_copy(get_constraint_matrix_offsets());
-  auto constraint_bounds         = cuopt::host_copy(get_constraint_bounds());
-  auto objective_coefficients    = cuopt::host_copy(get_objective_coefficients());
-  auto variable_lower_bounds     = cuopt::host_copy(get_variable_lower_bounds());
-  auto variable_upper_bounds     = cuopt::host_copy(get_variable_upper_bounds());
-  auto constraint_lower_bounds   = cuopt::host_copy(get_constraint_lower_bounds());
-  auto constraint_upper_bounds   = cuopt::host_copy(get_constraint_upper_bounds());
-  auto row_types                 = cuopt::host_copy(get_row_types());
+  auto stream                    = handle_ptr_->get_stream();
+  auto constraint_matrix_values  = cuopt::host_copy(get_constraint_matrix_values(), stream);
+  auto constraint_matrix_indices = cuopt::host_copy(get_constraint_matrix_indices(), stream);
+  auto constraint_matrix_offsets = cuopt::host_copy(get_constraint_matrix_offsets(), stream);
+  auto constraint_bounds         = cuopt::host_copy(get_constraint_bounds(), stream);
+  auto objective_coefficients    = cuopt::host_copy(get_objective_coefficients(), stream);
+  auto variable_lower_bounds     = cuopt::host_copy(get_variable_lower_bounds(), stream);
+  auto variable_upper_bounds     = cuopt::host_copy(get_variable_upper_bounds(), stream);
+  auto constraint_lower_bounds   = cuopt::host_copy(get_constraint_lower_bounds(), stream);
+  auto constraint_upper_bounds   = cuopt::host_copy(get_constraint_upper_bounds(), stream);
+  auto row_types                 = cuopt::host_copy(get_row_types(), stream);
 
   // Set constraint matrix in CSR format
   if (get_nnz() != 0) {
@@ -723,7 +691,7 @@ void optimization_problem_t<i_t, f_t>::write_to_mps(const std::string& mps_file_
   std::vector<char> variable_types(get_n_variables());
   // Set variable types (convert from enum to char)
   if (get_n_variables() != 0) {
-    auto enum_variable_types = cuopt::host_copy(get_variable_types());
+    auto enum_variable_types = cuopt::host_copy(get_variable_types(), stream);
 
     // Convert enum types to char types
     for (size_t i = 0; i < variable_types.size(); ++i) {
@@ -748,13 +716,17 @@ void optimization_problem_t<i_t, f_t>::write_to_mps(const std::string& mps_file_
 template <typename i_t, typename f_t>
 void optimization_problem_t<i_t, f_t>::print_scaling_information() const
 {
-  std::vector<f_t> constraint_matrix_values = cuopt::host_copy(get_constraint_matrix_values());
-  std::vector<f_t> constraint_rhs           = cuopt::host_copy(get_constraint_bounds());
-  std::vector<f_t> objective_coefficients   = cuopt::host_copy(get_objective_coefficients());
-  std::vector<f_t> variable_lower_bounds    = cuopt::host_copy(get_variable_lower_bounds());
-  std::vector<f_t> variable_upper_bounds    = cuopt::host_copy(get_variable_upper_bounds());
-  std::vector<f_t> constraint_lower_bounds  = cuopt::host_copy(get_constraint_lower_bounds());
-  std::vector<f_t> constraint_upper_bounds  = cuopt::host_copy(get_constraint_upper_bounds());
+  auto stream = handle_ptr_->get_stream();
+  std::vector<f_t> constraint_matrix_values =
+    cuopt::host_copy(get_constraint_matrix_values(), stream);
+  std::vector<f_t> constraint_rhs         = cuopt::host_copy(get_constraint_bounds(), stream);
+  std::vector<f_t> objective_coefficients = cuopt::host_copy(get_objective_coefficients(), stream);
+  std::vector<f_t> variable_lower_bounds  = cuopt::host_copy(get_variable_lower_bounds(), stream);
+  std::vector<f_t> variable_upper_bounds  = cuopt::host_copy(get_variable_upper_bounds(), stream);
+  std::vector<f_t> constraint_lower_bounds =
+    cuopt::host_copy(get_constraint_lower_bounds(), stream);
+  std::vector<f_t> constraint_upper_bounds =
+    cuopt::host_copy(get_constraint_upper_bounds(), stream);
 
   auto findMaxAbs = [](const std::vector<f_t>& vec) -> f_t {
     if (vec.empty()) { return 0.0; }
