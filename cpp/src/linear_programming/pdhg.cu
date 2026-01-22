@@ -77,7 +77,10 @@ pdhg_solver_t<i_t, f_t>::pdhg_solver_t(raft::handle_t const* handle_ptr,
     reusable_device_scalar_value_0_{0.0, stream_view_},
     reusable_device_scalar_value_neg_1_{f_t(-1.0), stream_view_},
     reusable_device_scalar_1_{stream_view_},
-    graph_all{stream_view_, is_legacy_batch_mode},
+    // In both multi stream and SpMM PDLP CUDA Graphs are causing issue
+    // Currently graph capture is not supported for cuSparse SpMM
+    // TODO enable once cuSparse SpMM supports graph capture
+    graph_all{stream_view_, is_legacy_batch_mode || batch_mode_},
     graph_prim_proj_gradient_dual{stream_view_, is_legacy_batch_mode},
     d_total_pdhg_iterations_{0, stream_view_},
     climber_strategies_(climber_strategies),

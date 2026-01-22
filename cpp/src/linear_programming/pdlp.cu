@@ -1570,7 +1570,9 @@ void pdlp_solver_t<i_t, f_t>::resize_and_swap_all_context_loop(
                               stream_view_);
 
   // Set PDHG graph to unitilized so that next call can start a new graph
-  pdhg_solver_.get_graph_all() = ping_pong_graph_t<i_t>(stream_view_);
+  // Currently graph capture is not supported for cuSparse SpMM
+  // TODO enable once cuSparse SpMM supports graph capture
+  pdhg_solver_.get_graph_all() = ping_pong_graph_t<i_t>(stream_view_, true);
 
   RAFT_CUDA_TRY(cudaStreamSynchronize(stream_view_));
 }
