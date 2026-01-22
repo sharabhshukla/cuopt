@@ -610,28 +610,31 @@ void branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t, f_t>& 
   if (gap <= settings_.absolute_mip_gap_tol || gap_rel <= settings_.relative_mip_gap_tol) {
     solver_status_ = mip_status_t::OPTIMAL;
 #if 1
-    FILE* fid = NULL;
-    fid       = fopen("solution.dat", "w");
-    if (fid != NULL) {
-      printf("Writing solution.dat\n");
+    if (settings_.sub_mip == 0) {
+      FILE* fid = NULL;
+      fid       = fopen("solution.dat", "w");
+      if (fid != NULL) {
+        printf("Writing solution.dat\n");
 
-      std::vector<f_t> residual = original_lp_.rhs;
-      matrix_vector_multiply(original_lp_.A, 1.0, incumbent_.x, -1.0, residual);
-      printf("|| A*x - b ||_inf %e\n", vector_norm_inf<i_t, f_t>(residual));
-      auto hash_combine_f = [](size_t seed, f_t x) {
-        seed ^= std::hash<f_t>{}(x) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        return seed;
-      };
-      printf("incumbent size %ld original lp cols %d\n", incumbent_.x.size(), original_lp_.num_cols);
-      i_t n = original_lp_.num_cols;
-      size_t seed = n;
-      fprintf(fid, "%d\n", n);
-      for (i_t j = 0; j < n; ++j) {
-        fprintf(fid, "%.17g\n", incumbent_.x[j]);
-        seed = hash_combine_f(seed, incumbent_.x[j]);
+        std::vector<f_t> residual = original_lp_.rhs;
+        matrix_vector_multiply(original_lp_.A, 1.0, incumbent_.x, -1.0, residual);
+        printf("|| A*x - b ||_inf %e\n", vector_norm_inf<i_t, f_t>(residual));
+        auto hash_combine_f = [](size_t seed, f_t x) {
+          seed ^= std::hash<f_t>{}(x) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+          return seed;
+        };
+        printf(
+          "incumbent size %ld original lp cols %d\n", incumbent_.x.size(), original_lp_.num_cols);
+        i_t n       = original_lp_.num_cols;
+        size_t seed = n;
+        fprintf(fid, "%d\n", n);
+        for (i_t j = 0; j < n; ++j) {
+          fprintf(fid, "%.17g\n", incumbent_.x[j]);
+          seed = hash_combine_f(seed, incumbent_.x[j]);
+        }
+        printf("Solution hash: %20x\n", seed);
+        fclose(fid);
       }
-      printf("Solution hash: %20x\n", seed);
-      fclose(fid);
     }
 #endif
     if (gap > 0 && gap <= settings_.absolute_mip_gap_tol) {
@@ -1567,7 +1570,9 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       root_relax_soln = root_crossover_soln_;
       root_vstatus    = crossover_vstatus_;
       root_status      = lp_status_t::OPTIMAL;
-
+      basic_list.clear();
+      nonbasic_list.reserve(original_lp_.num_cols - original_lp_.num_rows);
+      nonbasic_list.clear();
       // Get the basic list and nonbasic list from the vstatus
       for (i_t j = 0; j < original_lp_.num_cols; j++) {
         if (crossover_vstatus_[j] == variable_status_t::BASIC) {
@@ -1587,7 +1592,6 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
                              original_lp_.num_cols - original_lp_.num_rows);
         assert(nonbasic_list.size() == original_lp_.num_cols - original_lp_.num_rows);
       }
-      root_crossover_settings.max_cut_passes = 3;
       // Populate the basis_update from the crossover vstatus
       basis_update.refactor_basis(original_lp_.A,
                                   root_crossover_settings,
@@ -1976,7 +1980,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
 
       if (cut_status != dual::status_t::OPTIMAL) {
-        settings_.log.printf("Cut status %d\n", cut_status);
+        settings_.log.printf("Cut status %s\n", dual::status_to_string(cut_status).c_str());
         return mip_status_t::NUMERICAL;
       }
 

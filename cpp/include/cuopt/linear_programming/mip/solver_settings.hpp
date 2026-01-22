@@ -84,6 +84,10 @@ class mip_solver_settings_t {
   bool heuristics_only = false;
   i_t num_cpu_threads  = -1;  // -1 means use default number of threads in branch and bound
   i_t max_cut_passes   = 0;  // number of cut passes to make
+  i_t mir_cuts         = -1;
+  i_t mixed_integer_gomory_cuts = -1;
+  i_t knapsack_cuts = -1;
+  i_t strong_chvatal_gomory_cuts = -1;
   i_t num_gpus         = 1;
   bool log_to_console  = true;
   std::string log_file;

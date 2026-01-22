@@ -605,28 +605,34 @@ void cut_generation_t<i_t, f_t>::generate_cuts(const lp_problem_t<i_t, f_t>& lp,
                                                const std::vector<i_t>& nonbasic_list)
 {
   // Generate Gomory and CG Cuts
-  f_t cut_start_time = tic();
-  generate_gomory_cuts(
-    lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
-  f_t cut_generation_time = toc(cut_start_time);
-  if (cut_generation_time > 1.0) {
-    settings.log.printf("Gomory and CG cut generation time %.2f seconds\n", cut_generation_time);
+  if (settings.mixed_integer_gomory_cuts != 0 || settings.strong_chvatal_gomory_cuts != 0) {
+    f_t cut_start_time = tic();
+    generate_gomory_cuts(
+      lp, settings, Arow, new_slacks, var_types, basis_update, xstar, basic_list, nonbasic_list);
+    f_t cut_generation_time = toc(cut_start_time);
+    if (cut_generation_time > 1.0) {
+      settings.log.printf("Gomory and CG cut generation time %.2f seconds\n", cut_generation_time);
+    }
   }
 
   // Generate Knapsack cuts
-  cut_start_time = tic();
-  generate_knapsack_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
-  cut_generation_time = toc(cut_start_time);
-  if (cut_generation_time > 1.0) {
-    settings.log.printf("Knapsack cut generation time %.2f seconds\n", cut_generation_time);
+  if (settings.knapsack_cuts != 0) {
+    f_t cut_start_time = tic();
+    generate_knapsack_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
+    f_t cut_generation_time = toc(cut_start_time);
+    if (cut_generation_time > 1.0) {
+      settings.log.printf("Knapsack cut generation time %.2f seconds\n", cut_generation_time);
+    }
   }
 
  // Generate MIR and CG cuts
-  cut_start_time = tic();
-  generate_mir_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
-  cut_generation_time = toc(cut_start_time);
-  if (cut_generation_time > 1.0) {
-    settings.log.printf("MIR and CG cut generation time %.2f seconds\n", cut_generation_time);
+  if (settings.mir_cuts != 0 || settings.strong_chvatal_gomory_cuts != 0) {
+    f_t cut_start_time = tic();
+    generate_mir_cuts(lp, settings, Arow, new_slacks, var_types, xstar);
+    f_t cut_generation_time = toc(cut_start_time);
+    if (cut_generation_time > 1.0) {
+      settings.log.printf("MIR and CG cut generation time %.2f seconds\n", cut_generation_time);
+    }
   }
 }
 
@@ -744,7 +750,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
 
     sparse_vector_t<i_t, f_t> inequality(Arow, i);
     f_t inequality_rhs = lp.rhs[i];
-    const bool generate_cg_cut = true;
+    const bool generate_cg_cut = settings.strong_chvatal_gomory_cuts != 0;
     f_t fractional_part_rhs = fractional_part(inequality_rhs);
     if (generate_cg_cut && fractional_part_rhs > 1e-6 && fractional_part_rhs < (1-1e-6))
     {
@@ -892,7 +898,9 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
         if (num_aggregated > 0) {
           settings.log.printf("MIR cut with aggregation %d\n", num_aggregated);
         }
-        cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_ROUNDING, cut, cut_rhs);
+        if (settings.mir_cuts != 0) {
+          cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_ROUNDING, cut, cut_rhs);
+        }
         break;
       } else {
         // Perform aggregation to try and find a cut
@@ -1045,7 +1053,7 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
                                                        inequality_rhs);
     if (tableau_status == 0) {
       // Generate a CG cut
-      const bool generate_cg_cut = false;
+      const bool generate_cg_cut = settings.strong_chvatal_gomory_cuts != 0;
       if (generate_cg_cut)
       {
         // Try to generate a CG cut

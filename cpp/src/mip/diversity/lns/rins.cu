@@ -262,6 +262,7 @@ void rins_t<i_t, f_t>::run_rins()
   branch_and_bound_settings.num_threads     = 2;
   branch_and_bound_settings.num_bfs_workers = 1;
   branch_and_bound_settings.max_cut_passes  = 0;
+  branch_and_bound_settings.sub_mip         = 1;
 
   // In the future, let RINS use all the diving heuristics. For now,
   // restricting to guided diving.

@@ -88,9 +88,14 @@ struct simplex_solver_settings_t {
       first_iteration_log(2),
       num_threads(omp_get_max_threads() - 1),
       max_cut_passes(0),
+      mir_cuts(-1),
+      mixed_integer_gomory_cuts(-1),
+      knapsack_cuts(-1),
+      strong_chvatal_gomory_cuts(-1),
       num_bfs_workers(std::max(num_threads / 4, 1)),
       random_seed(0),
       inside_mip(0),
+      sub_mip(0),
       reliability_branching(-1),
       solution_callback(nullptr),
       heuristic_preemption_callback(nullptr),
@@ -157,11 +162,16 @@ struct simplex_solver_settings_t {
   i_t num_threads;                 // number of threads to use
   i_t random_seed;                 // random seed
   i_t max_cut_passes;              // number of cut passes to make
+  i_t mir_cuts;                    // -1 automatic, 0 to disable, >0 to enable MIR cuts
+  i_t mixed_integer_gomory_cuts;   // -1 automatic, 0 to disable, >0 to enable mixed integer Gomory cuts
+  i_t knapsack_cuts;                // -1 automatic, 0 to disable, >0 to enable knapsack cuts
+  i_t strong_chvatal_gomory_cuts;   // -1 automatic, 0 to disable, >0 to enable strong Chvatal Gomory cuts
   i_t num_bfs_workers;             // number of threads dedicated to the best-first search
 
   diving_heuristics_settings_t<i_t, f_t> diving_settings;  // Settings for the diving heuristics
 
   i_t inside_mip;  // 0 if outside MIP, 1 if inside MIP at root node, 2 if inside MIP at leaf node
+  i_t sub_mip;     // 0 if in regular MIP solve, 1 if in sub-MIP solve
   i_t reliability_branching;      // -1 automatic, 0 to disable, >0 to enable reliability branching
   std::function<void(std::vector<f_t>&, f_t)> solution_callback;
   std::function<void(const std::vector<f_t>&, f_t)> node_processed_callback;
