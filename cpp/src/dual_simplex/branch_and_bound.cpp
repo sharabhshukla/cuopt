@@ -276,9 +276,7 @@ branch_and_bound_t<i_t, f_t>::branch_and_bound_t(
   }
 #endif
 
-  mutex_upper_.lock();
   upper_bound_ = inf;
-  mutex_upper_.unlock();
 }
 
 template <typename i_t, typename f_t>
@@ -654,7 +652,7 @@ void branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t, f_t>& 
   if (solver_status_ == mip_status_t::UNSET) {
     if (exploration_stats_.nodes_explored > 0 && exploration_stats_.nodes_unexplored == 0 &&
         upper_bound_ == inf) {
-      settings_.log.printf("Integer infeasible. (set final solution)\n");
+      settings_.log.printf("Integer infeasible.\n");
       solver_status_ = mip_status_t::INFEASIBLE;
       if (settings_.heuristic_preemption_callback != nullptr) {
         settings_.heuristic_preemption_callback();
@@ -991,8 +989,8 @@ std::pair<node_status_t, rounding_direction_t> branch_and_bound_t<i_t, f_t>::upd
 
     } else if (leaf_objective <= upper_bound_ + abs_fathom_tol) {
       // Choose fractional variable to branch on
-        auto [branch_var, round_dir] =
-          variable_selection(node_ptr, leaf_fractional, leaf_solution.x, thread_type);
+      auto [branch_var, round_dir] =
+        variable_selection(node_ptr, leaf_fractional, leaf_solution.x, thread_type);
 
       assert(leaf_vstatus.size() == leaf_problem.num_cols);
       assert(branch_var >= 0);
@@ -1657,8 +1655,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   if (diving_strategies.empty()) {
     settings_.log.printf("Warning: All diving heuristics are disabled!\n");
   }
-
-  printf("Branch and bound solve called\n");
 
   if (guess_.size() != 0) {
     std::vector<f_t> crushed_guess;
