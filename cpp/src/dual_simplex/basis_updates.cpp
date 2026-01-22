@@ -1145,7 +1145,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
       CBT_col_sparse.to_dense(CBT_col_dense);
       for (i_t h = 0; h < m; h++) {
         if (std::abs(CBT_col_dense[h] - CBT_col[h]) > 1e-6) {
-          printf("col %d CBT_col_dense[%d] = %e CBT_col[%d] = %e\n", k, h, CBT_col_dense[h], h, CBT_col[h]);
+          printf("W: col %d CBT_col_dense[%d] = %e CBT_col[%d] = %e\n", k, h, CBT_col_dense[h], h, CBT_col[h]);
           exit(1);
         }
       }
@@ -1225,7 +1225,7 @@ i_t basis_update_mpf_t<i_t, f_t>::append_cuts(const csr_matrix_t<i_t, f_t>& cuts
       CB_col.load_a_column(k, CB_col_dense);
       for (i_t l = 0; l < cuts_basic.m; l++) {
         if (std::abs(CB_col_dense[l] - CB_column[l]) > 1e-6) {
-          printf("col %d CB_col_dense[%d] = %e CB_column[%d] = %e\n", k, l, CB_col_dense[l], l, CB_column[l]);
+          printf("V: col %d CB_col_dense[%d] = %e CB_column[%d] = %e\n", k, l, CB_col_dense[l], l, CB_column[l]);
           exit(1);
         }
       }
@@ -2263,7 +2263,7 @@ int basis_update_mpf_t<i_t, f_t>::refactor_basis(
 
   if (L0_.m != A.m) { resize(A.m); }
   std::vector<i_t> q;
-  if (factorize_basis(A,
+  i_t status = factorize_basis(A,
                       settings,
                       basic_list,
                       L0_,
@@ -2272,7 +2272,11 @@ int basis_update_mpf_t<i_t, f_t>::refactor_basis(
                       inverse_row_permutation_,
                       q,
                       deficient,
-                      slacks_needed) == -1) {
+                      slacks_needed);
+  if (status == -2) {
+    return -2;
+  }
+  if (status == -1) {
     settings.log.debug("Initial factorization failed\n");
     basis_repair(
       A, settings, lower, upper, deficient, slacks_needed, basic_list, nonbasic_list, vstatus);
@@ -2294,7 +2298,7 @@ int basis_update_mpf_t<i_t, f_t>::refactor_basis(
     }
 #endif
 
-    if (factorize_basis(A,
+    status = factorize_basis(A,
                         settings,
                         basic_list,
                         L0_,
@@ -2303,7 +2307,9 @@ int basis_update_mpf_t<i_t, f_t>::refactor_basis(
                         inverse_row_permutation_,
                         q,
                         deficient,
-                        slacks_needed) == -1) {
+                        slacks_needed);
+    if (status == -2) { return -2; }
+    if (status == -1) {
 #ifdef CHECK_L_FACTOR
       if (L0_.check_matrix() == -1) { settings.log.printf("Bad L after basis repair\n"); }
 #endif

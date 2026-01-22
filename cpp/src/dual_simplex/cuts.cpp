@@ -768,7 +768,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
       i_t cg_status = cg.generate_strong_cg_cut(
         lp, settings, var_types, cg_inequality, cg_inequality_rhs, xstar, cg_cut, cg_cut_rhs);
       if (cg_status == 0) {
-        printf("Adding CG cut nz %ld status %d row %d rhs %e inequality nz %d\n", cg_cut.i.size(), cg_status, i, cg_inequality_rhs, cg_inequality.i.size());
+        //printf("Adding CG cut nz %ld status %d row %d rhs %e inequality nz %d\n", cg_cut.i.size(), cg_status, i, cg_inequality_rhs, cg_inequality.i.size());
         cut_pool_.add_cut(cut_type_t::CHVATAL_GOMORY, cg_cut, cg_cut_rhs);
       }
     }
@@ -1069,7 +1069,7 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
         i_t cg_status = cg.generate_strong_cg_cut(
           lp, settings, var_types, cg_inequality, cg_inequality_rhs, xstar, cg_cut, cg_cut_rhs);
         if (cg_status == 0) {
-          printf("Adding CG cut nz %ld\n", cg_cut.i.size());
+          //printf("Adding CG cut nz %ld\n", cg_cut.i.size());
           cut_pool_.add_cut(cut_type_t::CHVATAL_GOMORY, cg_cut, cg_cut_rhs);
         }
       }
@@ -2417,7 +2417,7 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut(
     f_t violation = dot - cut_rhs;
     const f_t min_violation_threshold = 1e-6;
     if (violation > min_violation_threshold) {
-      printf("CG violation %e nz %ld\n", violation, cut.i.size());
+      //printf("CG violation %e nz %ld\n", violation, cut.i.size());
       // Note that no slacks are currently present. Since slacks are currently treated as continuous.
       // However, this may change. We may need to substitute out the slacks here
 

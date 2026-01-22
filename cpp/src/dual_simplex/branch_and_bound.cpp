@@ -1565,7 +1565,8 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
     // Check if crossover was stopped by dual simplex
     if (crossover_status == crossover_status_t::OPTIMAL) {
       set_root_concurrent_halt(1);  // Stop dual simplex
-      root_status = root_status_future.get();
+      root_status = root_status_future.get(); // Wait for dual simplex to finish
+      set_root_concurrent_halt(0);  // Clear the concurrent halt flag
       // Override the root relaxation solution with the crossover solution
       root_relax_soln = root_crossover_soln_;
       root_vstatus    = crossover_vstatus_;
@@ -1593,13 +1594,18 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
         assert(nonbasic_list.size() == original_lp_.num_cols - original_lp_.num_rows);
       }
       // Populate the basis_update from the crossover vstatus
-      basis_update.refactor_basis(original_lp_.A,
-                                  root_crossover_settings,
-                                  original_lp_.lower,
-                                  original_lp_.upper,
-                                  basic_list,
-                                  nonbasic_list,
-                                  crossover_vstatus_);
+      i_t refactor_status = basis_update.refactor_basis(original_lp_.A,
+                                                        root_crossover_settings,
+                                                        original_lp_.lower,
+                                                        original_lp_.upper,
+                                                        basic_list,
+                                                        nonbasic_list,
+                                                        crossover_vstatus_);
+      if (refactor_status != 0) {
+        settings_.log.printf("Failed to refactor basis. %d deficient columns.\n", refactor_status);
+        assert(refactor_status == 0);
+        root_status = lp_status_t::NUMERICAL_ISSUES;
+      }
 
       // Set the edge norms to a default value
       edge_norms.resize(original_lp_.num_cols, -1.0);
@@ -1724,9 +1730,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     }
     return mip_status_t::UNBOUNDED;
   }
-
   if (root_status == lp_status_t::TIME_LIMIT) {
     solver_status_ = mip_status_t::TIME_LIMIT;
+    set_final_solution(solution, -inf);
+    return solver_status_;
+  }
+  if (root_status == lp_status_t::NUMERICAL_ISSUES) {
+    solver_status_ = mip_status_t::NUMERICAL;
     set_final_solution(solution, -inf);
     return solver_status_;
   }

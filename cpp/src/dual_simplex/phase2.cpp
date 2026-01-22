@@ -1231,8 +1231,14 @@ i_t initialize_steepest_edge_norms(const lp_problem_t<i_t, f_t>& lp,
       last_log = tic();
       settings.log.printf("Initialized %d of %d steepest edge norms in %.2fs\n", k, m, now);
     }
-    if (toc(start_time) > settings.time_limit) { printf("initialize_steepest_edge time limit\n"); return -1; }
-    if (settings.concurrent_halt != nullptr && *settings.concurrent_halt == 1) { printf("initialize_steepest_edge concurrent_halt\n"); return -1; }
+    if (toc(start_time) > settings.time_limit) {
+      printf("initialize_steepest_edge time limit\n");
+      return -1;
+    }
+    if (settings.concurrent_halt != nullptr && *settings.concurrent_halt == 1) {
+      printf("initialize_steepest_edge concurrent_halt\n");
+      return -2;
+    }
   }
   return 0;
 }
@@ -2413,9 +2419,12 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
         basic_list, nonbasic_list, delta_y_steepest_edge);
     } else {
       std::fill(delta_y_steepest_edge.begin(), delta_y_steepest_edge.end(), -1);
-      if (phase2::initialize_steepest_edge_norms(
-            lp, settings, start_time, basic_list, ft, delta_y_steepest_edge) == -1) {
-        printf("Bad return from initialize steepest edge norms\n");
+      i_t status = phase2::initialize_steepest_edge_norms(
+            lp, settings, start_time, basic_list, ft, delta_y_steepest_edge);
+      if (status == -2) {
+        return dual::status_t::CONCURRENT_LIMIT;
+      }
+      if (status == -1) {
         return dual::status_t::TIME_LIMIT;
       }
     }
