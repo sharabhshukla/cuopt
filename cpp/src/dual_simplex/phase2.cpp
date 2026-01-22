@@ -2591,7 +2591,6 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     f_t base_prediction   = std::max((f_t)0.0, (f_t)work_predictor.predict_scalar(features_map));
     f_t scaled_prediction = base_prediction * static_cast<f_t>(num_iters) / FEATURE_LOG_INTERVAL;
 
-    // // Diagnostic: log features that could vary between runs
     // const char* worker_name = work_unit_context ? work_unit_context->name.c_str() : "unknown";
     // CUOPT_LOG_DEBUG("PREDICT_WORK [%s]: iters=%d refacts=%d updates=%d sparse_dz=%d dense_dz=%d "
     //                     "bound_flips=%d infeas=%d dy_nz=%.6f loads=%zu stores=%zu -> pred=%.9f",
