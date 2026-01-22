@@ -21,6 +21,7 @@
 #include <linear_programming/utilities/problem_checking.cuh>
 #include <linear_programming/utils.cuh>
 #include <utilities/logger.hpp>
+#include <utilities/seed_generator.cuh>
 #include <utilities/version_info.hpp>
 #include <utilities/work_limit_timer.hpp>
 
@@ -165,6 +166,9 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
     init_handler(op_problem.get_handle_ptr());
 
     print_version_info();
+
+    // Initialize seed generator if a specific seed is requested
+    if (settings.seed >= 0) { cuopt::seed_generator::set_seed(settings.seed); }
 
     raft::common::nvtx::range fun_scope("Running solver");
 

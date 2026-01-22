@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -102,6 +102,13 @@ class mip_solver_settings_t {
    *   at potential cost of performance
    */
   int determinism_mode = CUOPT_MODE_OPPORTUNISTIC;
+  /**
+   * @brief Random seed for the MIP solver.
+   *
+   * Controls the initial seed for random number generation in the solver.
+   * Use -1 to generate a random seed.
+   */
+  i_t seed = -1;
   // this is for extracting info from different places of the solver during
   // benchmarks
   benchmark_info_t* benchmark_info_ptr = nullptr;
