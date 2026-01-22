@@ -859,7 +859,7 @@ bool compute_probing_cache(bound_presolve_t<i_t, f_t>& bound_presolve,
   size_t num_threads = bound_presolve.settings.num_threads < 0
                          ? 0.2 * omp_get_max_threads()
                          : bound_presolve.settings.num_threads;
-  num_threads        = std::clamp(num_threads, 1, 8);
+  num_threads        = std::clamp<size_t>(num_threads, 1, 8);
 
   // Create a vector of multi_probe_t objects
   std::vector<multi_probe_t<i_t, f_t>> multi_probe_presolve_pool;
