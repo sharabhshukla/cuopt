@@ -2564,7 +2564,8 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   i_t last_feature_log_iter = iter;
 
   // Helper to compute scaled work units for a given number of iterations
-  cuopt::work_unit_predictor_t<dualsimplex_predictor, cpu_work_unit_scaler_t> work_predictor{};
+  thread_local cuopt::work_unit_predictor_t<dualsimplex_predictor, cpu_work_unit_scaler_t>
+    work_predictor{};
   auto predict_work_units = [&](i_t num_iters) -> f_t {
     // raft::common::nvtx::range scope("DualSimplex::predict_work_units");
     std::map<std::string, float> features_map;
@@ -2587,8 +2588,27 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     features_map["byte_loads"]  = static_cast<float>(features.byte_loads);
     features_map["byte_stores"] = static_cast<float>(features.byte_stores);
 
-    f_t base_prediction = std::max((f_t)0.0, (f_t)work_predictor.predict_scalar(features_map));
-    return base_prediction * static_cast<f_t>(num_iters) / FEATURE_LOG_INTERVAL;
+    f_t base_prediction   = std::max((f_t)0.0, (f_t)work_predictor.predict_scalar(features_map));
+    f_t scaled_prediction = base_prediction * static_cast<f_t>(num_iters) / FEATURE_LOG_INTERVAL;
+
+    // // Diagnostic: log features that could vary between runs
+    // const char* worker_name = work_unit_context ? work_unit_context->name.c_str() : "unknown";
+    // CUOPT_LOG_DEBUG("PREDICT_WORK [%s]: iters=%d refacts=%d updates=%d sparse_dz=%d dense_dz=%d "
+    //                     "bound_flips=%d infeas=%d dy_nz=%.6f loads=%zu stores=%zu -> pred=%.9f",
+    //                     worker_name,
+    //                     num_iters,
+    //                     features.num_refactors,
+    //                     features.num_basis_updates,
+    //                     features.sparse_delta_z_count,
+    //                     features.dense_delta_z_count,
+    //                     features.total_bound_flips,
+    //                     features.num_infeasibilities,
+    //                     features.delta_y_nz_percentage,
+    //                     features.byte_loads,
+    //                     features.byte_stores,
+    //                     scaled_prediction);
+
+    return scaled_prediction;
   };
 
   cuopt::scope_guard work_unit_guard([&]() {

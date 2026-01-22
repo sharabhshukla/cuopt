@@ -2102,6 +2102,45 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
 
   bb_event_batch_t<i_t, f_t> all_events = bsp_workers_->collect_and_sort_events();
 
+  // // Diagnostic logging: event boundaries
+  // {
+  //   settings_.log.printf("SYNC S%d: horizon=[%.6f, %.6f], %zu events\n",
+  //                        bsp_horizon_number_, horizon_start, horizon_end,
+  //                        all_events.events.size());
+
+  //   if (!all_events.events.empty()) {
+  //     double min_wut = all_events.events.front().wut;
+  //     double max_wut = all_events.events.back().wut;
+  //     settings_.log.printf("  Event WUT range: [%.6f, %.6f]\n", min_wut, max_wut);
+
+  //     // Log events near horizon boundary (within 1% of horizon_step)
+  //     double boundary_epsilon = bsp_horizon_step_ * 0.01;
+  //     for (const auto& event : all_events.events) {
+  //       if (std::abs(event.wut - horizon_end) < boundary_epsilon ||
+  //           std::abs(event.wut - horizon_start) < boundary_epsilon) {
+  //         const char* type_str = "?";
+  //         switch (event.type) {
+  //           case bb_event_type_t::NODE_BRANCHED: type_str = "BRANCHED"; break;
+  //           case bb_event_type_t::NODE_FATHOMED: type_str = "FATHOMED"; break;
+  //           case bb_event_type_t::NODE_INTEGER: type_str = "INTEGER"; break;
+  //           case bb_event_type_t::NODE_INFEASIBLE: type_str = "INFEASIBLE"; break;
+  //           case bb_event_type_t::NODE_PAUSED: type_str = "PAUSED"; break;
+  //           case bb_event_type_t::NODE_NUMERICAL: type_str = "NUMERICAL"; break;
+  //           case bb_event_type_t::HEURISTIC_SOLUTION: type_str = "HEURISTIC"; break;
+  //         }
+  //         settings_.log.printf("  BOUNDARY EVENT: wut=%.9f, worker=%d, node=%d, type=%s\n",
+  //                              event.wut, event.worker_id, event.node_id, type_str);
+  //       }
+  //     }
+  //   }
+
+  //   // Log per-worker clock values
+  //   for (const auto& worker : *bsp_workers_) {
+  //     settings_.log.printf("  Worker %d: clock=%.6f, work_this_horizon=%.6f\n",
+  //                          worker.worker_id, worker.clock, worker.work_units_this_horizon);
+  //   }
+  // }
+
   BSP_DEBUG_LOG_SYNC_PHASE_START(
     bsp_debug_settings_, bsp_debug_logger_, horizon_end, all_events.size());
 
@@ -2499,6 +2538,11 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
   worker.clock += work_performed;
   worker.work_units_this_horizon += work_performed;
 
+  // // Diagnostic: log work performed for each node solve
+  // settings_.log.printf("NODE_SOLVE: W%d N%d: iters=%d work=%.9f clock=%.9f horizon_end=%.6f\n",
+  //                      worker.worker_id, node_ptr->node_id, node_iter,
+  //                      work_performed, worker.clock, worker.horizon_end);
+
   exploration_stats_.total_lp_solve_time += toc(lp_start_time);
   exploration_stats_.total_lp_iters += node_iter;
   ++exploration_stats_.nodes_explored;
@@ -2577,7 +2621,11 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
       // Integer feasible - queue for deterministic processing at sync
       if (leaf_objective < worker.local_upper_bound) {
         worker.local_upper_bound = leaf_objective;
-        worker.integer_solutions.push_back({leaf_objective, leaf_solution.x, node_ptr->depth});
+        worker.integer_solutions.push_back({leaf_objective,
+                                            leaf_solution.x,
+                                            node_ptr->depth,
+                                            worker.worker_id,
+                                            worker.next_solution_seq++});
       }
 
       worker.record_integer_solution(node_ptr, leaf_objective);
@@ -2823,28 +2871,26 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
   }
 
   // Merge integer solutions from all workers and update global incumbent
-  // Sort by (objective, worker_id) for deterministic winner selection
-  // lexicographical sort as a fallback
-  struct worker_solution_t {
-    f_t objective;
-    const std::vector<f_t>* solution;
-    i_t depth;
-    int worker_id;
-  };
-  std::vector<worker_solution_t> all_integer_solutions;
+  std::vector<queued_integer_solution_t<i_t, f_t>*> all_integer_solutions;
   for (auto& worker : *bsp_workers_) {
     for (auto& sol : worker.integer_solutions) {
-      all_integer_solutions.push_back({sol.objective, &sol.solution, sol.depth, worker.worker_id});
+      all_integer_solutions.push_back(&sol);
     }
   }
+
+  // Sort solutions for deterministic processing order (uses built-in operator<)
+  std::sort(all_integer_solutions.begin(),
+            all_integer_solutions.end(),
+            [](const queued_integer_solution_t<i_t, f_t>* a,
+               const queued_integer_solution_t<i_t, f_t>* b) { return *a < *b; });
 
   f_t bsp_lower     = compute_bsp_lower_bound();
   f_t current_upper = upper_bound_.load();
 
-  for (const auto& sol : all_integer_solutions) {
+  for (const auto* sol : all_integer_solutions) {
     // improving solution found, log it
-    if (sol.objective < current_upper) {
-      f_t user_obj         = compute_user_objective(original_lp_, sol.objective);
+    if (sol->objective < current_upper) {
+      f_t user_obj         = compute_user_objective(original_lp_, sol->objective);
       f_t user_lower       = compute_user_objective(original_lp_, bsp_lower);
       i_t nodes_explored   = exploration_stats_.nodes_explored.load();
       i_t nodes_unexplored = exploration_stats_.nodes_unexplored.load();
@@ -2855,7 +2901,7 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
         nodes_unexplored,
         user_obj,
         user_lower,
-        sol.depth,
+        sol->depth,
         nodes_explored > 0 ? exploration_stats_.total_lp_iters.load() / nodes_explored : 0.0,
         user_mip_gap<f_t>(user_obj, user_lower).c_str(),
         toc(exploration_stats_.start_time));
@@ -2863,10 +2909,10 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
       // Update incumbent
       bool improved = false;
       mutex_upper_.lock();
-      if (sol.objective < upper_bound_) {
-        upper_bound_ = sol.objective;
-        incumbent_.set_incumbent_solution(sol.objective, *sol.solution);
-        current_upper = sol.objective;
+      if (sol->objective < upper_bound_) {
+        upper_bound_ = sol->objective;
+        incumbent_.set_incumbent_solution(sol->objective, sol->solution);
+        current_upper = sol->objective;
         improved      = true;
       }
       mutex_upper_.unlock();
@@ -2874,8 +2920,8 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
       // Notify diversity manager of new incumbent
       if (improved && settings_.solution_callback != nullptr) {
         std::vector<f_t> original_x;
-        uncrush_primal_solution(original_problem_, original_lp_, *sol.solution, original_x);
-        settings_.solution_callback(original_x, sol.objective);
+        uncrush_primal_solution(original_problem_, original_lp_, sol->solution, original_x);
+        settings_.solution_callback(original_x, sol->objective);
       }
     }
   }
@@ -3137,14 +3183,41 @@ void branch_and_bound_t<i_t, f_t>::merge_diving_solutions()
 {
   if (!bsp_diving_workers_) return;
 
+  // // Diagnostic logging for diving workers
+  // {
+  //   int total_solutions = 0;
+  //   int total_nodes_explored = 0;
+  //   for (const auto& worker : *bsp_diving_workers_) {
+  //     total_solutions += worker.integer_solutions.size();
+  //     total_nodes_explored += worker.nodes_explored_this_horizon;
+  //   }
+  //   settings_.log.printf("  Diving workers: %d solutions, %d nodes explored this horizon\n",
+  //                        total_solutions, total_nodes_explored);
+
+  //   // Log per-diving-worker state
+  //   for (const auto& worker : *bsp_diving_workers_) {
+  //     if (worker.nodes_explored_this_horizon > 0 || !worker.integer_solutions.empty()) {
+  //       settings_.log.printf("    DW%d: clock=%.6f, nodes=%d, sols=%zu\n",
+  //                            worker.worker_id, worker.clock,
+  //                            worker.nodes_explored_this_horizon,
+  //                            worker.integer_solutions.size());
+  //     }
+  //   }
+  // }
+
   // Collect all integer solutions from diving workers
   std::vector<queued_integer_solution_t<i_t, f_t>*> all_solutions;
-
   for (auto& worker : *bsp_diving_workers_) {
     for (auto& sol : worker.integer_solutions) {
       all_solutions.push_back(&sol);
     }
   }
+
+  // Sort solutions for deterministic processing order (uses built-in operator<)
+  std::sort(all_solutions.begin(),
+            all_solutions.end(),
+            [](const queued_integer_solution_t<i_t, f_t>* a,
+               const queued_integer_solution_t<i_t, f_t>* b) { return *a < *b; });
 
   // Apply improving solutions to incumbent
   f_t current_upper = upper_bound_.load();

@@ -57,6 +57,15 @@ struct queued_integer_solution_t {
   f_t objective;
   std::vector<f_t> solution;
   i_t depth;
+  int worker_id;
+  int sequence_id;
+
+  bool operator<(const queued_integer_solution_t& other) const
+  {
+    if (objective != other.objective) return objective < other.objective;
+    if (worker_id != other.worker_id) return worker_id < other.worker_id;
+    return sequence_id < other.sequence_id;
+  }
 };
 
 // Per-worker state for BSP (Bulk Synchronous Parallel) branch-and-bound
@@ -144,6 +153,9 @@ struct bb_worker_state_t {
 
   // Queued integer solutions found during this horizon (merged at sync)
   std::vector<queued_integer_solution_t<i_t, f_t>> integer_solutions;
+
+  // Solution sequence counter for deterministic tie-breaking (cumulative across horizons)
+  int next_solution_seq{0};
 
   // Queued pseudo-cost updates (applied to global pseudo-costs at sync)
   std::vector<pseudo_cost_update_t<i_t, f_t>> pseudo_cost_updates;
@@ -530,6 +542,9 @@ struct bsp_diving_worker_state_t {
   // Queued integer solutions found during this horizon (merged at sync)
   std::vector<queued_integer_solution_t<i_t, f_t>> integer_solutions;
 
+  // Solution sequence counter for deterministic tie-breaking (cumulative across horizons)
+  int next_solution_seq{0};
+
   // ==========================================================================
   // Statistics
   // ==========================================================================
@@ -626,7 +641,7 @@ struct bsp_diving_worker_state_t {
 
   void queue_integer_solution(f_t objective, const std::vector<f_t>& solution, i_t depth)
   {
-    integer_solutions.push_back({objective, solution, depth});
+    integer_solutions.push_back({objective, solution, depth, worker_id, next_solution_seq++});
     ++total_integer_solutions;
   }
 

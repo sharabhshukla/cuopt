@@ -542,7 +542,7 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   }
 
   memop_instrumentation_wrapper_t(const memop_instrumentation_wrapper_t& other)
-    : memory_instrumentation_base_t(other), array_(other.array_)
+    : memory_instrumentation_base_t(), array_(other.array_)
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
       data_ptr = array_.data();
@@ -552,7 +552,7 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   }
 
   memop_instrumentation_wrapper_t(memop_instrumentation_wrapper_t&& other) noexcept
-    : memory_instrumentation_base_t(std::move(other)), array_(std::move(other.array_))
+    : memory_instrumentation_base_t(), array_(std::move(other.array_))
   {
     if constexpr (type_traits_utils::has_data<T>::value) {
       data_ptr = array_.data();
@@ -564,7 +564,7 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   memop_instrumentation_wrapper_t& operator=(const memop_instrumentation_wrapper_t& other)
   {
     if (this != &other) {
-      memory_instrumentation_base_t::operator=(other);
+      reset_counters();
       array_ = other.array_;
       if constexpr (type_traits_utils::has_data<T>::value) {
         data_ptr = array_.data();
@@ -578,7 +578,7 @@ struct memop_instrumentation_wrapper_t : public memory_instrumentation_base_t {
   memop_instrumentation_wrapper_t& operator=(memop_instrumentation_wrapper_t&& other) noexcept
   {
     if (this != &other) {
-      memory_instrumentation_base_t::operator=(std::move(other));
+      reset_counters();
       array_ = std::move(other.array_);
       if constexpr (type_traits_utils::has_data<T>::value) {
         data_ptr = array_.data();
