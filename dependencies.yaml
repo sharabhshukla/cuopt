@@ -302,6 +302,8 @@ dependencies:
           - tbb-devel
           - zlib
           - bzip2
+          - grpc-cpp
+          - libgrpc
   test_cpp:
     common:
       - output_types: [conda]
