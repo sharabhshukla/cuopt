@@ -15,7 +15,7 @@ REPODIR=$(cd "$(dirname "$0")"; pwd)
 LIBCUOPT_BUILD_DIR=${LIBCUOPT_BUILD_DIR:=${REPODIR}/cpp/build}
 LIBMPS_PARSER_BUILD_DIR=${LIBMPS_PARSER_BUILD_DIR:=${REPODIR}/cpp/libmps_parser/build}
 
-VALIDARGS="clean libcuopt libmps_parser cuopt_mps_parser cuopt cuopt_server cuopt_sh_client docs deb -a -b -g -fsanitize -tsan -msan -v -l= --verbose-pdlp --build-lp-only  --no-fetch-rapids --skip-c-python-adapters --skip-tests-build --skip-routing-build --skip-fatbin-write --host-lineinfo [--cmake-args=\\\"<args>\\\"] [--cache-tool=<tool>] -n --allgpuarch --ci-only-arch --show_depr_warn -h --help"
+VALIDARGS="clean libcuopt libmps_parser cuopt_mps_parser cuopt cuopt_server cuopt_sh_client cuopt_grpc_server docs deb -a -b -g -fsanitize -tsan -msan -v -l= --verbose-pdlp --build-lp-only  --no-fetch-rapids --skip-c-python-adapters --skip-tests-build --skip-routing-build --skip-fatbin-write --host-lineinfo [--cmake-args=\\\"<args>\\\"] [--cache-tool=<tool>] -n --allgpuarch --ci-only-arch --show_depr_warn -h --help"
 HELP="$0 [<target> ...] [<flag> ...]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -25,6 +25,7 @@ HELP="$0 [<target> ...] [<flag> ...]
    cuopt            - build the cuopt Python package
    cuopt_server     - build the cuopt_server Python package
    cuopt_sh_client  - build cuopt self host client
+  cuopt_grpc_server  - build the cuopt gRPC server executable (prototype)
    docs             - build the docs
    deb              - build deb package (requires libcuopt to be built first)
  and <flag> is:
@@ -53,7 +54,7 @@ HELP="$0 [<target> ...] [<flag> ...]
    --show_depr_warn - show cmake deprecation warnings
    -h               - print this text
 
- default action (no args) is to build and install 'libcuopt' then 'cuopt' then 'docs' targets
+ default action (no args) is to build and install 'libcuopt', 'cuopt', 'cuopt_grpc_server', then 'docs'
 
  libcuopt build dir is: ${LIBCUOPT_BUILD_DIR}
 
@@ -170,6 +171,13 @@ function cmakeArgs {
             ARGS=${ARGS//$EXTRA_CMAKE_ARGS/}
             # Filter the full argument down to just the extra string that will be added to cmake call
             EXTRA_CMAKE_ARGS=$(echo "$EXTRA_CMAKE_ARGS" | grep -Eo "\".+\"" | sed -e 's/^"//' -e 's/"$//')
+        else
+            # Support unquoted --cmake-args=VALUE form.
+            EXTRA_CMAKE_ARGS=$(echo "$ARGS" | { grep -Eo "\-\-cmake\-args=[^ ]+" || true; })
+            if [[ -n ${EXTRA_CMAKE_ARGS} ]]; then
+                ARGS=${ARGS//$EXTRA_CMAKE_ARGS/}
+                EXTRA_CMAKE_ARGS=${EXTRA_CMAKE_ARGS#--cmake-args=}
+            fi
         fi
     fi
 
@@ -387,6 +395,49 @@ if buildAll || hasArg libcuopt; then
         cmake --build "${LIBCUOPT_BUILD_DIR}" ${VERBOSE_FLAG}
     else
         cmake --build "${LIBCUOPT_BUILD_DIR}" --target ${INSTALL_TARGET} ${VERBOSE_FLAG} -j"${PARALLEL_LEVEL}"
+    fi
+fi
+
+################################################################################
+# Build the cuopt gRPC server (prototype)
+if buildAll || hasArg cuopt_grpc_server; then
+    mkdir -p "${LIBCUOPT_BUILD_DIR}"
+    cd "${LIBCUOPT_BUILD_DIR}"
+
+    # Ensure gRPC is enabled and configured in this build directory.
+    cmake -DDEFINE_ASSERT=${DEFINE_ASSERT} \
+          -DDEFINE_BENCHMARK="${DEFINE_BENCHMARK}" \
+          -DDEFINE_PDLP_VERBOSE_MODE=${DEFINE_PDLP_VERBOSE_MODE} \
+          -DLIBCUOPT_LOGGING_LEVEL="${LOGGING_ACTIVE_LEVEL}" \
+          -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
+          -DCMAKE_CUDA_ARCHITECTURES=${CUOPT_CMAKE_CUDA_ARCHITECTURES} \
+          -DDISABLE_DEPRECATION_WARNING=${BUILD_DISABLE_DEPRECATION_WARNING} \
+          -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+          -DFETCH_RAPIDS=${FETCH_RAPIDS} \
+          -DBUILD_LP_ONLY=${BUILD_LP_ONLY} \
+          -DBUILD_SANITIZER=${BUILD_SANITIZER} \
+          -DBUILD_TSAN=${BUILD_TSAN} \
+          -DBUILD_MSAN=${BUILD_MSAN} \
+          -DSKIP_C_PYTHON_ADAPTERS=${SKIP_C_PYTHON_ADAPTERS} \
+          -DBUILD_TESTS=$((1 - ${SKIP_TESTS_BUILD})) \
+          -DSKIP_ROUTING_BUILD=${SKIP_ROUTING_BUILD} \
+          -DWRITE_FATBIN=${WRITE_FATBIN} \
+          -DHOST_LINEINFO=${HOST_LINEINFO} \
+          -DINSTALL_TARGET="${INSTALL_TARGET}" \
+          -DCUOPT_ENABLE_GRPC=ON \
+          "${CACHE_ARGS[@]}" \
+          "${EXTRA_CMAKE_ARGS[@]}" \
+          "${REPODIR}"/cpp
+
+    # Build the server target
+    cmake --build "${LIBCUOPT_BUILD_DIR}" --target cuopt_grpc_server ${VERBOSE_FLAG} -j"${PARALLEL_LEVEL}"
+
+    # Install the server executable
+    if [ -z "${INSTALL_TARGET}" ]; then
+        echo "Skipping install of cuopt_grpc_server (-n flag set)"
+    else
+        install -m 755 "${LIBCUOPT_BUILD_DIR}/cuopt_grpc_server" "${INSTALL_PREFIX}/bin/"
+        echo "Installed cuopt_grpc_server to ${INSTALL_PREFIX}/bin/"
     fi
 fi
 
