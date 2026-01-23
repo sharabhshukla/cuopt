@@ -26,6 +26,27 @@ enum cut_type_t : int8_t {
 };
 
 template <typename i_t, typename f_t>
+struct cut_info_t {
+  bool has_cuts() const { return num_gomory_cuts + num_mir_cuts + num_knapsack_cuts + num_cg_cuts > 0; }
+  i_t num_gomory_cuts = 0;
+  i_t num_mir_cuts = 0;
+  i_t num_knapsack_cuts = 0;
+  i_t num_cg_cuts = 0;
+};
+
+
+template <typename i_t, typename f_t>
+void print_cut_info(const simplex_solver_settings_t<i_t, f_t>& settings, const cut_info_t<i_t, f_t>& cut_info)
+{
+  if (cut_info.has_cuts()) {
+    settings.log.printf("Gomory cuts   : %d\n", cut_info.num_gomory_cuts);
+    settings.log.printf("MIR cuts      : %d\n", cut_info.num_mir_cuts);
+    settings.log.printf("Knapsack cuts : %d\n", cut_info.num_knapsack_cuts);
+    settings.log.printf("CG cuts       : %d\n", cut_info.num_cg_cuts);
+  }
+}
+
+template <typename i_t, typename f_t>
 void print_cut_types(const std::string& prefix,
                      const std::vector<cut_type_t>& cut_types,
                      const simplex_solver_settings_t<i_t, f_t>& settings)

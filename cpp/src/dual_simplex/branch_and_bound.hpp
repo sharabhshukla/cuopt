@@ -8,6 +8,7 @@
 #pragma once
 
 #include <dual_simplex/diving_heuristics.hpp>
+#include <dual_simplex/cuts.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/mip_node.hpp>
 #include <dual_simplex/node_queue.hpp>
@@ -200,6 +201,9 @@ class branch_and_bound_t {
 
   void report_heuristic(f_t obj);
   void report(char symbol, f_t obj, f_t lower_bound, i_t node_depth, i_t node_int_infeas);
+
+  // Set the solution when found at the root node
+  void set_solution_at_root(mip_solution_t<i_t, f_t>& solution, const cut_info_t<i_t, f_t>& cut_info);
 
   // Set the final solution.
   void set_final_solution(mip_solution_t<i_t, f_t>& solution, f_t lower_bound);

@@ -576,6 +576,35 @@ void branch_and_bound_t<i_t, f_t>::repair_heuristic_solutions()
 }
 
 template <typename i_t, typename f_t>
+void branch_and_bound_t<i_t, f_t>::set_solution_at_root(mip_solution_t<i_t, f_t>& solution,
+                                                        const cut_info_t<i_t, f_t>& cut_info)
+{
+  mutex_upper_.lock();
+  incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
+  upper_bound_ = root_objective_;
+  mutex_upper_.unlock();
+
+  print_cut_info(settings_, cut_info);
+
+  // We should be done here
+  uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
+  solution.objective          = incumbent_.objective;
+  solution.lower_bound        = root_objective_;
+  solution.nodes_explored     = 0;
+  solution.simplex_iterations = root_relax_soln_.iterations;
+  settings_.log.printf("Optimal solution found at root node. Objective %.16e. Time %.2f.\n",
+                       compute_user_objective(original_lp_, root_objective_),
+                       toc(exploration_stats_.start_time));
+
+  if (settings_.solution_callback != nullptr) {
+    settings_.solution_callback(solution.x, solution.objective);
+  }
+  if (settings_.heuristic_preemption_callback != nullptr) {
+    settings_.heuristic_preemption_callback();
+  }
+}
+
+template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::set_final_solution(mip_solution_t<i_t, f_t>& solution,
                                                       f_t lower_bound)
 {
@@ -1761,27 +1790,9 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   i_t num_fractional =
     fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 
+  cut_info_t<i_t, f_t> cut_info;
   if (num_fractional == 0) {
-    mutex_upper_.lock();
-    incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
-    upper_bound_ = root_objective_;
-    mutex_upper_.unlock();
-    // We should be done here
-    uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
-    solution.objective          = incumbent_.objective;
-    solution.lower_bound        = root_objective_;
-    solution.nodes_explored     = 0;
-    solution.simplex_iterations = root_relax_soln_.iterations;
-    settings_.log.printf("Optimal solution found at root node. Objective %.16e. Time %.2f.\n",
-                         compute_user_objective(original_lp_, root_objective_),
-                         toc(exploration_stats_.start_time));
-
-    if (settings_.solution_callback != nullptr) {
-      settings_.solution_callback(solution.x, solution.objective);
-    }
-    if (settings_.heuristic_preemption_callback != nullptr) {
-      settings_.heuristic_preemption_callback();
-    }
+    set_solution_at_root(solution, cut_info);
     return mip_status_t::OPTIMAL;
   }
 
@@ -1802,41 +1813,11 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   read_saved_solution_for_cut_verification(original_lp_, settings_, saved_solution);
 #endif
 
-  i_t num_gomory_cuts = 0;
-  i_t num_mir_cuts = 0;
-  i_t num_knapsack_cuts = 0;
-  i_t num_cg_cuts = 0;
+
   i_t cut_pool_size = 0;
   for (i_t cut_pass = 0; cut_pass < settings_.max_cut_passes; cut_pass++) {
     if (num_fractional == 0) {
-      mutex_upper_.lock();
-      incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
-      upper_bound_ = root_objective_;
-      mutex_upper_.unlock();
-      if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts > 0) {
-        settings_.log.printf("Gomory cuts   : %d\n", num_gomory_cuts);
-        settings_.log.printf("MIR cuts      : %d\n", num_mir_cuts);
-        settings_.log.printf("Knapsack cuts : %d\n", num_knapsack_cuts);
-        settings_.log.printf("CG cuts       : %d\n", num_cg_cuts);
-        settings_.log.printf("Cut pool size : %d\n", cut_pool_size);
-        settings_.log.printf("Size with cuts: %d constraints, %d variables, %d nonzeros\n", original_lp_.num_rows, original_lp_.num_cols, original_lp_.A.col_start[original_lp_.A.n]);
-      }
-      // We should be done here
-      uncrush_primal_solution(original_problem_, original_lp_, incumbent_.x, solution.x);
-      solution.objective          = incumbent_.objective;
-      solution.lower_bound        = root_objective_;
-      solution.nodes_explored     = 0;
-      solution.simplex_iterations = root_relax_soln_.iterations;
-      settings_.log.printf("Optimal solution found at root node. Objective %.16e. Time %.2f.\n",
-                           compute_user_objective(original_lp_, root_objective_),
-                           toc(exploration_stats_.start_time));
-
-      if (settings_.solution_callback != nullptr) {
-        settings_.solution_callback(solution.x, solution.objective);
-      }
-      if (settings_.heuristic_preemption_callback != nullptr) {
-        settings_.heuristic_preemption_callback();
-      }
+      set_solution_at_root(solution, cut_info);
       return mip_status_t::OPTIMAL;
     } else {
 #ifdef PRINT_FRACTIONAL_INFO
@@ -1867,13 +1848,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       }
       for (i_t k = 0; k < cut_types.size(); k++) {
         if (cut_types[k] == cut_type_t::MIXED_INTEGER_GOMORY) {
-          num_gomory_cuts++;
+          cut_info.num_gomory_cuts++;
         } else if (cut_types[k] == cut_type_t::MIXED_INTEGER_ROUNDING) {
-          num_mir_cuts++;
+          cut_info.num_mir_cuts++;
         } else if (cut_types[k] == cut_type_t::KNAPSACK) {
-          num_knapsack_cuts++;
+          cut_info.num_knapsack_cuts++;
         } else if (cut_types[k] == cut_type_t::CHVATAL_GOMORY) {
-          num_cg_cuts++;
+          cut_info.num_cg_cuts++;
         }
       }
 #ifdef PRINT_CUT_INFO
@@ -1977,17 +1958,18 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                                                   root_relax_soln_,
                                                                   iter,
                                                                   edge_norms_);
-
-      settings_.log.debug("Cut LP iterations %d. A nz %d\n",
-                           iter,
-                           original_lp_.A.col_start[original_lp_.A.n]);
-      exploration_stats_.total_lp_iters += root_relax_soln_.iterations;
-      root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
+      if (cut_status == dual::status_t::TIME_LIMIT) {
+        solver_status_ = mip_status_t::TIME_LIMIT;
+        set_final_solution(solution, root_objective_);
+        return solver_status_;
+      }
 
       if (cut_status != dual::status_t::OPTIMAL) {
         settings_.log.printf("Cut status %s\n", dual::status_to_string(cut_status).c_str());
         return mip_status_t::NUMERICAL;
       }
+      exploration_stats_.total_lp_iters += root_relax_soln_.iterations;
+      root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
 
       local_lower_bounds_.assign(settings_.num_bfs_workers, root_objective_);
 
@@ -2010,8 +1992,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       fractional.clear();
       num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 
-      // TODO: Get upper bound from heuristics
-      f_t obj = num_fractional != 0 ? upper_bound_.load() : root_objective_;
+      if (num_fractional == 0) {
+        upper_bound_ = root_objective_;
+        mutex_upper_.lock();
+        incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
+        mutex_upper_.unlock();
+      }
+      f_t obj = upper_bound_.load();
       f_t user_obj    = compute_user_objective(original_lp_, obj);
       f_t user_lower  = compute_user_objective(original_lp_, root_objective_);
       std::string gap = num_fractional != 0 ? user_mip_gap<f_t>(user_obj, user_lower) : "0.0%";
@@ -2027,14 +2014,19 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
         static_cast<f_t>(iter),
         gap.c_str(),
         toc(exploration_stats_.start_time));
+
+      f_t rel_gap = user_relative_gap(original_lp_, upper_bound_.load(), root_objective_);
+      f_t abs_gap = upper_bound_.load() - root_objective_;
+      if (rel_gap < settings_.relative_mip_gap_tol || abs_gap < settings_.absolute_mip_gap_tol) {
+        set_final_solution(solution, root_objective_);
+        return mip_status_t::OPTIMAL;
+      }
     }
   }
 
-  if (num_gomory_cuts + num_mir_cuts + num_knapsack_cuts + num_cg_cuts > 0) {
-    settings_.log.printf("Gomory cuts   : %d\n", num_gomory_cuts);
-    settings_.log.printf("MIR cuts      : %d\n", num_mir_cuts);
-    settings_.log.printf("Knapsack cuts : %d\n", num_knapsack_cuts);
-    settings_.log.printf("CG cuts       : %d\n", num_cg_cuts);
+  print_cut_info(settings_, cut_info);
+
+  if (cut_info.has_cuts()) {
     settings_.log.printf("Cut pool size : %d\n", cut_pool_size);
     settings_.log.printf("Size with cuts: %d constraints, %d variables, %d nonzeros\n", original_lp_.num_rows, original_lp_.num_cols, original_lp_.A.col_start[original_lp_.A.n]);
   }
