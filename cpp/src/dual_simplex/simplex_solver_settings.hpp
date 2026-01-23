@@ -22,6 +22,7 @@ namespace cuopt::linear_programming::dual_simplex {
 
 template <typename i_t, typename f_t>
 struct diving_heuristics_settings_t {
+  // The number of workers dedicated to the diving heuristics.
   i_t num_diving_workers = -1;
 
   // -1 automatic, 0 disabled, 1 enabled
@@ -30,10 +31,19 @@ struct diving_heuristics_settings_t {
   i_t guided_diving      = -1;
   i_t coefficient_diving = -1;
 
-  i_t min_node_depth         = 10;
-  i_t node_limit             = 500;
+  // The minimum depth to start diving from.
+  i_t min_node_depth = 10;
+
+  // The maximum number of nodes when performing a dive.
+  i_t node_limit = 500;
+
+  // The maximum number of dual simplex iteration allowed
+  // in a single dive. This set in terms of the total number of
+  // iterations in the best-first threads.
   f_t iteration_limit_factor = 0.05;
-  i_t backtrack_limit        = 5;
+
+  // The maximum backtracking allowed.
+  i_t backtrack_limit = 5;
 };
 
 template <typename i_t, typename f_t>
@@ -57,8 +67,15 @@ struct reliability_branching_settings_t {
   // Set to 1 to have the same priority as the other tasks.
   i_t task_priority = 5;
 
-  // Set the max number of tasks spawned for performing strong branching
+  // The number of tasks spawned for performing strong branching.
   i_t num_tasks = -1;
+
+  // The maximum number of candidates initialized by strong branching in a single
+  // node
+  i_t max_num_candidates = 100;
+
+  // The maximum number of candidates evaluated that does not improve the best score.
+  i_t max_lookahead = 10;
 };
 
 template <typename i_t, typename f_t>

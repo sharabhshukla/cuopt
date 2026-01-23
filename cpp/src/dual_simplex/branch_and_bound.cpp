@@ -578,20 +578,17 @@ branch_variable_t<i_t> branch_and_bound_t<i_t, f_t>::variable_selection(
     case bnb_worker_type_t::BEST_FIRST:
 
       if (settings_.reliability_branching_settings.enable) {
-        branch_var = pc_.reliable_variable_selection(worker_data->leaf_problem,
-                                                     settings_,
-                                                     var_types_,
-                                                     node_ptr->vstatus,
-                                                     worker_data->leaf_edge_norms,
+        simplex_solver_settings_t<i_t, f_t> rb_settings      = settings_;
+        rb_settings.reliability_branching_settings.num_tasks = worker_pool_.num_idle_workers();
+
+        branch_var = pc_.reliable_variable_selection(node_ptr,
                                                      fractional,
                                                      solution,
-                                                     worker_data->basis_factors,
-                                                     worker_data->basic_list,
-                                                     worker_data->nonbasic_list,
-                                                     node_ptr->lower_bound,
+                                                     rb_settings,
+                                                     var_types_,
+                                                     worker_data,
+                                                     exploration_stats_,
                                                      upper_bound_,
-                                                     exploration_stats_.total_lp_iters,
-                                                     exploration_stats_.nodes_explored,
                                                      log);
       } else {
         branch_var = pc_.variable_selection(fractional, solution, log);
@@ -640,9 +637,9 @@ dual::status_t branch_and_bound_t<i_t, f_t>::solve_node_lp(mip_node_t<i_t, f_t>*
   lp_settings.scale_columns = false;
 
   if (worker_data->worker_type != bnb_worker_type_t::BEST_FIRST) {
-    i_t bnb_lp_iters            = exploration_stats_.total_lp_iters;
+    int64_t bnb_lp_iters        = exploration_stats_.total_lp_iters;
     f_t factor                  = settings_.diving_settings.iteration_limit_factor;
-    f_t max_iter                = factor * bnb_lp_iters;
+    int64_t max_iter            = factor * bnb_lp_iters;
     lp_settings.iteration_limit = max_iter - stats.total_lp_iters;
     if (lp_settings.iteration_limit <= 0) { return dual::status_t::ITERATION_LIMIT; }
   }
@@ -1258,7 +1255,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   std::array<i_t, bnb_num_worker_types> max_num_workers_per_type;
   max_num_workers_per_type.fill(0);
   max_num_workers_per_type[BEST_FIRST] = settings_.num_threads;
-  worker_pool_.init(2 * settings_.num_threads, original_lp_, Arow_, var_types_, settings_);
+  worker_pool_.init(settings_.num_threads, original_lp_, Arow_, var_types_, settings_);
   active_workers_per_type.fill(0);
 
   settings_.log.printf("Exploring the B&B tree using %d threads (best-first = %d, diving = %d)\n\n",

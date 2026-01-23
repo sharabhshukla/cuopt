@@ -12,6 +12,8 @@
 #include <dual_simplex/mip_node.hpp>
 #include <dual_simplex/phase2.hpp>
 
+#include <utilities/pcg.hpp>
+
 #include <array>
 #include <deque>
 #include <mutex>
@@ -38,9 +40,9 @@ template <typename i_t, typename f_t>
 struct bnb_stats_t {
   f_t start_time                         = 0.0;
   omp_atomic_t<f_t> total_lp_solve_time  = 0.0;
-  omp_atomic_t<i_t> nodes_explored       = 0;
-  omp_atomic_t<i_t> nodes_unexplored     = 0;
-  omp_atomic_t<f_t> total_lp_iters       = 0;
+  omp_atomic_t<int64_t> nodes_explored   = 0;
+  omp_atomic_t<int64_t> nodes_unexplored = 0;
+  omp_atomic_t<int64_t> total_lp_iters   = 0;
   omp_atomic_t<i_t> nodes_since_last_log = 0;
   omp_atomic_t<f_t> last_log             = 0.0;
 };
@@ -68,6 +70,8 @@ class bnb_worker_data_t {
   std::vector<f_t> start_upper;
   mip_node_t<i_t, f_t>* start_node;
 
+  PCG rng;
+
   bool recompute_basis  = true;
   bool recompute_bounds = true;
 
@@ -86,7 +90,8 @@ class bnb_worker_data_t {
       basic_list(original_lp.num_rows),
       nonbasic_list(),
       node_presolver(leaf_problem, Arow, {}, var_type),
-      bounds_changed(original_lp.num_cols, false)
+      bounds_changed(original_lp.num_cols, false),
+      rng(PCG::default_seed ^ worker_id, PCG::default_stream + worker_id)
   {
   }
 
@@ -262,9 +267,9 @@ std::array<i_t, bnb_num_worker_types> bnb_get_num_workers_round_robin(
   auto worker_types = bnb_get_worker_types(settings);
 
   max_num_workers.fill(0);
-  max_num_workers[BEST_FIRST] = std::max(1, num_threads / 2);
+  max_num_workers[BEST_FIRST] = std::max(1, num_threads / 4);
 
-  i_t diving_workers = 2 * settings.num_diving_workers;
+  i_t diving_workers = settings.num_diving_workers;
   i_t m              = worker_types.size() - 1;
 
   for (size_t i = 1, k = 0; i < worker_types.size(); ++i) {

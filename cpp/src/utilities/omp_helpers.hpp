@@ -42,7 +42,7 @@ class omp_atomic_t {
     return new_val;
   }
 
-  operator T() { return load(); }
+  operator T() const { return load(); }
   T operator+=(T inc) { return fetch_add(inc) + inc; }
   T operator-=(T inc) { return fetch_sub(inc) - inc; }
 

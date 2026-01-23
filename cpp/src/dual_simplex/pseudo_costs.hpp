@@ -8,11 +8,13 @@
 #pragma once
 
 #include <dual_simplex/basis_updates.hpp>
+#include <dual_simplex/bnb_worker.hpp>
 #include <dual_simplex/logger.hpp>
 #include <dual_simplex/mip_node.hpp>
 #include <dual_simplex/simplex_solver_settings.hpp>
 #include <dual_simplex/types.hpp>
 #include <utilities/omp_helpers.hpp>
+#include <utilities/pcg.hpp>
 
 #include <omp.h>
 
@@ -55,20 +57,14 @@ class pseudo_costs_t {
                          const std::vector<f_t>& solution,
                          logger_t& log);
 
-  i_t reliable_variable_selection(const lp_problem_t<i_t, f_t>& lp,
-                                  const simplex_solver_settings_t<i_t, f_t>& settings,
-                                  const std::vector<variable_type_t>& var_types,
-                                  const std::vector<variable_status_t>& vstatus,
-                                  const std::vector<f_t>& edge_norms,
+  i_t reliable_variable_selection(mip_node_t<i_t, f_t>* node_ptr,
                                   const std::vector<i_t>& fractional,
                                   const std::vector<f_t>& solution,
-                                  const basis_update_mpf_t<i_t, f_t>& basis_factors,
-                                  const std::vector<i_t>& basic_list,
-                                  const std::vector<i_t>& nonbasic_list,
-                                  f_t current_obj,
+                                  const simplex_solver_settings_t<i_t, f_t>& settings,
+                                  const std::vector<variable_type_t>& var_types,
+                                  bnb_worker_data_t<i_t, f_t>* worker_data,
+                                  const bnb_stats_t<i_t, f_t>& bnb_stats,
                                   f_t upper_bound,
-                                  i_t bnb_lp_iter,
-                                  i_t bnb_explored_nodes,
                                   logger_t& log);
 
   void update_pseudo_costs_from_strong_branching(const std::vector<i_t>& fractional,
@@ -81,7 +77,7 @@ class pseudo_costs_t {
   std::vector<f_t> strong_branch_up;
   std::vector<omp_mutex_t> pseudo_cost_mutex;
   omp_atomic_t<i_t> num_strong_branches_completed = 0;
-  omp_atomic_t<i_t> total_lp_iter                 = 0;
+  omp_atomic_t<int64_t> sb_total_lp_iter          = 0;
 };
 
 template <typename i_t, typename f_t>
