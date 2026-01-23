@@ -1349,7 +1349,7 @@ mixed_integer_rounding_cut_t<i_t, f_t>::mixed_integer_rounding_cut_t(
   needs_complement_ = false;
   for (i_t j = 0; j < num_vars_; j++) {
     if (lp.lower[j] < 0) {
-      settings_.log.printf("Variable %d has negative lower bound %e\n", j, lp.lower[j]);
+      //settings_.log.printf("Variable %d has negative lower bound %e\n", j, lp.lower[j]);
     }
     const f_t uj = lp.upper[j];
     const f_t lj = lp.lower[j];
