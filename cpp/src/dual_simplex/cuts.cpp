@@ -2288,6 +2288,9 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_helper(
   if (f_a_0 < min_fractional_part) {
     return -1;
   }
+  if (f_a_0 > 1 - min_fractional_part) {
+    return -1;
+  }
 
   // We will try to generat a strong CG cut.
   // Find the unique integer k such that
