@@ -1686,7 +1686,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   basis_update_mpf_t<i_t, f_t> basis_update(original_lp_.num_rows, settings_.refactor_frequency);
   lp_status_t root_status;
   if (!enable_concurrent_lp_root_solve()) {
-    printf("Non concurrent LP root solve\n");
     // RINS/SUBMIP path
     root_status = solve_linear_program_with_advanced_basis(original_lp_,
                                                            exploration_stats_.start_time,

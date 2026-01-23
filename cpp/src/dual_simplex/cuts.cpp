@@ -1074,6 +1074,10 @@ void cut_generation_t<i_t, f_t>::generate_gomory_cuts(
         }
       }
 
+      if (settings.mixed_integer_gomory_cuts == 0) {
+        continue;
+      }
+
       // Given the base inequality, generate a MIR cut
       sparse_vector_t<i_t, f_t> cut_A(lp.num_cols, 0);
       f_t cut_A_rhs;
@@ -2279,6 +2283,12 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_helper(
   const bool verbose = false;
   const i_t nz    = indicies.size();
   const f_t f_a_0 = fractional_part(rhs);
+
+  const f_t min_fractional_part = 1e-2;
+  if (f_a_0 < min_fractional_part) {
+    return -1;
+  }
+
   // We will try to generat a strong CG cut.
   // Find the unique integer k such that
   // 1/(k+1) <= f(a_0) < 1/k
@@ -2317,6 +2327,10 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_helper(
           // Need to compute the p such that
           // f(a_0) + (p-1)/k * alpha < f(a_j) <= f(a_0) + p/k * alpha
           const f_t value = static_cast<f_t>(k) * (f_a_j - f_a_0) / alpha;
+          if (value < 1e-6) {
+            return -1; // Safegaurd to prevent numerical issues when f(a_j) is very close to f(a_0)
+                      // You might also be able to adjust p here to avoid this issue
+          }
           i_t p           = static_cast<i_t>(std::ceil(value));
           if (fractional_part(value) < 1e-12) {
             //printf("Warning: p %d value %.16e is close to an integer\n", p, value, p + 1);
