@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -13,11 +13,11 @@
 #include <linear_programming/cusparse_view.hpp>
 #include <linear_programming/initial_scaling_strategy/initial_scaling.cuh>
 #include <linear_programming/pdhg.hpp>
+#include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/restart_strategy/pdlp_restart_strategy.cuh>
 #include <linear_programming/step_size_strategy/adaptive_step_size_strategy.hpp>
-#include <linear_programming/termination_strategy/termination_strategy.hpp>
-#include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
+#include <linear_programming/termination_strategy/termination_strategy.hpp>
 
 #include <mip/problem/problem.cuh>
 
@@ -76,7 +76,8 @@ class pdlp_solver_t {
   void resize_context(i_t new_size);
   void swap_all_context(const thrust::universal_host_pinned_vector<swap_pair_t<i_t>>& swap_pairs);
   void resize_all_context(i_t new_size);
-  void resize_and_swap_all_context_loop(const std::unordered_set<i_t>& climber_strategies_to_remove);
+  void resize_and_swap_all_context_loop(
+    const std::unordered_set<i_t>& climber_strategies_to_remove);
 
   void set_problem_ptr(problem_t<i_t, f_t>* problem_ptr_);
 
@@ -109,7 +110,8 @@ class pdlp_solver_t {
     const pdlp_termination_status_t& termination_status,
     bool is_average = false);
   std::optional<optimization_problem_solution_t<i_t, f_t>> check_termination(const timer_t& timer);
-  std::optional<optimization_problem_solution_t<i_t, f_t>> check_batch_termination(const timer_t& timer);
+  std::optional<optimization_problem_solution_t<i_t, f_t>> check_batch_termination(
+    const timer_t& timer);
   std::optional<optimization_problem_solution_t<i_t, f_t>> check_limits(const timer_t& timer);
   void record_best_primal_so_far(const detail::pdlp_termination_strategy_t<i_t, f_t>& current,
                                  const detail::pdlp_termination_strategy_t<i_t, f_t>& average,
@@ -183,8 +185,12 @@ class pdlp_solver_t {
 
   pdlp_warm_start_data_t<i_t, f_t> get_filled_warmed_start_data();
 
-  void transpose_primal_dual_to_row(rmm::device_uvector<f_t>& primal_to_transpose, rmm::device_uvector<f_t>& dual_to_transpose, rmm::device_uvector<f_t>& dual_slack_to_transpose);
-  void transpose_primal_dual_back_to_col(rmm::device_uvector<f_t>& primal_to_transpose, rmm::device_uvector<f_t>& dual_to_transpose, rmm::device_uvector<f_t>& dual_slack_to_transpose);
+  void transpose_primal_dual_to_row(rmm::device_uvector<f_t>& primal_to_transpose,
+                                    rmm::device_uvector<f_t>& dual_to_transpose,
+                                    rmm::device_uvector<f_t>& dual_slack_to_transpose);
+  void transpose_primal_dual_back_to_col(rmm::device_uvector<f_t>& primal_to_transpose,
+                                         rmm::device_uvector<f_t>& dual_to_transpose,
+                                         rmm::device_uvector<f_t>& dual_slack_to_transpose);
 
   // Initial scaling strategy
   detail::pdlp_initial_scaling_strategy_t<i_t, f_t> initial_scaling_strategy_;

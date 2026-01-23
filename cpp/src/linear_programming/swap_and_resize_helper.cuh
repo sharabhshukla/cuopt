@@ -56,25 +56,31 @@ void matrix_swap(rmm::device_uvector<f_t>& matrix,
   cuopt_assert(vector_size > 0, "Vector size must be greater than 0");
   cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
 
-  const size_t swap_count = swap_pairs.size();
+  const size_t swap_count  = swap_pairs.size();
   const size_t total_items = swap_count * static_cast<size_t>(vector_size);
 
-  auto counting = thrust::make_counting_iterator<size_t>(0);
+  auto counting   = thrust::make_counting_iterator<size_t>(0);
   auto left_index = thrust::make_transform_iterator(
-    counting, matrix_swap_index_functor<i_t>{thrust::raw_pointer_cast(swap_pairs.data()), vector_size, true});
+    counting,
+    matrix_swap_index_functor<i_t>{thrust::raw_pointer_cast(swap_pairs.data()), vector_size, true});
   auto right_index = thrust::make_transform_iterator(
-    counting, matrix_swap_index_functor<i_t>{thrust::raw_pointer_cast(swap_pairs.data()), vector_size, false});
+    counting,
+    matrix_swap_index_functor<i_t>{
+      thrust::raw_pointer_cast(swap_pairs.data()), vector_size, false});
 
   auto left_perm  = thrust::make_permutation_iterator(matrix.data(), left_index);
   auto right_perm = thrust::make_permutation_iterator(matrix.data(), right_index);
   auto in_zip     = thrust::make_zip_iterator(left_perm, right_perm);
   auto out_zip    = thrust::make_zip_iterator(left_perm, right_perm);
 
-  cub::DeviceTransform::Transform(in_zip,
-                                  out_zip,
-                                  total_items,
-                                  [] HD(thrust::tuple<f_t, f_t> values) -> thrust::tuple<f_t, f_t> { return thrust::make_tuple(thrust::get<1>(values), thrust::get<0>(values)); },
-                                  matrix.stream());
+  cub::DeviceTransform::Transform(
+    in_zip,
+    out_zip,
+    total_items,
+    [] HD(thrust::tuple<f_t, f_t> values) -> thrust::tuple<f_t, f_t> {
+      return thrust::make_tuple(thrust::get<1>(values), thrust::get<0>(values));
+    },
+    matrix.stream());
 }
 
 template <typename host_vector_t>
@@ -82,9 +88,10 @@ void host_vector_swap(host_vector_t& host_vector, int left_swap_index, int right
 {
   cuopt_assert(left_swap_index < host_vector.size(), "Left swap index is out of bounds");
   cuopt_assert(right_swap_index < host_vector.size(), "Right swap index is out of bounds");
-  cuopt_assert(left_swap_index < right_swap_index, "Left swap index must be less than right swap index");
+  cuopt_assert(left_swap_index < right_swap_index,
+               "Left swap index must be less than right swap index");
 
   // Swap the id to swap to the end
   std::swap(host_vector[left_swap_index], host_vector[right_swap_index]);
 }
-}
+}  // namespace cuopt::linear_programming::detail

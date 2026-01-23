@@ -43,7 +43,6 @@ void init_handler(const raft::handle_t* handle_ptr)
     handle_ptr->get_cusparse_handle(), CUSPARSE_POINTER_MODE_DEVICE, handle_ptr->get_stream()));
 }
 
-
 std::vector<int> select_k_random(int population_size, int sample_size)
 {
   std::vector<int> pop(population_size - 1);

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -17,7 +17,7 @@ inline constexpr int block_size = 128;
 static std::pair<size_t, size_t> inline kernel_config_from_batch_size(const size_t batch_size)
 {
   const size_t block_size = std::min(static_cast<size_t>(256), batch_size);
-  const size_t grid_size = cuda::ceil_div(batch_size, block_size);
+  const size_t grid_size  = cuda::ceil_div(batch_size, block_size);
   return std::make_pair(grid_size, block_size);
 }
 

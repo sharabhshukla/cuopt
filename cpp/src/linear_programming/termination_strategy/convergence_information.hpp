@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -8,8 +8,8 @@
 
 #include <linear_programming/cusparse_view.hpp>
 #include <linear_programming/pdhg.hpp>
-#include <linear_programming/saddle_point.hpp>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/saddle_point.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
 
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
@@ -193,10 +193,8 @@ class convergence_information_t {
   rmm::device_buffer dot_product_storage_;
   size_t dot_product_bytes_{0};
 
-
   rmm::device_uvector<f_t> dual_dot_;
   rmm::device_uvector<f_t> sum_primal_slack_;
-
 
   const std::vector<pdlp_climber_strategy_t>& climber_strategies_;
   const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params_;

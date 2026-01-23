@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -149,7 +149,9 @@ template <typename i_t, typename f_t>
 void optimization_problem_solution_t<i_t, f_t>::write_additional_termination_statistics_to_file(
   std::ofstream& myfile)
 {
-  cuopt_expects(termination_stats_.size() == 1, error_type_t::ValidationError, "Write to file only supported in non batch mode");
+  cuopt_expects(termination_stats_.size() == 1,
+                error_type_t::ValidationError,
+                "Write to file only supported in non batch mode");
 
   const auto& termination_stats = termination_stats_[0];
 
@@ -164,8 +166,8 @@ void optimization_problem_solution_t<i_t, f_t>::write_additional_termination_sta
   if (termination_stats.solved_by_pdlp) {
     myfile << "," << std::endl;
     myfile << "\t\t\"Convergence measures\" : { " << std::endl;
-    myfile << "\t\t\t\"Absolute primal residual\" : " << termination_stats.l2_primal_residual
-           << "," << std::endl;
+    myfile << "\t\t\t\"Absolute primal residual\" : " << termination_stats.l2_primal_residual << ","
+           << std::endl;
     myfile << "\t\t\t\"Relative primal residual\" : "
            << termination_stats.l2_relative_primal_residual << "," << std::endl;
     myfile << "\t\t\t\"Absolute dual residual\" : " << termination_stats.l2_dual_residual << ","
@@ -202,7 +204,9 @@ void optimization_problem_solution_t<i_t, f_t>::write_to_file(std::string_view f
 {
   raft::common::nvtx::range fun_scope("write final solution to file");
 
-  cuopt_expects(termination_stats_.size() == 1, error_type_t::ValidationError, "Write to file only supported in non batch mode");
+  cuopt_expects(termination_stats_.size() == 1,
+                error_type_t::ValidationError,
+                "Write to file only supported in non batch mode");
 
   std::ofstream myfile(filename.data());
   myfile.precision(std::numeric_limits<f_t>::digits10 + 1);
@@ -229,8 +233,8 @@ void optimization_problem_solution_t<i_t, f_t>::write_to_file(std::string_view f
   myfile << "{ " << std::endl;
   myfile << "\t\"Termination reason\" : \"" << get_termination_status_string() << "\","
          << std::endl;
-  myfile << "\t\"Objective value for " << objective_name_ << "\" : " << get_objective_value(0) << ","
-         << std::endl;
+  myfile << "\t\"Objective value for " << objective_name_ << "\" : " << get_objective_value(0)
+         << "," << std::endl;
   if (!var_names_.empty() && generate_variable_values) {
     myfile << "\t\"Primal variables\" : {" << std::endl;
     for (size_t i = 0; i < primal_solution.size() - 1; i++) {
@@ -266,14 +270,17 @@ void optimization_problem_solution_t<i_t, f_t>::set_solve_time(double ms)
 {
   // TODO later batch mode: shouldn't we have a different solve time per climber?
   // Currently the issue is that we would need one solve time per climber and one overall solve time
-  std::for_each(termination_stats_.begin(), termination_stats_.end(), [ms](auto& termination) { termination.solve_time = ms; });
+  std::for_each(termination_stats_.begin(), termination_stats_.end(), [ms](auto& termination) {
+    termination.solve_time = ms;
+  });
 }
 
 template <typename i_t, typename f_t>
 void optimization_problem_solution_t<i_t, f_t>::set_termination_status(
   pdlp_termination_status_t termination_status)
 {
-  cuopt_assert(termination_stats_.size() == 1, "Set termination status only supported in non batch mode");
+  cuopt_assert(termination_stats_.size() == 1,
+               "Set termination status only supported in non batch mode");
   termination_status_[0] = termination_status;
 }
 
@@ -355,14 +362,16 @@ rmm::device_uvector<f_t>& optimization_problem_solution_t<i_t, f_t>::get_reduced
 }
 
 template <typename i_t, typename f_t>
-pdlp_termination_status_t optimization_problem_solution_t<i_t, f_t>::get_termination_status(i_t id) const
+pdlp_termination_status_t optimization_problem_solution_t<i_t, f_t>::get_termination_status(
+  i_t id) const
 {
   cuopt_assert(id < termination_status_.size(), "id too big for batch size");
   return termination_status_[id];
 }
 
 template <typename i_t, typename f_t>
-std::vector<pdlp_termination_status_t>& optimization_problem_solution_t<i_t, f_t>::get_terminations_status()
+std::vector<pdlp_termination_status_t>&
+optimization_problem_solution_t<i_t, f_t>::get_terminations_status()
 {
   return termination_status_;
 }
@@ -382,14 +391,16 @@ optimization_problem_solution_t<i_t, f_t>::get_additional_termination_informatio
 }
 
 template <typename i_t, typename f_t>
-std::vector<typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>
+std::vector<
+  typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>
 optimization_problem_solution_t<i_t, f_t>::get_additional_termination_informations() const
 {
   return termination_stats_;
 }
 
 template <typename i_t, typename f_t>
-std::vector<typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>&
+std::vector<
+  typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>&
 optimization_problem_solution_t<i_t, f_t>::get_additional_termination_informations()
 {
   return termination_stats_;
@@ -406,7 +417,9 @@ template <typename i_t, typename f_t>
 void optimization_problem_solution_t<i_t, f_t>::write_to_sol_file(
   std::string_view filename, rmm::cuda_stream_view stream_view) const
 {
-  cuopt_expects(termination_stats_.size() == 1, error_type_t::ValidationError, "Write to file only supported in non batch mode");
+  cuopt_expects(termination_stats_.size() == 1,
+                error_type_t::ValidationError,
+                "Write to file only supported in non batch mode");
 
   auto status = get_termination_status_string();
   if (termination_status_[0] != pdlp_termination_status_t::Optimal &&

@@ -413,7 +413,6 @@ f_t pdlp_initial_scaling_strategy_t<i_t, f_t>::get_h_objective_rescaling() const
   return h_objective_rescaling;
 }
 
-
 template <typename i_t, typename f_t>
 void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
 {
@@ -438,20 +437,22 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   // Scale c
-  cub::DeviceTransform::Transform(cuda::std::make_tuple(op_problem_scaled_.objective_coefficients.data(),
-                                                      problem_wrap_container(cummulative_variable_scaling_)),
-                                op_problem_scaled_.objective_coefficients.data(),
-                                op_problem_scaled_.objective_coefficients.size(),
-                                cuda::std::multiplies<f_t>{},
-                                stream_view_);
+  cub::DeviceTransform::Transform(
+    cuda::std::make_tuple(op_problem_scaled_.objective_coefficients.data(),
+                          problem_wrap_container(cummulative_variable_scaling_)),
+    op_problem_scaled_.objective_coefficients.data(),
+    op_problem_scaled_.objective_coefficients.size(),
+    cuda::std::multiplies<f_t>{},
+    stream_view_);
 
   using f_t2 = typename type_2<f_t>::type;
-  cub::DeviceTransform::Transform(cuda::std::make_tuple(op_problem_scaled_.variable_bounds.data(),
-                                                        problem_wrap_container(cummulative_variable_scaling_)),
-                                  op_problem_scaled_.variable_bounds.data(),
-                                  op_problem_scaled_.variable_bounds.size(),
-                                  divide_check_zero<f_t, f_t2>(),
-                                  stream_view_.value());
+  cub::DeviceTransform::Transform(
+    cuda::std::make_tuple(op_problem_scaled_.variable_bounds.data(),
+                          problem_wrap_container(cummulative_variable_scaling_)),
+    op_problem_scaled_.variable_bounds.data(),
+    op_problem_scaled_.variable_bounds.size(),
+    divide_check_zero<f_t, f_t2>(),
+    stream_view_.value());
 
   if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
     cub::DeviceTransform::Transform(
@@ -464,9 +465,7 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
                                 pdhg_solver_ptr_->get_new_bounds_upper().data()),
       pdhg_solver_ptr_->get_new_bounds_idx().size(),
       [] __device__(f_t lower, f_t upper, f_t s) -> thrust::tuple<f_t, f_t> {
-        if (s != f_t(0)) {
-          return {lower / s, upper / s};
-        }
+        if (s != f_t(0)) { return {lower / s, upper / s}; }
         return {lower, upper};
       },
       stream_view_);
@@ -509,15 +508,15 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
       },
       stream_view_.value());
 
-  cub::DeviceTransform::Transform(op_problem_scaled_.variable_bounds.data(),
-                                  op_problem_scaled_.variable_bounds.data(),
-        op_problem_scaled_.variable_bounds.size(),
-        [bound_rescaling     = bound_rescaling_.data(),
-        objective_rescaling = objective_rescaling_.data()] __device__(f_t2 variable_bounds)
-          -> f_t2 {
-          return {variable_bounds.x * *bound_rescaling, variable_bounds.y * *bound_rescaling};
-        },
-        stream_view_);
+    cub::DeviceTransform::Transform(
+      op_problem_scaled_.variable_bounds.data(),
+      op_problem_scaled_.variable_bounds.data(),
+      op_problem_scaled_.variable_bounds.size(),
+      [bound_rescaling     = bound_rescaling_.data(),
+       objective_rescaling = objective_rescaling_.data()] __device__(f_t2 variable_bounds) -> f_t2 {
+        return {variable_bounds.x * *bound_rescaling, variable_bounds.y * *bound_rescaling};
+      },
+      stream_view_);
 
     if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
       cub::DeviceTransform::Transform(
@@ -526,22 +525,20 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
         thrust::make_zip_iterator(pdhg_solver_ptr_->get_new_bounds_lower().data(),
                                   pdhg_solver_ptr_->get_new_bounds_upper().data()),
         pdhg_solver_ptr_->get_new_bounds_idx().size(),
-        [bound_rescaling = bound_rescaling_.data()] __device__(f_t lower, f_t upper)
-          -> thrust::tuple<f_t, f_t> {
+        [bound_rescaling = bound_rescaling_.data()] __device__(
+          f_t lower, f_t upper) -> thrust::tuple<f_t, f_t> {
           return {lower * *bound_rescaling, upper * *bound_rescaling};
         },
         stream_view_);
     }
 
     cub::DeviceTransform::Transform(
-                    op_problem_scaled_.objective_coefficients.data(),
-                    op_problem_scaled_.objective_coefficients.data(),
+      op_problem_scaled_.objective_coefficients.data(),
+      op_problem_scaled_.objective_coefficients.data(),
       op_problem_scaled_.objective_coefficients.size(),
       [bound_rescaling     = bound_rescaling_.data(),
        objective_rescaling = objective_rescaling_.data()] __device__(f_t objective_coefficient)
-        -> f_t {
-        return  objective_coefficient * *objective_rescaling;
-      },
+        -> f_t { return objective_coefficient * *objective_rescaling; },
       stream_view_.value());
   }
 
@@ -558,8 +555,7 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_problem()
   print("variable_lower_bound", lower_bounds);
   print("variable_upper_bound", upper_bounds);
   print("objective_vector", op_problem_scaled_.objective_coefficients);
-  if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0)
-  {
+  if (pdhg_solver_ptr_ && pdhg_solver_ptr_->get_new_bounds_idx().size() != 0) {
     print("New bounds idx", pdhg_solver_ptr_->get_new_bounds_idx());
     print("New bounds lower", pdhg_solver_ptr_->get_new_bounds_lower());
     print("New bounds upper", pdhg_solver_ptr_->get_new_bounds_upper());
@@ -581,24 +577,24 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_solutions(
     cuopt_expects(primal_solution.size() % static_cast<size_t>(primal_size_h_) == 0,
                   error_type_t::RuntimeError,
                   "Scale primal didn't get a vector of size primal");
-    
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(primal_solution.data(),
-                          thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_)
-                          )),
-                          primal_solution.data(),
-                          primal_solution.size(),
-                          batch_safe_div<f_t>(),
-                          stream_view_);
+
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(
+        primal_solution.data(),
+        thrust::make_transform_iterator(
+          thrust::make_counting_iterator(0),
+          problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_))),
+      primal_solution.data(),
+      primal_solution.size(),
+      batch_safe_div<f_t>(),
+      stream_view_);
 
     if (hyper_params_.bound_objective_rescaling && !running_mip_) {
-      
       cub::DeviceTransform::Transform(primal_solution.data(),
-                          primal_solution.data(),
-                          primal_solution.size(),
-                          a_times_scalar<f_t>(h_bound_rescaling),
-                          stream_view_);      
+                                      primal_solution.data(),
+                                      primal_solution.size(),
+                                      a_times_scalar<f_t>(h_bound_rescaling),
+                                      stream_view_);
     }
   }
 
@@ -607,23 +603,23 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_solutions(
                   error_type_t::RuntimeError,
                   "Unscale dual didn't get a vector of size dual");
 
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(dual_solution.data(),
-                                       thrust::make_transform_iterator(
-                                         thrust::make_counting_iterator(0),
-                                         problem_wrapped_iterator<f_t>(cummulative_constraint_matrix_scaling_.data(), dual_size_h_)
-                                       )),
-                                       dual_solution.data(),
-                                       dual_solution.size(),
-                                       batch_safe_div<f_t>(),
-                                        stream_view_);
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(dual_solution.data(),
+                            thrust::make_transform_iterator(
+                              thrust::make_counting_iterator(0),
+                              problem_wrapped_iterator<f_t>(
+                                cummulative_constraint_matrix_scaling_.data(), dual_size_h_))),
+      dual_solution.data(),
+      dual_solution.size(),
+      batch_safe_div<f_t>(),
+      stream_view_);
 
     if (hyper_params_.bound_objective_rescaling && !running_mip_) {
-
       cub::DeviceTransform::Transform(dual_solution.data(),
-                          dual_solution.data(),
-                          dual_solution.size(),
-                          a_times_scalar<f_t>(h_objective_rescaling),
-                          stream_view_); 
+                                      dual_solution.data(),
+                                      dual_solution.size(),
+                                      a_times_scalar<f_t>(h_objective_rescaling),
+                                      stream_view_);
     }
   }
 
@@ -632,24 +628,23 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::scale_solutions(
                   error_type_t::RuntimeError,
                   "Unscale dual didn't get a vector of size dual");
 
-
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(dual_slack.data(),
-                          thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_)
-                          )),
-                          dual_slack.data(),
-                          dual_slack.size(),
-                          cuda::std::multiplies<>{},
-                          stream_view_);
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(
+        dual_slack.data(),
+        thrust::make_transform_iterator(
+          thrust::make_counting_iterator(0),
+          problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_))),
+      dual_slack.data(),
+      dual_slack.size(),
+      cuda::std::multiplies<>{},
+      stream_view_);
 
     if (hyper_params_.bound_objective_rescaling && !running_mip_) {
-
       cub::DeviceTransform::Transform(dual_slack.data(),
-                          dual_slack.data(),
-                          dual_slack.size(),
-                          a_times_scalar<f_t>{h_objective_rescaling},
-                          stream_view_);
+                                      dual_slack.data(),
+                                      dual_slack.size(),
+                                      a_times_scalar<f_t>{h_objective_rescaling},
+                                      stream_view_);
     }
   }
 }
@@ -699,24 +694,25 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::unscale_solutions(
                   "Unscale primal didn't get a vector of size primal");
     cuopt_assert(cummulative_variable_scaling_.size() == static_cast<size_t>(primal_size_h_), "");
 
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(primal_solution.data(),
-                          thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_)
-                          )),
-                          primal_solution.data(),
-                          primal_solution.size(),
-                          cuda::std::multiplies<>{},
-                          stream_view_);
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(
+        primal_solution.data(),
+        thrust::make_transform_iterator(
+          thrust::make_counting_iterator(0),
+          problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_))),
+      primal_solution.data(),
+      primal_solution.size(),
+      cuda::std::multiplies<>{},
+      stream_view_);
 
     if (hyper_params_.bound_objective_rescaling && !running_mip_) {
       cuopt_assert(h_bound_rescaling != f_t(0),
                    "Numerical error: bound_rescaling_ should never equal 0");
       cub::DeviceTransform::Transform(primal_solution.data(),
-                          primal_solution.data(),
-                          primal_solution.size(),
-                          a_times_scalar<f_t>(f_t(1.0) / h_bound_rescaling),
-                          stream_view_);  
+                                      primal_solution.data(),
+                                      primal_solution.size(),
+                                      a_times_scalar<f_t>(f_t(1.0) / h_bound_rescaling),
+                                      stream_view_);
     }
   }
 
@@ -726,23 +722,24 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::unscale_solutions(
                   "Unscale dual didn't get a vector of size dual");
     cuopt_assert(cummulative_constraint_matrix_scaling_.size() == static_cast<size_t>(dual_size_h_),
                  "");
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(dual_solution.data(),
-                                       thrust::make_transform_iterator(
-                                         thrust::make_counting_iterator(0),
-                                         problem_wrapped_iterator<f_t>(cummulative_constraint_matrix_scaling_.data(), dual_size_h_)
-                                       )),
-                                       dual_solution.data(),
-                                       dual_solution.size(),
-                                       cuda::std::multiplies<>{},
-                                        stream_view_);
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(dual_solution.data(),
+                            thrust::make_transform_iterator(
+                              thrust::make_counting_iterator(0),
+                              problem_wrapped_iterator<f_t>(
+                                cummulative_constraint_matrix_scaling_.data(), dual_size_h_))),
+      dual_solution.data(),
+      dual_solution.size(),
+      cuda::std::multiplies<>{},
+      stream_view_);
     if (hyper_params_.bound_objective_rescaling && !running_mip_) {
       cuopt_assert(h_bound_rescaling != f_t(0),
                    "Numerical error: bound_rescaling_ should never equal 0");
       cub::DeviceTransform::Transform(dual_solution.data(),
-                          dual_solution.data(),
-                          dual_solution.size(),
-                          a_times_scalar<f_t>(f_t(1.0) / h_objective_rescaling),
-                          stream_view_); 
+                                      dual_solution.data(),
+                                      dual_solution.size(),
+                                      a_times_scalar<f_t>(f_t(1.0) / h_objective_rescaling),
+                                      stream_view_);
     }
   }
 
@@ -750,23 +747,24 @@ void pdlp_initial_scaling_strategy_t<i_t, f_t>::unscale_solutions(
     cuopt_expects(dual_slack.size() % static_cast<size_t>(primal_size_h_) == 0,
                   error_type_t::RuntimeError,
                   "Unscale dual didn't get a vector of size dual");
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(dual_slack.data(),
-                          thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_)
-                          )),
-                          dual_slack.data(),
-                          dual_slack.size(),
-                          batch_safe_div<f_t>(),
-                          stream_view_);
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(
+        dual_slack.data(),
+        thrust::make_transform_iterator(
+          thrust::make_counting_iterator(0),
+          problem_wrapped_iterator<f_t>(cummulative_variable_scaling_.data(), primal_size_h_))),
+      dual_slack.data(),
+      dual_slack.size(),
+      batch_safe_div<f_t>(),
+      stream_view_);
     if (hyper_params_.bound_objective_rescaling && !running_mip_) {
       cuopt_assert(h_bound_rescaling != f_t(0),
                    "Numerical error: bound_rescaling_ should never equal 0");
       cub::DeviceTransform::Transform(dual_slack.data(),
-                          dual_slack.data(),
-                          dual_slack.size(),
-                          a_times_scalar<f_t>{f_t(1.0) / h_objective_rescaling},
-                          stream_view_);
+                                      dual_slack.data(),
+                                      dual_slack.size(),
+                                      a_times_scalar<f_t>{f_t(1.0) / h_objective_rescaling},
+                                      stream_view_);
     }
   }
 }
@@ -803,7 +801,8 @@ pdlp_initial_scaling_strategy_t<i_t, f_t>::get_constraint_matrix_scaling_vector(
 }
 
 template <typename i_t, typename f_t>
-const rmm::device_uvector<f_t>& pdlp_initial_scaling_strategy_t<i_t, f_t>::get_variable_scaling_vector() const
+const rmm::device_uvector<f_t>&
+pdlp_initial_scaling_strategy_t<i_t, f_t>::get_variable_scaling_vector() const
 {
   return cummulative_variable_scaling_;
 }

@@ -1,16 +1,16 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
 #pragma once
 
 #include <linear_programming/pdhg.hpp>
-#include <linear_programming/termination_strategy/convergence_information.hpp>
-#include <linear_programming/termination_strategy/infeasibility_information.hpp>
 #include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
+#include <linear_programming/termination_strategy/convergence_information.hpp>
+#include <linear_programming/termination_strategy/infeasibility_information.hpp>
 
 #include <cuopt/linear_programming/pdlp/pdlp_warm_start_data.hpp>
 #include <cuopt/linear_programming/pdlp/solver_settings.hpp>
@@ -38,7 +38,8 @@ class pdlp_termination_strategy_t {
                               const cusparse_view_t<i_t, f_t>& scaled_cusparse_view,
                               const i_t primal_size,
                               const i_t dual_size,
-                              const pdlp_initial_scaling_strategy_t<i_t, f_t>& scaling_strategy, // Only used for cuPDLPx infeaislbity detection 
+                              const pdlp_initial_scaling_strategy_t<i_t, f_t>&
+                                scaling_strategy,  // Only used for cuPDLPx infeaislbity detection
                               const pdlp_solver_settings_t<i_t, f_t>& settings,
                               const std::vector<pdlp_climber_strategy_t>& climber_strategies);
 
@@ -46,30 +47,30 @@ class pdlp_termination_strategy_t {
     pdhg_solver_t<i_t, f_t>& current_pdhg_solver,
     rmm::device_uvector<f_t>& primal_iterate,
     rmm::device_uvector<f_t>& dual_iterate,
-    const rmm::device_uvector<f_t>& dual_slack, // // Only useful in cuPDLPx restart mode
-    rmm::device_uvector<f_t>& delta_primal_iterate, // Only useful for infeasiblity detection
-    rmm::device_uvector<f_t>& delta_dual_iterate, // Only useful for infeasiblity detection
+    const rmm::device_uvector<f_t>& dual_slack,      // // Only useful in cuPDLPx restart mode
+    rmm::device_uvector<f_t>& delta_primal_iterate,  // Only useful for infeasiblity detection
+    rmm::device_uvector<f_t>& delta_dual_iterate,    // Only useful for infeasiblity detection
     i_t total_pdlp_iterations,
     const rmm::device_uvector<f_t>& combined_bounds,  // Only useful if per_constraint_residual
     const rmm::device_uvector<f_t>&
       objective_coefficients  // Only useful if per_constraint_residual
   );
-  
+
   // Only useful in batch mode to store information of removed climber faster
   struct gpu_batch_additional_termination_information_t {
-
-    gpu_batch_additional_termination_information_t(size_t batch_size) :
-      number_of_steps_taken(batch_size),
-      total_number_of_attempted_steps(batch_size),
-      l2_primal_residual(batch_size),
-      l2_relative_primal_residual(batch_size),
-      l2_dual_residual(batch_size),
-      l2_relative_dual_residual(batch_size),
-      primal_objective(batch_size),
-      dual_objective(batch_size),
-      gap(batch_size),
-      relative_gap(batch_size)
-    {}
+    gpu_batch_additional_termination_information_t(size_t batch_size)
+      : number_of_steps_taken(batch_size),
+        total_number_of_attempted_steps(batch_size),
+        l2_primal_residual(batch_size),
+        l2_relative_primal_residual(batch_size),
+        l2_dual_residual(batch_size),
+        l2_relative_dual_residual(batch_size),
+        primal_objective(batch_size),
+        dual_objective(batch_size),
+        gap(batch_size),
+        relative_gap(batch_size)
+    {
+    }
 
     struct view_t {
       raft::device_span<i_t> number_of_steps_taken;
@@ -128,7 +129,10 @@ class pdlp_termination_strategy_t {
   void resize_context(i_t new_size);
 
   void fill_gpu_terms_stats(i_t number_of_iterations);
-  void convert_gpu_terms_stats_to_host(std::vector<typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>& additional_termination_informations);
+  void convert_gpu_terms_stats_to_host(
+    std::vector<
+      typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>&
+      additional_termination_informations);
 
   void set_relative_dual_tolerance_factor(f_t dual_tolerance_factor);
   void set_relative_primal_tolerance_factor(f_t primal_tolerance_factor);
@@ -185,6 +189,5 @@ class pdlp_termination_strategy_t {
   thrust::universal_host_pinned_vector<i_t> original_index_;
 
   const std::vector<pdlp_climber_strategy_t>& climber_strategies_;
-
 };
 }  // namespace cuopt::linear_programming::detail

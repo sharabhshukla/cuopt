@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -12,8 +12,8 @@
 
 #include <linear_programming/cusparse_view.hpp>
 #include <linear_programming/pdhg.hpp>
-#include <linear_programming/saddle_point.hpp>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/saddle_point.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
 
 #include <raft/core/handle.hpp>
@@ -90,7 +90,7 @@ class adaptive_step_size_strategy_t {
 
  private:
   const bool batch_mode_;
-  
+
   // Stream pool to run different step size computation in parallel
   // Because we already have the main stream, we just need 2 extra streams from this
   rmm::cuda_stream_pool stream_pool_;

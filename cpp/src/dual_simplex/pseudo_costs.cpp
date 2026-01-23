@@ -179,9 +179,10 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
       fraction_values.push_back(original_root_soln_x[j]);
     }
 
-    std::vector<f_t> primal_solutions = batch_pdlp_solve(original_problem, fractional, fraction_values);
+    std::vector<f_t> primal_solutions =
+      batch_pdlp_solve(original_problem, fractional, fraction_values);
     std::chrono::steady_clock::time_point end_batch = std::chrono::steady_clock::now();
-    std::chrono::duration<f_t> duration = end_batch - start_batch;
+    std::chrono::duration<f_t> duration             = end_batch - start_batch;
     settings.log.printf("Batch PDLP strong branching took %.2f seconds\n", duration.count());
 
     for (i_t k = 0; k < fractional.size(); k++) {
@@ -205,21 +206,18 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
       f_t obj_up = primal_solutions[k + fractional.size()];
 
       pc.strong_branch_down[k] = obj_down - root_obj;
-      pc.strong_branch_up[k] = obj_up - root_obj;
+      pc.strong_branch_up[k]   = obj_up - root_obj;
     }
-  }
-  else
-  {
+  } else {
+    std::chrono::steady_clock::time_point start_timea = std::chrono::steady_clock::now();
 
-  std::chrono::steady_clock::time_point start_timea = std::chrono::steady_clock::now();
-
-  #pragma omp parallel num_threads(settings.num_threads)
+#pragma omp parallel num_threads(settings.num_threads)
     {
       i_t n = std::min<i_t>(4 * settings.num_threads, fractional.size());
 
       // Here we are creating more tasks than the number of threads
       // such that they can be scheduled dynamically to the threads.
-  #pragma omp for schedule(dynamic, 1)
+#pragma omp for schedule(dynamic, 1)
       for (i_t k = 0; k < n; k++) {
         i_t start = std::floor(k * fractional.size() / n);
         i_t end   = std::floor((k + 1) * fractional.size() / n);
@@ -235,21 +233,21 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
         }
 
         strong_branch_helper(start,
-                            end,
-                            start_time,
-                            original_lp,
-                            settings,
-                            var_types,
-                            fractional,
-                            root_obj,
-                            root_soln,
-                            root_vstatus,
-                            edge_norms,
-                            pc);
+                             end,
+                             start_time,
+                             original_lp,
+                             settings,
+                             var_types,
+                             fractional,
+                             root_obj,
+                             root_soln,
+                             root_vstatus,
+                             edge_norms,
+                             pc);
       }
     }
     std::chrono::steady_clock::time_point end_timea = std::chrono::steady_clock::now();
-    std::chrono::duration<f_t> duration = end_timea - start_timea;
+    std::chrono::duration<f_t> duration             = end_timea - start_timea;
     settings.log.printf("Dual Simplex Strong branching took %.2f seconds\n", duration.count());
   }
 

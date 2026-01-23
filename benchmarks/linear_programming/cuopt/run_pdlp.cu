@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -17,10 +17,10 @@
 
 #include <argparse/argparse.hpp>
 
+#include <cmath>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
-#include <cmath>
 
 #include <rmm/mr/pool_memory_resource.hpp>
 
@@ -82,8 +82,7 @@ static void parse_arguments(argparse::ArgumentParser& program)
 static cuopt::linear_programming::pdlp_solver_mode_t string_to_pdlp_solver_mode(
   const std::string& mode)
 {
-  if (mode == "Stable1")
-    return cuopt::linear_programming::pdlp_solver_mode_t::Stable1;
+  if (mode == "Stable1") return cuopt::linear_programming::pdlp_solver_mode_t::Stable1;
   if (mode == "Stable2")
     return cuopt::linear_programming::pdlp_solver_mode_t::Stable2;
   else if (mode == "Methodical1")

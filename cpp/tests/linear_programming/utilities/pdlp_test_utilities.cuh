@@ -58,16 +58,16 @@ static void test_objective_sanity(
 // Check that the primal variables respected the variable bounds
 static void test_constraint_sanity(
   const cuopt::mps_parser::mps_data_model_t<int, double>& op_problem,
-  const optimization_problem_solution_t<int, double>::additional_termination_information_t& termination_information,
+  const optimization_problem_solution_t<int, double>::additional_termination_information_t&
+    termination_information,
   const rmm::device_uvector<double>& primal_solution,
   double epsilon        = tolerance,
   bool presolve_enabled = false)
 {
-  const std::vector<double> primal_vars =
-    host_copy(primal_solution, primal_solution.stream());
-  const std::vector<double>& values                  = op_problem.get_constraint_matrix_values();
-  const std::vector<int>& indices                    = op_problem.get_constraint_matrix_indices();
-  const std::vector<int>& offsets                    = op_problem.get_constraint_matrix_offsets();
+  const std::vector<double> primal_vars = host_copy(primal_solution, primal_solution.stream());
+  const std::vector<double>& values     = op_problem.get_constraint_matrix_values();
+  const std::vector<int>& indices       = op_problem.get_constraint_matrix_indices();
+  const std::vector<int>& offsets       = op_problem.get_constraint_matrix_offsets();
   const std::vector<double>& constraint_lower_bounds = op_problem.get_constraint_lower_bounds();
   const std::vector<double>& constraint_upper_bounds = op_problem.get_constraint_upper_bounds();
   const std::vector<double>& variable_lower_bounds   = op_problem.get_variable_lower_bounds();
@@ -98,9 +98,7 @@ static void test_constraint_sanity(
       viol.cbegin(), viol.cend(), 0.0, [](double acc, double val) { return acc + val * val; });
     l2_primal_residual = std::sqrt(l2_primal_residual);
 
-    EXPECT_NEAR(l2_primal_residual,
-                termination_information.l2_primal_residual,
-                epsilon);
+    EXPECT_NEAR(l2_primal_residual, termination_information.l2_primal_residual, epsilon);
 
     // Check if primal residual is indeed respecting the default tolerance
     pdlp_solver_settings_t solver_settings = pdlp_solver_settings_t<int, double>{};

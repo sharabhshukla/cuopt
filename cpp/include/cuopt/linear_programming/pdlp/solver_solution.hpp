@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -125,24 +125,26 @@ class optimization_problem_solution_t : public base_solution_t {
    * @param[in] termination_stats The termination statistics
    * @param[in] termination_status_ The termination reason
    */
-  optimization_problem_solution_t(rmm::device_uvector<f_t>& final_primal_solution,
-                                  rmm::device_uvector<f_t>& final_dual_solution,
-                                  rmm::device_uvector<f_t>& final_reduced_cost,
-                                  pdlp_warm_start_data_t<i_t, f_t>&& warm_start_data,
-                                  const std::string objective_name,
-                                  const std::vector<std::string>& var_names,
-                                  const std::vector<std::string>& row_names,
-                                  std::vector<additional_termination_information_t>&& termination_stats,
-                                  std::vector<pdlp_termination_status_t>&& termination_status_);
+  optimization_problem_solution_t(
+    rmm::device_uvector<f_t>& final_primal_solution,
+    rmm::device_uvector<f_t>& final_dual_solution,
+    rmm::device_uvector<f_t>& final_reduced_cost,
+    pdlp_warm_start_data_t<i_t, f_t>&& warm_start_data,
+    const std::string objective_name,
+    const std::vector<std::string>& var_names,
+    const std::vector<std::string>& row_names,
+    std::vector<additional_termination_information_t>&& termination_stats,
+    std::vector<pdlp_termination_status_t>&& termination_status_);
 
-  optimization_problem_solution_t(rmm::device_uvector<f_t>& final_primal_solution,
-                                  rmm::device_uvector<f_t>& final_dual_solution,
-                                  rmm::device_uvector<f_t>& final_reduced_cost,
-                                  const std::string objective_name,
-                                  const std::vector<std::string>& var_names,
-                                  const std::vector<std::string>& row_names,
-                                  std::vector<additional_termination_information_t>&& termination_stats,
-                                  std::vector<pdlp_termination_status_t>&& termination_status_);
+  optimization_problem_solution_t(
+    rmm::device_uvector<f_t>& final_primal_solution,
+    rmm::device_uvector<f_t>& final_dual_solution,
+    rmm::device_uvector<f_t>& final_reduced_cost,
+    const std::string objective_name,
+    const std::vector<std::string>& var_names,
+    const std::vector<std::string>& row_names,
+    std::vector<additional_termination_information_t>&& termination_stats,
+    std::vector<pdlp_termination_status_t>&& termination_status_);
 
   /**
    * @brief Construct variant used in best_primal_so_far to do a deep copy instead of move since we

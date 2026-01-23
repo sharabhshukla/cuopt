@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -123,7 +123,7 @@ class pdlp_solver_settings_t {
    * @param[in] initial_step_size Initial step size.
    */
   // TODO batch mode: tmp
-   void set_initial_step_size(f_t initial_step_size);
+  void set_initial_step_size(f_t initial_step_size);
   /**
    * @brief Set an initial primal weight.
    *
@@ -236,8 +236,9 @@ class pdlp_solver_settings_t {
   pdlp_hyper_params::pdlp_hyper_params_t hyper_params;
   // Holds the information of new variable lower and upper bounds for each climber in the format:
   // (variable index, new lower bound, new upper bound)
-  // For each entry in the vector, a new version of the problem (climber) will be solved concurrently
-  // i.e. if new_bounds.size() == 2, then 2 versions of the problem with updated bounds will be solved concurrently
+  // For each entry in the vector, a new version of the problem (climber) will be solved
+  // concurrently i.e. if new_bounds.size() == 2, then 2 versions of the problem with updated bounds
+  // will be solved concurrently
   std::vector<std::tuple<i_t, f_t, f_t>> new_bounds;
 
  private:

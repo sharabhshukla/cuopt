@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -8,12 +8,12 @@
 
 #include <linear_programming/cusparse_view.hpp>
 #include <linear_programming/pdhg.hpp>
+#include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/restart_strategy/localized_duality_gap_container.hpp>
-#include <linear_programming/swap_and_resize_helper.cuh>
 #include <linear_programming/restart_strategy/weighted_average_solution.hpp>
 #include <linear_programming/saddle_point.hpp>
+#include <linear_programming/swap_and_resize_helper.cuh>
 #include <linear_programming/termination_strategy/convergence_information.hpp>
-#include <linear_programming/pdlp_climber_strategy.hpp>
 
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
 
@@ -142,18 +142,19 @@ class pdlp_restart_strategy_t {
   void get_average_solutions(rmm::device_uvector<f_t>& avg_primal,
                              rmm::device_uvector<f_t>& avg_dual);
 
-  void compute_restart(pdhg_solver_t<i_t, f_t>& pdhg_solver,
-                       rmm::device_uvector<f_t>& primal_solution_avg,
-                       rmm::device_uvector<f_t>& dual_solution_avg,
-                       const i_t total_number_of_iterations,
-                       rmm::device_uvector<f_t>& primal_step_size,  // Updated if new primal weight
-                       rmm::device_uvector<f_t>& dual_step_size,    // Updated if new primal weight
-                       rmm::device_uvector<f_t>& primal_weight,
-                       const rmm::device_uvector<f_t>& step_size,  // To update primal/dual step size
-                       const convergence_information_t<i_t, f_t>& current_convergence_information,
-                       const convergence_information_t<i_t, f_t>& average_convergence_information,
-                       [[maybe_unused]] rmm::device_uvector<f_t>& best_primal_weight,
-                       std::vector<int>& has_restarted);
+  void compute_restart(
+    pdhg_solver_t<i_t, f_t>& pdhg_solver,
+    rmm::device_uvector<f_t>& primal_solution_avg,
+    rmm::device_uvector<f_t>& dual_solution_avg,
+    const i_t total_number_of_iterations,
+    rmm::device_uvector<f_t>& primal_step_size,  // Updated if new primal weight
+    rmm::device_uvector<f_t>& dual_step_size,    // Updated if new primal weight
+    rmm::device_uvector<f_t>& primal_weight,
+    const rmm::device_uvector<f_t>& step_size,  // To update primal/dual step size
+    const convergence_information_t<i_t, f_t>& current_convergence_information,
+    const convergence_information_t<i_t, f_t>& average_convergence_information,
+    [[maybe_unused]] rmm::device_uvector<f_t>& best_primal_weight,
+    std::vector<int>& has_restarted);
 
   /**
    * @brief Gets the device-side view (with raw pointers), for ease of access
@@ -380,8 +381,8 @@ class pdlp_restart_strategy_t {
   thrust::universal_host_pinned_vector<f_t> fixed_point_error_;
   std::vector<f_t> initial_fixed_point_error_;
   std::vector<f_t> last_trial_fixed_point_error_;
-  thrust::universal_host_pinned_vector<f_t> primal_weight_error_sum_;       
-  thrust::universal_host_pinned_vector<f_t> primal_weight_last_error_;      
+  thrust::universal_host_pinned_vector<f_t> primal_weight_error_sum_;
+  thrust::universal_host_pinned_vector<f_t> primal_weight_last_error_;
   thrust::universal_host_pinned_vector<f_t> best_primal_dual_residual_gap_;
 
   const std::vector<pdlp_climber_strategy_t>& climber_strategies_;
@@ -392,21 +393,22 @@ template <typename i_t, typename f_t>
 bool is_trust_region_restart(const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params)
 {
   return hyper_params.restart_strategy ==
-           static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::TRUST_REGION_RESTART);
+         static_cast<int>(
+           pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::TRUST_REGION_RESTART);
 }
 
 template <typename i_t, typename f_t>
 bool is_kkt_restart(const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params)
 {
   return hyper_params.restart_strategy ==
-           static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::KKT_RESTART);
+         static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::KKT_RESTART);
 }
 
 template <typename i_t, typename f_t>
 bool is_cupdlpx_restart(const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params)
 {
   return hyper_params.restart_strategy ==
-           static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::CUPDLPX_RESTART);
+         static_cast<int>(pdlp_restart_strategy_t<i_t, f_t>::restart_strategy_t::CUPDLPX_RESTART);
 }
 
 }  // namespace cuopt::linear_programming::detail

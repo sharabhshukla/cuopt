@@ -90,7 +90,8 @@ struct a_times_scalar {
 
 template <typename f_t>
 struct batch_safe_div {
-  HDI f_t operator()(f_t a, f_t b) {
+  HDI f_t operator()(f_t a, f_t b)
+  {
     cuopt_assert(b != f_t(0), "Division by zero");
     return b != f_t(0) ? a / b : a;
   }
@@ -188,28 +189,31 @@ struct combine_finite_abs_bounds {
 
 // Used to wrap the problem input around a single batch
 // This is used to iterate over the primal and dual step sizes
-// For each variable of one problem in the batch, the same primal and dual step sizes should be returned
+// For each variable of one problem in the batch, the same primal and dual step sizes should be
+// returned
 template <typename f_t>
 struct batch_wrapped_iterator {
-  batch_wrapped_iterator(const f_t* problem_input, int problem_size) : problem_input_(problem_input), problem_size_(problem_size) {}
-  HDI f_t operator()(int id) {
-      return problem_input_[id / problem_size_];
+  batch_wrapped_iterator(const f_t* problem_input, int problem_size)
+    : problem_input_(problem_input), problem_size_(problem_size)
+  {
   }
+  HDI f_t operator()(int id) { return problem_input_[id / problem_size_]; }
 
   const f_t* problem_input_;
   int problem_size_;
 };
 
 // Used to wrap the problem input around a problem inside the batch
-// This is used to iterate over (for example) the objective coefficient when they are the same for all climbers
-// Every variable with the same index across problems in the batch should have the same bounds
-// This also work if the bound are actually batch wide since the size will be bigger
+// This is used to iterate over (for example) the objective coefficient when they are the same for
+// all climbers Every variable with the same index across problems in the batch should have the same
+// bounds This also work if the bound are actually batch wide since the size will be bigger
 template <typename f_t>
 struct problem_wrapped_iterator {
-  problem_wrapped_iterator(const f_t* problem_input, int problem_size) : problem_input_(problem_input), problem_size_(problem_size) {}
-  HDI f_t operator()(int id) {
-      return problem_input_[id % problem_size_];
+  problem_wrapped_iterator(const f_t* problem_input, int problem_size)
+    : problem_input_(problem_input), problem_size_(problem_size)
+  {
   }
+  HDI f_t operator()(int id) { return problem_input_[id % problem_size_]; }
 
   const f_t* problem_input_;
   // TODO use i_t
@@ -220,17 +224,13 @@ struct problem_wrapped_iterator {
 template <typename f_t>
 static inline auto problem_wrap_container(const rmm::device_uvector<f_t>& in)
 {
-  return thrust::make_transform_iterator(
-                            thrust::make_counting_iterator(0),
-                            problem_wrapped_iterator<f_t>(in.data(), in.size()));
+  return thrust::make_transform_iterator(thrust::make_counting_iterator(0),
+                                         problem_wrapped_iterator<f_t>(in.data(), in.size()));
 }
 
 template <typename f_t>
 struct power_two_func_t {
-  HDI f_t operator()(f_t val)
-  {
-    return val * val;
-  }
+  HDI f_t operator()(f_t val) { return val * val; }
 };
 
 template <typename i_t, typename f_t>
@@ -238,27 +238,25 @@ void inline combine_constraint_bounds(const problem_t<i_t, f_t>& op_problem,
                                       rmm::device_uvector<f_t>& combined_bounds,
                                       bool batch_mode = false)
 {
-  if (!batch_mode)
-  {
+  if (!batch_mode) {
     combined_bounds.resize(op_problem.n_constraints, op_problem.handle_ptr->get_stream());
     if (combined_bounds.size() > 0) {
       raft::linalg::binaryOp(combined_bounds.data(),
-                            op_problem.constraint_lower_bounds.data(),
-                            op_problem.constraint_upper_bounds.data(),
-                            op_problem.n_constraints,
-                            combine_finite_abs_bounds<f_t>(),
-                            op_problem.handle_ptr->get_stream());
+                             op_problem.constraint_lower_bounds.data(),
+                             op_problem.constraint_upper_bounds.data(),
+                             op_problem.n_constraints,
+                             combine_finite_abs_bounds<f_t>(),
+                             op_problem.handle_ptr->get_stream());
     }
-  }
-  else
-  {
-    // In batch mode we use combined_constraint_bounds in convergeance_information to fill the primal residual which will be bigger 
-    cuopt_assert(combined_bounds.size() % op_problem.n_constraints == 0, "combined_bounds size must be a multiple of op_problem.n_constraints");
+  } else {
+    // In batch mode we use combined_constraint_bounds in convergeance_information to fill the
+    // primal residual which will be bigger
+    cuopt_assert(combined_bounds.size() % op_problem.n_constraints == 0,
+                 "combined_bounds size must be a multiple of op_problem.n_constraints");
     // TODO later batch mode: different constraint bounds
-    cub::DeviceTransform::Transform(cuda::std::make_tuple(
-      problem_wrap_container(op_problem.constraint_lower_bounds),
-      problem_wrap_container(op_problem.constraint_upper_bounds)
-      ),
+    cub::DeviceTransform::Transform(
+      cuda::std::make_tuple(problem_wrap_container(op_problem.constraint_lower_bounds),
+                            problem_wrap_container(op_problem.constraint_upper_bounds)),
       combined_bounds.data(),
       combined_bounds.size(),
       combine_finite_abs_bounds<f_t>(),
@@ -274,7 +272,7 @@ void inline compute_sum_bounds(const rmm::device_uvector<f_t>& constraint_lower_
 {
   rmm::device_buffer d_temp_storage;
   size_t bytes = 0;
-  auto main_op = [] HD (const thrust::tuple<f_t, f_t> t) {
+  auto main_op = [] HD(const thrust::tuple<f_t, f_t> t) {
     const f_t lower = thrust::get<0>(t);
     const f_t upper = thrust::get<1>(t);
     f_t sum         = f_t(0);
@@ -543,18 +541,11 @@ f_t device_to_host_value(f_t* iter)
 }
 
 template <typename i_t, typename f_t>
-void inline my_l2_norm(const f_t* in,
-                       f_t* out,
-                       size_t size,
-                       raft::handle_t const* handle_ptr)
+void inline my_l2_norm(const f_t* in, f_t* out, size_t size, raft::handle_t const* handle_ptr)
 {
   constexpr int stride = 1;
-  RAFT_CUBLAS_TRY(raft::linalg::detail::cublasnrm2(handle_ptr->get_cublas_handle(),
-                                                   size,
-                                                   in,
-                                                   stride,
-                                                   out,
-                                                   handle_ptr->get_stream()));
+  RAFT_CUBLAS_TRY(raft::linalg::detail::cublasnrm2(
+    handle_ptr->get_cublas_handle(), size, in, stride, out, handle_ptr->get_stream()));
 }
 
 template <typename i_t, typename f_t>

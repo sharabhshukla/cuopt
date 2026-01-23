@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -10,9 +10,8 @@
 #include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
 
-#include <raft/core/handle.hpp>
 #include <raft/core/device_span.hpp>
-
+#include <raft/core/handle.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>

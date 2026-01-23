@@ -59,7 +59,7 @@ mip_solution_t<i_t, f_t> run_mip(detail::problem_t<i_t, f_t>& problem,
   auto constexpr const running_mip = true;
 
   // TODO ask Akif and Alice how was this passed down?
-  auto hyper_params = settings.hyper_params;
+  auto hyper_params                                     = settings.hyper_params;
   hyper_params.update_primal_weight_on_initial_solution = false;
   hyper_params.update_step_size_on_initial_solution     = true;
   // if the input problem is empty: early exit

@@ -1,13 +1,13 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
 
+#include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/restart_strategy/localized_duality_gap_container.hpp>
 #include <linear_programming/restart_strategy/pdlp_restart_strategy.cuh>
-#include <linear_programming/pdlp_climber_strategy.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
 #include <linear_programming/utils.cuh>
 
@@ -18,7 +18,11 @@
 namespace cuopt::linear_programming::detail {
 template <typename i_t, typename f_t>
 localized_duality_gap_container_t<i_t, f_t>::localized_duality_gap_container_t(
-  raft::handle_t const* handle_ptr, i_t primal_size, i_t dual_size, const std::vector<pdlp_climber_strategy_t>& climber_strategies, const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params)
+  raft::handle_t const* handle_ptr,
+  i_t primal_size,
+  i_t dual_size,
+  const std::vector<pdlp_climber_strategy_t>& climber_strategies,
+  const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params)
   : primal_size_h_(primal_size),
     dual_size_h_(dual_size),
     lagrangian_value_{handle_ptr->get_stream()},
@@ -29,16 +33,21 @@ localized_duality_gap_container_t<i_t, f_t>::localized_duality_gap_container_t(
     dual_distance_traveled_(climber_strategies.size(), handle_ptr->get_stream()),
     normalized_gap_{handle_ptr->get_stream()},
     primal_solution_{static_cast<size_t>(primal_size) * climber_strategies.size(),
-                     handle_ptr->get_stream()},                                // Needed even in kkt
-    dual_solution_{static_cast<size_t>(dual_size) * climber_strategies.size(), handle_ptr->get_stream()},  // Needed even in kkt
-    primal_gradient_{!is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(primal_size),
-                     handle_ptr->get_stream()},
-    dual_gradient_{!is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(dual_size),
-                   handle_ptr->get_stream()},
-    primal_solution_tr_{!is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(primal_size),
-                        handle_ptr->get_stream()},
-    dual_solution_tr_{!is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(dual_size),
-                      handle_ptr->get_stream()}
+                     handle_ptr->get_stream()},  // Needed even in kkt
+    dual_solution_{static_cast<size_t>(dual_size) * climber_strategies.size(),
+                   handle_ptr->get_stream()},  // Needed even in kkt
+    primal_gradient_{
+      !is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(primal_size),
+      handle_ptr->get_stream()},
+    dual_gradient_{
+      !is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(dual_size),
+      handle_ptr->get_stream()},
+    primal_solution_tr_{
+      !is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(primal_size),
+      handle_ptr->get_stream()},
+    dual_solution_tr_{
+      !is_trust_region_restart<i_t, f_t>(hyper_params) ? 0 : static_cast<size_t>(dual_size),
+      handle_ptr->get_stream()}
 {
   RAFT_CUDA_TRY(cudaMemsetAsync(primal_solution_.data(),
                                 f_t(0.0),
@@ -87,17 +96,19 @@ void localized_duality_gap_container_t<i_t, f_t>::swap_context(
   const auto [grid_size, block_size] =
     kernel_config_from_batch_size(static_cast<i_t>(swap_pairs.size()));
   localized_duality_gap_swap_device_vectors_kernel<i_t, f_t>
-    <<<grid_size, block_size, 0, primal_solution_.stream()>>>(thrust::raw_pointer_cast(swap_pairs.data()),
-                                                              static_cast<i_t>(swap_pairs.size()),
-                                                              make_span(primal_distance_traveled_),
-                                                              make_span(dual_distance_traveled_));
+    <<<grid_size, block_size, 0, primal_solution_.stream()>>>(
+      thrust::raw_pointer_cast(swap_pairs.data()),
+      static_cast<i_t>(swap_pairs.size()),
+      make_span(primal_distance_traveled_),
+      make_span(dual_distance_traveled_));
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 template <typename i_t, typename f_t>
 void localized_duality_gap_container_t<i_t, f_t>::resize_context(i_t new_size)
 {
-  [[maybe_unused]] const auto batch_size = static_cast<i_t>(primal_solution_.size() / primal_size_h_);
+  [[maybe_unused]] const auto batch_size =
+    static_cast<i_t>(primal_solution_.size() / primal_size_h_);
   cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
   cuopt_assert(new_size > 0, "New size must be greater than 0");
   cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");

@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -8,10 +8,10 @@
 #pragma once
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
 #include <linear_programming/cusparse_view.hpp>
-#include <linear_programming/saddle_point.hpp>
-#include <linear_programming/utilities/ping_pong_graph.cuh>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/saddle_point.hpp>
 #include <linear_programming/swap_and_resize_helper.cuh>
+#include <linear_programming/utilities/ping_pong_graph.cuh>
 #include <mip/problem/problem.cuh>
 
 #include <raft/core/handle.hpp>
@@ -54,7 +54,7 @@ class pdhg_solver_t {
   void swap_context(const thrust::universal_host_pinned_vector<swap_pair_t<i_t>>& swap_pairs);
   void resize_context(i_t new_size);
   ping_pong_graph_t<i_t>& get_graph_all();
-  
+
   rmm::device_uvector<i_t>& get_new_bounds_idx() { return new_bounds_idx_; }
   rmm::device_uvector<f_t>& get_new_bounds_lower() { return new_bounds_lower_; }
   rmm::device_uvector<f_t>& get_new_bounds_upper() { return new_bounds_upper_; }
@@ -69,19 +69,19 @@ class pdhg_solver_t {
   void refine_initial_primal_projection();
 
   i_t total_pdhg_iterations_;
-  
-  private:
-  void compute_next_primal_dual_solution(rmm::device_uvector<f_t>& primal_step_size,
-    i_t iterations_since_last_restart,
-    bool last_restart_was_average,
-    rmm::device_uvector<f_t>& dual_step_size,
-    i_t total_pdlp_iterations);
-    void compute_next_dual_solution(rmm::device_uvector<f_t>& dual_step_size);    
-    void compute_next_primal_dual_solution_reflected(rmm::device_uvector<f_t>& primal_step_size,
-                                                      rmm::device_uvector<f_t>& dual_step_size,
-                                                      bool should_major);
 
-    void compute_primal_projection_with_gradient(rmm::device_uvector<f_t>& primal_step_size);
+ private:
+  void compute_next_primal_dual_solution(rmm::device_uvector<f_t>& primal_step_size,
+                                         i_t iterations_since_last_restart,
+                                         bool last_restart_was_average,
+                                         rmm::device_uvector<f_t>& dual_step_size,
+                                         i_t total_pdlp_iterations);
+  void compute_next_dual_solution(rmm::device_uvector<f_t>& dual_step_size);
+  void compute_next_primal_dual_solution_reflected(rmm::device_uvector<f_t>& primal_step_size,
+                                                   rmm::device_uvector<f_t>& dual_step_size,
+                                                   bool should_major);
+
+  void compute_primal_projection_with_gradient(rmm::device_uvector<f_t>& primal_step_size);
   void compute_primal_projection(rmm::device_uvector<f_t>& primal_step_size);
   void compute_At_y();
   void compute_A_x();

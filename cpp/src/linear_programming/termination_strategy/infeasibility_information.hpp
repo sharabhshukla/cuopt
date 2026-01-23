@@ -1,15 +1,15 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
 #pragma once
 
 #include <linear_programming/cusparse_view.hpp>
+#include <linear_programming/initial_scaling_strategy/initial_scaling.cuh>
 #include <linear_programming/pdhg.hpp>
 #include <linear_programming/saddle_point.hpp>
-#include <linear_programming/initial_scaling_strategy/initial_scaling.cuh>
 
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
 #include <cuopt/linear_programming/utilities/segmented_sum_handler.cuh>
@@ -27,17 +27,19 @@ namespace cuopt::linear_programming::detail {
 template <typename i_t, typename f_t>
 class infeasibility_information_t {
  public:
-  infeasibility_information_t(raft::handle_t const* handle_ptr,
-                              problem_t<i_t, f_t>& op_problem,
-                              const problem_t<i_t, f_t>& op_problem_scaled, // Only used for cuPDLPx infeasibility detection
-                              cusparse_view_t<i_t, f_t>& cusparse_view,
-                              const cusparse_view_t<i_t, f_t>& scaled_cusparse_view,
-                              i_t primal_size,
-                              i_t dual_size,
-                              const pdlp_initial_scaling_strategy_t<i_t, f_t>& scaling_strategy, // Only used for cuPDLPx infeasibility detection 
-                              bool infeasibility_detection,
-                              const std::vector<pdlp_climber_strategy_t>& climber_strategies,
-                              const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params);
+  infeasibility_information_t(
+    raft::handle_t const* handle_ptr,
+    problem_t<i_t, f_t>& op_problem,
+    const problem_t<i_t, f_t>& op_problem_scaled,  // Only used for cuPDLPx infeasibility detection
+    cusparse_view_t<i_t, f_t>& cusparse_view,
+    const cusparse_view_t<i_t, f_t>& scaled_cusparse_view,
+    i_t primal_size,
+    i_t dual_size,
+    const pdlp_initial_scaling_strategy_t<i_t, f_t>&
+      scaling_strategy,  // Only used for cuPDLPx infeasibility detection
+    bool infeasibility_detection,
+    const std::vector<pdlp_climber_strategy_t>& climber_strategies,
+    const pdlp_hyper_params::pdlp_hyper_params_t& hyper_params);
 
   void compute_infeasibility_information(pdhg_solver_t<i_t, f_t>& current_pdhg_solver,
                                          rmm::device_uvector<f_t>& primal_ray,
@@ -126,7 +128,7 @@ class infeasibility_information_t {
   const rmm::device_scalar<f_t> reusable_device_scalar_value_1_;
   const rmm::device_scalar<f_t> reusable_device_scalar_value_0_;
   const rmm::device_scalar<f_t> reusable_device_scalar_value_neg_1_;
-  
+
   const pdlp_initial_scaling_strategy_t<i_t, f_t>& scaling_strategy_;
   const problem_t<i_t, f_t>& op_problem_scaled_;
 

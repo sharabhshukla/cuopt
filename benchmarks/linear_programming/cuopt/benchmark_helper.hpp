@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -24,8 +24,8 @@
 #include <rmm/mr/owning_wrapper.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
-#include <filesystem>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -59,8 +59,9 @@ void parse_value(std::istringstream& iss, bool& value)
   iss >> std::boolalpha >> value;
 }
 
-void fill_pdlp_hyper_params(const std::string& pdlp_hyper_params_path,
-                            cuopt::linear_programming::pdlp_hyper_params::pdlp_hyper_params_t& params)
+void fill_pdlp_hyper_params(
+  const std::string& pdlp_hyper_params_path,
+  cuopt::linear_programming::pdlp_hyper_params::pdlp_hyper_params_t& params)
 {
   if (!std::filesystem::exists(pdlp_hyper_params_path)) {
     std::cerr << "PDLP config file path is not a valid: " << pdlp_hyper_params_path << std::endl;

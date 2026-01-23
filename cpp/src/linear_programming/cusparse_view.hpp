@@ -1,14 +1,14 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
 #pragma once
 
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
-#include <linear_programming/saddle_point.hpp>
 #include <linear_programming/pdlp_climber_strategy.hpp>
+#include <linear_programming/saddle_point.hpp>
 
 #include <mip/problem/problem.cuh>
 
@@ -115,9 +115,9 @@ class cusparse_view_t {
                   f_t* _dual_gradient);
 
   cusparse_view_t(raft::handle_t const* handle_ptr,
-                  const rmm::device_uvector<f_t>&,  // Empty just to init the const&
-                  const rmm::device_uvector<i_t>&,   // Empty just to init the const&
-                  const std::vector<pdlp_climber_strategy_t>&); // Empty just to init the const&
+                  const rmm::device_uvector<f_t>&,               // Empty just to init the const&
+                  const rmm::device_uvector<i_t>&,               // Empty just to init the const&
+                  const std::vector<pdlp_climber_strategy_t>&);  // Empty just to init the const&
 
   const bool batch_mode_{false};
 
@@ -201,16 +201,16 @@ template <
   typename T,
   typename std::enable_if_t<std::is_same_v<T, float> || std::is_same_v<T, double>>* = nullptr>
 cusparseStatus_t my_cusparsespmm_preprocess(cusparseHandle_t handle,
-                                         cusparseOperation_t opA,
-                                         cusparseOperation_t opB,
-                                         const T* alpha,
-                                         const cusparseSpMatDescr_t matA,
-                                         const cusparseDnMatDescr_t matB,
-                                         const T* beta,
-                                         const cusparseDnMatDescr_t matC,
-                                         cusparseSpMMAlg_t alg,
-                                         void* externalBuffer,
-                                         cudaStream_t stream);
+                                            cusparseOperation_t opA,
+                                            cusparseOperation_t opB,
+                                            const T* alpha,
+                                            const cusparseSpMatDescr_t matA,
+                                            const cusparseDnMatDescr_t matB,
+                                            const T* beta,
+                                            const cusparseDnMatDescr_t matC,
+                                            cusparseSpMMAlg_t alg,
+                                            void* externalBuffer,
+                                            cudaStream_t stream);
 #endif
 
 }  // namespace cuopt::linear_programming::detail
