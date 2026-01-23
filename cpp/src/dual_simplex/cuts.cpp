@@ -896,7 +896,7 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
 
       if (add_cut) {
         if (num_aggregated > 0) {
-          settings.log.printf("MIR cut with aggregation %d\n", num_aggregated);
+          //settings.log.printf("MIR cut with aggregation %d\n", num_aggregated);
         }
         if (settings.mir_cuts != 0) {
           cut_pool_.add_cut(cut_type_t::MIXED_INTEGER_ROUNDING, cut, cut_rhs);
