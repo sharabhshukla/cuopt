@@ -165,7 +165,6 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
     std::chrono::steady_clock::time_point start_batch = std::chrono::steady_clock::now();
 
     // Use original_problem to create the BatchLP problem
-    // Note you can convert a CSC matrix to a CSR matrix as follows:
     csr_matrix_t<i_t, f_t> A_row(original_problem.A.m, original_problem.A.n, 0);
     original_problem.A.to_compressed_row(A_row);
 
@@ -180,7 +179,6 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
       fraction_values.push_back(original_root_soln_x[j]);
     }
 
-    // TODO don't use optimal batch size and use initial PDLP solut
     std::vector<f_t> primal_solutions = batch_pdlp_solve(original_problem, fractional, fraction_values);
     std::chrono::steady_clock::time_point end_batch = std::chrono::steady_clock::now();
     std::chrono::duration<f_t> duration = end_batch - start_batch;
