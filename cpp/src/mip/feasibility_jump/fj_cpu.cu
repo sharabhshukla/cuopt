@@ -1573,7 +1573,7 @@ bool fj_t<i_t, f_t>::cpu_solve(fj_cpu_climber_t<i_t, f_t>& fj_cpu, f_t in_time_l
       // Notify producer_sync if registered
       if (fj_cpu.producer_sync != nullptr) { fj_cpu.producer_sync->notify_progress(); }
 
-      CUOPT_LOG_DEBUG("CPUFJ work units: %f incumbent %g",
+      CUOPT_LOG_TRACE("CPUFJ work units: %f incumbent %g",
                       fj_cpu.work_units_elapsed.load(std::memory_order_relaxed),
                       fj_cpu.pb_ptr->get_user_obj_from_solver_obj(fj_cpu.h_best_objective));
     }

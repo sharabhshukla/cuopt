@@ -1745,7 +1745,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
     lower_bound = node_queue_.best_first_queue_size() > 0 ? node_queue_.get_lower_bound()
                                                           : search_tree_.root.lower_bound;
     // If queue is empty and we have an incumbent, the tree is fully explored
-    if (node_queue_.best_first_queue_size() == 0 && incumbent_.has_incumbent) {
+    if (node_queue_.best_first_queue_size() == 0 && exploration_stats_.nodes_unexplored == 0 &&
+        incumbent_.has_incumbent) {
       lower_bound = upper_bound_.load();
     }
   }
