@@ -1763,7 +1763,7 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
 
   bsp_horizon_step_ = 0.05;
 
-  bsp_horizon_step_ = 0.50;
+  bsp_horizon_step_ = 1.00;
 
   const int num_bfs_workers    = settings_.num_bfs_workers;
   const int num_diving_workers = settings_.diving_settings.num_diving_workers;
