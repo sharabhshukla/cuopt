@@ -774,15 +774,24 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
     }
 
     // Remove the slack from the equality to get an inequality
+    bool negate_inequality = true;
     for (i_t k = 0; k < inequality.i.size(); k++) {
       const i_t j = inequality.i[k];
-      if (j == slack) { inequality.x[k] = 0.0; }
+      if (j == slack) {
+        if (inequality.x[k] != 1.0) {
+          negate_inequality = false;
+        }
+        inequality.x[k] = 0.0;
+      }
     }
 
+    if (negate_inequality) {
     // inequaility'*x <= inequality_rhs
     // But for MIR we need: inequality'*x >= inequality_rhs
-    inequality_rhs *= -1;
-    inequality.negate();
+      inequality_rhs *= -1;
+      inequality.negate();
+    }
+    // We should now have: inequality'*x >= inequality_rhs
 
     // Transform the relaxation solution
     std::vector<f_t> transformed_xstar;
@@ -798,7 +807,8 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
     while (!add_cut && num_aggregated < max_aggregated) {
       //printf("\t add_cut %d num_aggregated %d nz %ld\n", static_cast<i_t>(add_cut), num_aggregated, inequality.i.size());
 
-      sparse_vector_t<i_t, f_t> transformed_inequality = inequality;
+      sparse_vector_t<i_t, f_t> transformed_inequality;
+      inequality.squeeze(transformed_inequality);
       f_t transformed_rhs = inequality_rhs;
 
       mir.to_nonnegative(lp, transformed_inequality, transformed_rhs);
@@ -1353,15 +1363,16 @@ mixed_integer_rounding_cut_t<i_t, f_t>::mixed_integer_rounding_cut_t(
     }
     const f_t uj = lp.upper[j];
     const f_t lj = lp.lower[j];
-    if (uj != inf || lj != 0.0) { needs_complement_ = true; }
     const f_t xstar_j = xstar[j];
     if (uj < inf) {
       if (uj - xstar_j <= xstar_j - lj) {
         has_upper_[j]  = 1;
         bound_info_[j] = 1;
-      } else {
+        needs_complement_ = true;
+      } else if (lj != 0.0) {
         has_lower_[j]  = 1;
         bound_info_[j] = -1;
+        needs_complement_ = true;
       }
       continue;
     }
@@ -1369,6 +1380,7 @@ mixed_integer_rounding_cut_t<i_t, f_t>::mixed_integer_rounding_cut_t(
     if (lj > -inf && lj != 0.0) {
       has_lower_[j]  = 1;
       bound_info_[j] = -1;
+      needs_complement_ = true;
     }
   }
 }
