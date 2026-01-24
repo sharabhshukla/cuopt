@@ -2387,6 +2387,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
   lp_settings.scale_columns = false;
 
   bool feasible = true;
+  // TODO: fix once the bounds strengthening predictor is more accurate
   if (false) {
     raft::common::nvtx::range scope_bs("BB::bound_strengthening");
     feasible = worker.node_presolver->bounds_strengthening(
@@ -2570,8 +2571,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
     i_t leaf_num_fractional =
       fractional_variables(settings_, leaf_solution.x, var_types_, leaf_fractional);
 
-    f_t leaf_objective    = compute_objective(*worker.leaf_problem, leaf_solution.x);
-    node_ptr->lower_bound = leaf_objective;
+    f_t leaf_objective = compute_objective(*worker.leaf_problem, leaf_solution.x);
 
     // Queue pseudo-cost update for deterministic application at sync
     if (node_ptr->branch_var >= 0) {
@@ -2584,6 +2584,8 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
           node_ptr->branch_var, node_ptr->branch_dir, change_in_obj / frac);
       }
     }
+
+    node_ptr->lower_bound = leaf_objective;
 
     if (leaf_num_fractional == 0) {
       // Integer feasible - queue for deterministic processing at sync
