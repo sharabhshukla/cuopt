@@ -478,16 +478,16 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
   if (unreliable_list.size() > max_num_candidates) { worker_data->rng.shuffle(unreliable_list); }
 
   omp_atomic_t<i_t> unchanged = 0;
+  const i_t max_tasks         = std::clamp(num_sb_vars / 2, 1, max_lookahead);
   i_t num_tasks               = settings.reliability_branching_settings.num_tasks;
-  num_tasks                   = std::clamp(num_tasks, 1, num_sb_vars / 4);
-  num_tasks                   = std::min(num_tasks, max_lookahead);
+  num_tasks                   = std::clamp(num_tasks, 1, max_tasks);
   assert(num_tasks > 0);
 
-  settings.log.printf("RB iters = %d, B&B iters = %d, unreliable = %d, num_tasks = %d\n",
-                      sb_total_lp_iter.load(),
-                      bnb_total_lp_iter,
-                      unreliable_list.size(),
-                      num_tasks);
+  log.printf("RB iters = %d, B&B iters = %d, unreliable = %d, num_tasks = %d\n",
+             sb_total_lp_iter.load(),
+             bnb_total_lp_iter,
+             unreliable_list.size(),
+             num_tasks);
 
 #pragma omp taskloop if (num_tasks > 1) priority(task_priority) num_tasks(num_tasks) untied
   for (int task_id = 0; task_id < num_tasks; ++task_id) {
