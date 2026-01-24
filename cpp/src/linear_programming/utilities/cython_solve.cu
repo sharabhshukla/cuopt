@@ -10,6 +10,7 @@
 #include <cuopt/linear_programming/solve.hpp>
 #include <cuopt/linear_programming/solver_settings.hpp>
 #include <cuopt/linear_programming/utilities/cython_solve.hpp>
+#include <cuopt/linear_programming/utilities/remote_solve.hpp>
 #include <mip/logger.hpp>
 #include <mps_parser/data_model_view.hpp>
 #include <mps_parser/mps_data_model.hpp>
@@ -142,14 +143,7 @@ linear_programming_ret_t call_solve_lp(
   const bool use_pdlp_solver_mode = true;
   auto solution                   = cuopt::linear_programming::solve_lp(
     op_problem, solver_settings, problem_checking, use_pdlp_solver_mode, is_batch_mode);
-
-  // Ensure all solver work is complete before returning device buffers to Python.
-  // Use a device-wide sync because solver kernels may run on multiple streams.
-  RAFT_CUDA_TRY(cudaDeviceSynchronize());
-
   linear_programming_ret_t lp_ret;
-
-  // GPU data (local solve always uses GPU)
   lp_ret.primal_solution_ =
     std::make_unique<rmm::device_buffer>(solution.get_primal_solution().release());
   lp_ret.dual_solution_ =
@@ -158,7 +152,6 @@ linear_programming_ret_t call_solve_lp(
     std::make_unique<rmm::device_buffer>(solution.get_reduced_cost().release());
   lp_ret.is_device_memory_ = true;
 
-  // Warm start data
   lp_ret.current_primal_solution_ = std::make_unique<rmm::device_buffer>(
     solution.get_pdlp_warm_start_data().current_primal_solution_.release());
   lp_ret.current_dual_solution_ = std::make_unique<rmm::device_buffer>(
@@ -220,11 +213,6 @@ mip_ret_t call_solve_mip(
     error_type_t::ValidationError,
     "MIP solve cannot be called on an LP problem!");
   auto solution = cuopt::linear_programming::solve_mip(op_problem, solver_settings);
-
-  // Ensure all solver work is complete before returning device buffers to Python.
-  // Use a device-wide sync because solver kernels may run on multiple streams.
-  RAFT_CUDA_TRY(cudaDeviceSynchronize());
-
   mip_ret_t mip_ret;
   mip_ret.solution_ = std::make_unique<rmm::device_buffer>(solution.get_solution().release());
   mip_ret.is_device_memory_             = true;
@@ -241,7 +229,6 @@ mip_ret_t call_solve_mip(
   mip_ret.max_variable_bound_violation_ = solution.get_max_variable_bound_violation();
   mip_ret.nodes_                        = solution.get_num_nodes();
   mip_ret.simplex_iterations_           = solution.get_num_simplex_iterations();
-
   return mip_ret;
 }
 
@@ -251,9 +238,113 @@ std::unique_ptr<solver_ret_t> call_solve(
   unsigned int flags,
   bool is_batch_mode)
 {
+  // Check if remote solve is configured FIRST (before any CUDA operations)
+  if (linear_programming::is_remote_solve_enabled()) {
+    // Data coming from Python is in CPU memory - mark it as such
+    data_model->set_is_device_memory(false);
+
+    solver_ret_t response;
+
+    // Determine if LP or MIP based on variable types
+    bool is_mip    = false;
+    auto var_types = data_model->get_variable_types();
+    for (size_t i = 0; i < var_types.size(); ++i) {
+      if (var_types.data()[i] != 'C') {
+        is_mip = true;
+        break;
+      }
+    }
+
+    if (!is_mip) {
+      // LP: call solve_lp with nullptr handle - remote solve doesn't need GPU
+      auto solution =
+        linear_programming::solve_lp(nullptr, *data_model, solver_settings->get_pdlp_settings());
+
+      // Convert solution to linear_programming_ret_t
+      auto term_info = solution.get_additional_termination_information();
+      linear_programming_ret_t lp_ret;
+
+      if (solution.is_device_memory()) {
+        // GPU data (shouldn't happen for remote solve, but handle gracefully)
+        lp_ret.primal_solution_ =
+          std::make_unique<rmm::device_buffer>(solution.get_primal_solution().release());
+        lp_ret.dual_solution_ =
+          std::make_unique<rmm::device_buffer>(solution.get_dual_solution().release());
+        lp_ret.reduced_cost_ =
+          std::make_unique<rmm::device_buffer>(solution.get_reduced_cost().release());
+        lp_ret.is_device_memory_ = true;
+      } else {
+        // CPU data from remote solve - avoid device buffer allocations so CPU-only
+        // clients don't initialize CUDA.
+        lp_ret.primal_solution_host_ = std::move(solution.get_primal_solution_host());
+        lp_ret.dual_solution_host_   = std::move(solution.get_dual_solution_host());
+        lp_ret.reduced_cost_host_    = std::move(solution.get_reduced_cost_host());
+        lp_ret.is_device_memory_     = false;
+      }
+      lp_ret.initial_primal_weight_         = 0.0;
+      lp_ret.initial_step_size_             = 0.0;
+      lp_ret.total_pdlp_iterations_         = 0;
+      lp_ret.total_pdhg_iterations_         = 0;
+      lp_ret.last_candidate_kkt_score_      = 0.0;
+      lp_ret.last_restart_kkt_score_        = 0.0;
+      lp_ret.sum_solution_weight_           = 0.0;
+      lp_ret.iterations_since_last_restart_ = 0;
+
+      lp_ret.termination_status_ = solution.get_termination_status();
+      lp_ret.error_status_       = solution.get_error_status().get_error_type();
+      lp_ret.error_message_      = solution.get_error_status().what();
+      lp_ret.l2_primal_residual_ = term_info.l2_primal_residual;
+      lp_ret.l2_dual_residual_   = term_info.l2_dual_residual;
+      lp_ret.primal_objective_   = term_info.primal_objective;
+      lp_ret.dual_objective_     = term_info.dual_objective;
+      lp_ret.gap_                = term_info.gap;
+      lp_ret.nb_iterations_      = term_info.number_of_steps_taken;
+      lp_ret.solve_time_         = solution.get_solve_time();
+      lp_ret.solved_by_pdlp_     = false;
+      response.lp_ret            = std::move(lp_ret);
+      response.problem_type      = linear_programming::problem_category_t::LP;
+    } else {
+      // MIP: call solve_mip with nullptr handle - remote solve doesn't need GPU
+      auto solution =
+        linear_programming::solve_mip(nullptr, *data_model, solver_settings->get_mip_settings());
+
+      mip_ret_t mip_ret;
+
+      if (solution.is_device_memory()) {
+        // GPU data (shouldn't happen for remote solve, but handle gracefully)
+        mip_ret.solution_ = std::make_unique<rmm::device_buffer>(solution.get_solution().release());
+        mip_ret.is_device_memory_ = true;
+      } else {
+        // CPU data from remote solve - avoid device buffer allocations so CPU-only
+        // clients don't initialize CUDA.
+        mip_ret.solution_host_    = std::move(solution.get_solution_host());
+        mip_ret.is_device_memory_ = false;
+      }
+
+      mip_ret.termination_status_           = solution.get_termination_status();
+      mip_ret.error_status_                 = solution.get_error_status().get_error_type();
+      mip_ret.error_message_                = solution.get_error_status().what();
+      mip_ret.objective_                    = solution.get_objective_value();
+      mip_ret.mip_gap_                      = solution.get_mip_gap();
+      mip_ret.solution_bound_               = solution.get_solution_bound();
+      mip_ret.total_solve_time_             = solution.get_total_solve_time();
+      mip_ret.presolve_time_                = solution.get_presolve_time();
+      mip_ret.max_constraint_violation_     = solution.get_max_constraint_violation();
+      mip_ret.max_int_violation_            = solution.get_max_int_violation();
+      mip_ret.max_variable_bound_violation_ = solution.get_max_variable_bound_violation();
+      mip_ret.nodes_                        = solution.get_num_nodes();
+      mip_ret.simplex_iterations_           = solution.get_num_simplex_iterations();
+      response.mip_ret                      = std::move(mip_ret);
+      response.problem_type                 = linear_programming::problem_category_t::MIP;
+    }
+
+    return std::make_unique<solver_ret_t>(std::move(response));
+  }
+
+  // Local solve: create CUDA resources only when needed
   raft::common::nvtx::range fun_scope("Call Solve");
-  rmm::cuda_stream stream(static_cast<rmm::cuda_stream::flags>(flags));
-  const raft::handle_t handle_{stream};
+  // FIX: Use default handle constructor like CLI does, instead of explicit stream creation
+  const raft::handle_t handle_{};
 
   solver_ret_t response;
 
