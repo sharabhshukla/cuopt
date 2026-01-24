@@ -774,15 +774,25 @@ void cut_generation_t<i_t, f_t>::generate_mir_cuts(const lp_problem_t<i_t, f_t>&
     }
 
     // Remove the slack from the equality to get an inequality
-    bool negate_inequality = true;
+    i_t negate_inequality = 1;
     for (i_t k = 0; k < inequality.i.size(); k++) {
       const i_t j = inequality.i[k];
       if (j == slack) {
         if (inequality.x[k] != 1.0) {
-          negate_inequality = false;
+          if (inequality.x[k] == -1.0 && lp.lower[j] >= 0.0) {
+            negate_inequality = 0;
+          } else {
+            printf("Bad slack %d in inequality: aj %e lo %e up %e\n", j, inequality.x[k], lp.lower[j], lp.upper[j]);
+            negate_inequality = -1;
+            break;
+          }
         }
         inequality.x[k] = 0.0;
       }
+    }
+
+    if (negate_inequality == -1) {
+      break; // TODO: this stops us from generating further MIR cuts for other rows.
     }
 
     if (negate_inequality) {
