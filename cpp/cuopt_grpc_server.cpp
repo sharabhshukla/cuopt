@@ -496,6 +496,7 @@ void worker_process(int worker_id)
       cuopt::mps_parser::mps_data_model_t<int, double> mps_data;
       if (is_mip) {
         mip_solver_settings_t<int, double> settings;
+        std::unique_ptr<IncumbentPipeCallback> incumbent_cb;
         settings.log_file       = log_file;
         settings.log_to_console = config.log_to_console;
 
@@ -507,9 +508,9 @@ void worker_process(int worker_id)
             enable_incumbents = mip_request.enable_incumbents();
           }
           if (enable_incumbents) {
-            IncumbentPipeCallback incumbent_cb(job_id,
-                                               worker_pipes[worker_id].worker_incumbent_write_fd);
-            settings.set_mip_callback(&incumbent_cb);
+            incumbent_cb = std::make_unique<IncumbentPipeCallback>(
+              job_id, worker_pipes[worker_id].worker_incumbent_write_fd);
+            settings.set_mip_callback(incumbent_cb.get());
             std::cout << "[Worker] Registered incumbent callback for job_id=" << job_id
                       << " callbacks=" << settings.get_mip_callbacks().size() << "\n";
             std::cout.flush();

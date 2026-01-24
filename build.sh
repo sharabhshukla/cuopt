@@ -288,6 +288,52 @@ if ! contains_string "DFIND_MPS_PARSER_CPP" "${EXTRA_CMAKE_ARGS[@]}"; then
     EXTRA_CMAKE_ARGS+=("-DFIND_MPS_PARSER_CPP=ON")
 fi
 
+# Prefer config packages to avoid mixing system and conda find modules.
+if ! contains_string "CMAKE_FIND_PACKAGE_PREFER_CONFIG" "${EXTRA_CMAKE_ARGS[@]}"; then
+    EXTRA_CMAKE_ARGS+=("-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON")
+fi
+
+# Default to the active install prefix for dependency lookup unless overridden.
+if ! contains_string "CMAKE_PREFIX_PATH" "${EXTRA_CMAKE_ARGS[@]}"; then
+    EXTRA_CMAKE_ARGS+=("-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX}")
+fi
+
+# If conda-provided protobuf/grpc configs are available, prefer them by default.
+if [ -d "${INSTALL_PREFIX}/lib/cmake/protobuf" ]; then
+    if ! contains_string "Protobuf_DIR" "${EXTRA_CMAKE_ARGS[@]}"; then
+        EXTRA_CMAKE_ARGS+=("-DProtobuf_DIR=${INSTALL_PREFIX}/lib/cmake/protobuf")
+    fi
+fi
+if [ -d "${INSTALL_PREFIX}/lib/cmake/grpc" ]; then
+    if ! contains_string "gRPC_DIR" "${EXTRA_CMAKE_ARGS[@]}"; then
+        EXTRA_CMAKE_ARGS+=("-DgRPC_DIR=${INSTALL_PREFIX}/lib/cmake/grpc")
+    fi
+fi
+
+# Prefer conda's ZLIB config if available to avoid system static zlib references.
+if [ -d "${INSTALL_PREFIX}/lib/cmake/ZLIB" ]; then
+    if ! contains_string "ZLIB_DIR" "${EXTRA_CMAKE_ARGS[@]}"; then
+        EXTRA_CMAKE_ARGS+=("-DZLIB_DIR=${INSTALL_PREFIX}/lib/cmake/ZLIB")
+    fi
+fi
+
+# Avoid pulling system ZLIB config that references missing libz.a.
+if [ -d "/usr/lib64/cmake/ZLIB" ] || [ -d "/lib64/cmake/ZLIB" ]; then
+    if ! contains_string "CMAKE_IGNORE_PATH" "${EXTRA_CMAKE_ARGS[@]}"; then
+        EXTRA_CMAKE_ARGS+=("-DCMAKE_IGNORE_PATH=/usr/lib64/cmake/ZLIB;/lib64/cmake/ZLIB")
+    fi
+fi
+
+# Prefer shared zlib if FindZLIB is used.
+if ! contains_string "ZLIB_USE_STATIC_LIBS" "${EXTRA_CMAKE_ARGS[@]}"; then
+    EXTRA_CMAKE_ARGS+=("-DZLIB_USE_STATIC_LIBS=OFF")
+fi
+
+# Hint FindZLIB to use the active prefix if no config is found.
+if ! contains_string "ZLIB_ROOT" "${EXTRA_CMAKE_ARGS[@]}"; then
+    EXTRA_CMAKE_ARGS+=("-DZLIB_ROOT=${INSTALL_PREFIX}")
+fi
+
 # If clean given, run it prior to any other steps
 if hasArg clean; then
     # If the dirs to clean are mounted dirs in a container, the
@@ -370,6 +416,13 @@ fi
 if buildAll || hasArg libcuopt; then
     mkdir -p "${LIBCUOPT_BUILD_DIR}"
     cd "${LIBCUOPT_BUILD_DIR}"
+    # If the cache points at system ZLIB, clear it so updated hints take effect.
+    if [ -f "${LIBCUOPT_BUILD_DIR}/CMakeCache.txt" ]; then
+        if grep -Eq "/(usr/)?lib64/cmake/ZLIB" "${LIBCUOPT_BUILD_DIR}/CMakeCache.txt"; then
+            rm -f "${LIBCUOPT_BUILD_DIR}/CMakeCache.txt"
+            rm -rf "${LIBCUOPT_BUILD_DIR}/CMakeFiles"
+        fi
+    fi
     cmake -DDEFINE_ASSERT=${DEFINE_ASSERT} \
           -DDEFINE_BENCHMARK="${DEFINE_BENCHMARK}" \
           -DDEFINE_PDLP_VERBOSE_MODE=${DEFINE_PDLP_VERBOSE_MODE} \
@@ -465,8 +518,20 @@ fi
 if buildAll || hasArg cuopt; then
     cd "${REPODIR}"/python/cuopt
 
-    # $EXTRA_CMAKE_ARGS gets concatenated into a string with [*] and then we find/replace spaces with semi-colons
-    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBCUOPT_BUILD_DIR};-DCMAKE_CUDA_ARCHITECTURES=${CUOPT_CMAKE_CUDA_ARCHITECTURES};${EXTRA_CMAKE_ARGS[*]// /;}" \
+    # Convert EXTRA_CMAKE_ARGS into a semicolon-delimited list, escaping
+    # any semicolons in values so scikit-build-core treats each -D as one arg.
+    SKBUILD_EXTRA_ARGS=()
+    for extra_arg in "${EXTRA_CMAKE_ARGS[@]}"; do
+        SKBUILD_EXTRA_ARGS+=("${extra_arg//;/\\;}")
+    done
+    SKBUILD_EXTRA_ARGS_JOINED=""
+    if [ ${#SKBUILD_EXTRA_ARGS[@]} -gt 0 ]; then
+        SKBUILD_EXTRA_ARGS_JOINED="$(IFS=';'; echo "${SKBUILD_EXTRA_ARGS[*]}")"
+    fi
+    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBCUOPT_BUILD_DIR};-DCMAKE_CUDA_ARCHITECTURES=${CUOPT_CMAKE_CUDA_ARCHITECTURES}"
+    if [ -n "${SKBUILD_EXTRA_ARGS_JOINED}" ]; then
+        SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS};${SKBUILD_EXTRA_ARGS_JOINED}"
+    fi
         python "${PYTHON_ARGS_FOR_INSTALL[@]}" .
 fi
 
@@ -474,7 +539,18 @@ fi
 if buildAll || hasArg cuopt_mps_parser; then
     cd "${REPODIR}"/python/cuopt/cuopt/linear_programming
 
-    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBCUOPT_BUILD_DIR};-DCMAKE_CUDA_ARCHITECTURES=${CUOPT_CMAKE_CUDA_ARCHITECTURES};${EXTRA_CMAKE_ARGS[*]// /;}" \
+    SKBUILD_EXTRA_ARGS=()
+    for extra_arg in "${EXTRA_CMAKE_ARGS[@]}"; do
+        SKBUILD_EXTRA_ARGS+=("${extra_arg//;/\\;}")
+    done
+    SKBUILD_EXTRA_ARGS_JOINED=""
+    if [ ${#SKBUILD_EXTRA_ARGS[@]} -gt 0 ]; then
+        SKBUILD_EXTRA_ARGS_JOINED="$(IFS=';'; echo "${SKBUILD_EXTRA_ARGS[*]}")"
+    fi
+    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBCUOPT_BUILD_DIR};-DCMAKE_CUDA_ARCHITECTURES=${CUOPT_CMAKE_CUDA_ARCHITECTURES}"
+    if [ -n "${SKBUILD_EXTRA_ARGS_JOINED}" ]; then
+        SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS};${SKBUILD_EXTRA_ARGS_JOINED}"
+    fi
         python "${PYTHON_ARGS_FOR_INSTALL[@]}" .
 fi
 

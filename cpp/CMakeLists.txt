@@ -142,14 +142,6 @@ if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL 12.9)
   set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -static-global-template-stub=false")
 endif()
 list(APPEND CUOPT_CUDA_FLAGS -Werror=cross-execution-space-call -Wno-deprecated-declarations -Xcompiler=-Werror --default-stream=per-thread)
-# GCC (especially newer versions) can emit false-positive -Warray-bounds diagnostics from
-# 3rd-party headers (e.g., Protobuf) that get promoted to hard errors via -Werror above.
-# Keep -Werror for our code but do not fail the build on this specific diagnostic.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  list(APPEND CUOPT_CUDA_FLAGS -Xcompiler=-Wno-error=array-bounds -Xcompiler=-Wno-array-bounds)
-  # Protobuf headers can also trigger GCC -Wstringop-overread false-positives under heavy inlining.
-  list(APPEND CUOPT_CUDA_FLAGS -Xcompiler=-Wno-error=stringop-overread -Xcompiler=-Wno-stringop-overread)
-endif()
 if("${CMAKE_CUDA_HOST_COMPILER}" MATCHES "clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   list(APPEND CUOPT_CUDA_FLAGS -Xcompiler=-Wall)
 else()
@@ -243,34 +235,87 @@ include(${rapids-cmake-dir}/cpm/rapids_logger.cmake)
 rapids_cpm_rapids_logger(BUILD_EXPORT_SET cuopt-exports INSTALL_EXPORT_SET cuopt-exports)
 create_logger_macros(CUOPT "cuopt::default_logger()" include/cuopt)
 
+# Ensure downstream consumers prefer config packages (avoids Protobuf
+# module/config mixing when gRPC also depends on Protobuf).
+include(${rapids-cmake-dir}/export/detail/post_find_package_code.cmake)
+set(CUOPT_DEP_PREFER_CONFIG ON)
+rapids_export_post_find_package_code(BUILD rapids_logger
+  "set(CMAKE_FIND_PACKAGE_PREFER_CONFIG ON)"
+  EXPORT_SET cuopt-exports
+  CONDITION CUOPT_DEP_PREFER_CONFIG
+)
+rapids_export_post_find_package_code(INSTALL rapids_logger
+  "set(CMAKE_FIND_PACKAGE_PREFER_CONFIG ON)"
+  EXPORT_SET cuopt-exports
+  CONDITION CUOPT_DEP_PREFER_CONFIG
+)
+
+# Ensure ZLIB resolves to the active prefix for consumers (avoid broken system
+# ZLIB config referencing missing libz.a).
+set(CUOPT_ZLIB_HINT_CODE
+  "set(_CUOPT_PREFIX \"\${CMAKE_CURRENT_LIST_DIR}/../../..\")\n"
+  "if(EXISTS \"\${_CUOPT_PREFIX}/lib/cmake/ZLIB\")\n"
+  "  set(ZLIB_DIR \"\${_CUOPT_PREFIX}/lib/cmake/ZLIB\")\n"
+  "endif()\n"
+  "set(ZLIB_ROOT \"\${_CUOPT_PREFIX}\")\n"
+  "set(ZLIB_USE_STATIC_LIBS OFF)\n"
+  "list(APPEND CMAKE_IGNORE_PATH \"/usr/lib64/cmake/ZLIB\" \"/lib64/cmake/ZLIB\")\n"
+)
+rapids_export_post_find_package_code(BUILD rapids_logger
+  "${CUOPT_ZLIB_HINT_CODE}"
+  EXPORT_SET cuopt-exports
+  CONDITION CUOPT_DEP_PREFER_CONFIG
+)
+rapids_export_post_find_package_code(INSTALL rapids_logger
+  "${CUOPT_ZLIB_HINT_CODE}"
+  EXPORT_SET cuopt-exports
+  CONDITION CUOPT_DEP_PREFER_CONFIG
+)
+
 find_package(CUDSS REQUIRED)
+if(NOT CUDSS_INCLUDE AND DEFINED cudss_INCLUDE_DIR)
+  set(CUDSS_INCLUDE "${cudss_INCLUDE_DIR}")
+endif()
+if(NOT CUDSS_LIB_FILE AND DEFINED cudss_LIBRARY_DIR)
+  set(CUDSS_LIB_FILE "${cudss_LIBRARY_DIR}/libcudss.so.0")
+endif()
+if(NOT CUDSS_MT_LIB_FILE AND DEFINED cudss_LIBRARY_DIR)
+  set(CUDSS_MT_LIB_FILE "${cudss_LIBRARY_DIR}/libcudss_mtlayer_gomp.so.0")
+endif()
+if(TARGET cudss AND NOT CUDSS_LIBRARIES)
+  set(CUDSS_LIBRARIES cudss)
+endif()
 
 # Protocol Buffers for remote solve serialization
-find_package(Protobuf REQUIRED)
-include_directories(SYSTEM ${Protobuf_INCLUDE_DIRS})
+rapids_find_package(Protobuf CONFIG REQUIRED
+  BUILD_EXPORT_SET cuopt-exports
+  INSTALL_EXPORT_SET cuopt-exports
+)
+include_directories(${Protobuf_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # gRPC for remote solve service (optional, for gRPC-based implementation)
-find_package(gRPC CONFIG)
+rapids_find_package(gRPC CONFIG QUIET
+  BUILD_EXPORT_SET cuopt-exports
+  INSTALL_EXPORT_SET cuopt-exports
+)
 if(gRPC_FOUND)
   message(STATUS "Found gRPC: ${gRPC_VERSION}")
+  set(CUOPT_ENABLE_GRPC ON)
   add_compile_definitions(CUOPT_ENABLE_GRPC)
-  # gRPC brings in Protobuf, no need to find it separately
+elseif(CUOPT_ENABLE_GRPC)
+  message(FATAL_ERROR "CUOPT_ENABLE_GRPC=ON but gRPC was not found")
 else()
   message(STATUS "CUOPT_ENABLE_GRPC=OFF, gRPC-based remote solve disabled")
-  # If no gRPC, find Protobuf separately for legacy remote solve
-  find_package(Protobuf REQUIRED)
+  set(CUOPT_ENABLE_GRPC OFF)
 endif()
-
-include_directories(${Protobuf_INCLUDE_DIRS})
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # Generate C++ code from .proto file
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/linear_programming/utilities/cuopt_remote.proto")
 set(PROTO_SRCS "${CMAKE_CURRENT_BINARY_DIR}/cuopt_remote.pb.cc")
 set(PROTO_HDRS "${CMAKE_CURRENT_BINARY_DIR}/cuopt_remote.pb.h")
 
-# Find protoc compiler (provided by either gRPC or standalone Protobuf)
+# Find protoc compiler (provided by config package or target)
 if(TARGET protobuf::protoc)
   get_target_property(_PROTOBUF_PROTOC protobuf::protoc IMPORTED_LOCATION_RELEASE)
   if(NOT _PROTOBUF_PROTOC)
@@ -280,16 +325,9 @@ else()
   set(_PROTOBUF_PROTOC ${Protobuf_PROTOC_EXECUTABLE})
 endif()
 
-add_custom_command(
-  OUTPUT "${PROTO_SRCS}" "${PROTO_HDRS}"
-  COMMAND ${_PROTOBUF_PROTOC}
-  ARGS --cpp_out ${CMAKE_CURRENT_BINARY_DIR}
-       --proto_path ${CMAKE_CURRENT_SOURCE_DIR}/src/linear_programming/utilities
-       ${PROTO_FILE}
-  DEPENDS ${PROTO_FILE}
-  COMMENT "Generating C++ code from cuopt_remote.proto"
-  VERBATIM
-)
+if(NOT _PROTOBUF_PROTOC)
+  message(FATAL_ERROR "protoc not found (Protobuf_PROTOC_EXECUTABLE is empty)")
+endif()
 
 # Generate gRPC service code if gRPC is available
 if(CUOPT_ENABLE_GRPC)
@@ -317,6 +355,17 @@ if(CUOPT_ENABLE_GRPC)
     VERBATIM
   )
 endif()
+
+add_custom_command(
+  OUTPUT "${PROTO_SRCS}" "${PROTO_HDRS}"
+  COMMAND ${_PROTOBUF_PROTOC}
+  ARGS --cpp_out ${CMAKE_CURRENT_BINARY_DIR}
+       --proto_path ${CMAKE_CURRENT_SOURCE_DIR}/src/linear_programming/utilities
+       ${PROTO_FILE}
+  DEPENDS ${PROTO_FILE}
+  COMMENT "Generating C++ code from cuopt_remote.proto"
+  VERBATIM
+)
 
 if(BUILD_TESTS)
   include(cmake/thirdparty/get_gtest.cmake)
@@ -446,11 +495,11 @@ target_link_libraries(cuopt
   CCCL::CCCL
   raft::raft
   ${CUDSS_LIB_FILE}
+  ${CUDSS_LIBRARIES}
   protobuf::libprotobuf
   PRIVATE
   ${CUOPT_PRIVATE_CUDA_LIBS}
   cuopt::mps_parser_static  # Static link - symbols embedded in libcuopt.so
-  protobuf::libprotobuf
   )
 
 # Link gRPC if available
@@ -684,10 +733,9 @@ if(BUILD_REMOTE_SERVER AND NOT BUILD_LP_ONLY)
     PUBLIC
     cuopt
     OpenMP::OpenMP_CXX
-    PRIVATE
     protobuf::libprotobuf
+    PRIVATE
   )
-
   # Link gRPC if available for gRPC-based server
   if(CUOPT_ENABLE_GRPC)
     target_link_libraries(cuopt_remote_server PRIVATE gRPC::grpc++)
@@ -707,28 +755,42 @@ if(BUILD_REMOTE_SERVER AND NOT BUILD_LP_ONLY)
     RUNTIME DESTINATION ${_BIN_DEST}
   )
 
-  # cuopt_cancel_job - standalone utility to cancel jobs
-  add_executable(cuopt_cancel_job cuopt_cancel_job.cpp)
-  target_compile_options(cuopt_cancel_job
+  # Standalone remote solve test client
+  add_executable(remote_solve_test tests/linear_programming/remote_solve_test.cpp)
+  target_compile_options(remote_solve_test
     PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUOPT_CXX_FLAGS}>"
   )
-  target_include_directories(cuopt_cancel_job
+  target_include_directories(remote_solve_test
     PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/libmps_parser/include"
     "${CMAKE_CURRENT_BINARY_DIR}/include"
   )
-  target_link_libraries(cuopt_cancel_job
+  target_link_libraries(remote_solve_test
     PUBLIC
     cuopt
   )
-  target_link_options(cuopt_cancel_job PRIVATE -Wl,--enable-new-dtags)
+  # Use RUNPATH so LD_LIBRARY_PATH can override during development
+  target_link_options(remote_solve_test PRIVATE -Wl,--enable-new-dtags)
 
-  install(TARGETS cuopt_cancel_job
-    COMPONENT runtime
-    RUNTIME DESTINATION ${_BIN_DEST}
+  # Local solve test (for debugging)
+  add_executable(local_solve_test tests/linear_programming/local_solve_test.cpp)
+  target_compile_options(local_solve_test
+    PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUOPT_CXX_FLAGS}>"
   )
+  target_include_directories(local_solve_test
+    PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libmps_parser/include"
+    "${CMAKE_CURRENT_BINARY_DIR}/include"
+  )
+  target_link_libraries(local_solve_test
+    PUBLIC
+    cuopt
+  )
+  target_link_options(local_solve_test PRIVATE -Wl,--enable-new-dtags)
 endif()
 
 # cuopt_grpc_server - gRPC-based remote server (prototype)
@@ -766,8 +828,7 @@ endif()
 
 # ##################################################################################################
 # - Pluggable Serializers --------------------------------------------------------------------------
-# Removed: msgpack serializer plugin no longer needed with gRPC
-# add_subdirectory(src/linear_programming/utilities/serializers)
+# No serializer plugins are built.
 
 # ##################################################################################################
 # - CPack has to be the last item in the cmake file-------------------------------------------------
