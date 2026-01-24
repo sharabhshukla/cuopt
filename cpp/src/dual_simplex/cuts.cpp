@@ -2317,14 +2317,8 @@ i_t strong_cg_cut_t<i_t, f_t>::generate_strong_cg_cut_helper(
   // We will try to generat a strong CG cut.
   // Find the unique integer k such that
   // 1/(k+1) <= f(a_0) < 1/k
-  f_t k_upper = 1.0 / f_a_0;
-  i_t k       = static_cast<i_t>(std::floor(k_upper));
-  if (k_upper - static_cast<f_t>(k) < 1e-6) {
-    k--;
-    if (verbose) {
-      printf("Decreased k to %d\n", k);
-    }
-  }
+  const f_t k_upper = 1.0 / f_a_0;
+  i_t k       = static_cast<i_t>(std::ceil(k_upper)) - 1;
 
   const f_t alpha = 1.0 - f_a_0;
   f_t lower       = 1.0 / static_cast<f_t>(k + 1);
