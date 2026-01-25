@@ -2388,7 +2388,7 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
 
   bool feasible = true;
   // TODO: fix once the bounds strengthening predictor is more accurate
-  if (false) {
+  if (true) {
     raft::common::nvtx::range scope_bs("BB::bound_strengthening");
     feasible = worker.node_presolver->bounds_strengthening(
       worker.leaf_problem->lower, worker.leaf_problem->upper, lp_settings);
