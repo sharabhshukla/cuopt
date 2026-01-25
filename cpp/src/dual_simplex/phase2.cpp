@@ -2645,8 +2645,28 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
     if (work_unit_context) {
       f_t prediction = predict_work_units(remaining_iters);
-      // printf("DualSimplex determ (final): %d iters, predicted %.4f\n", remaining_iters,
-      // prediction);
+
+#ifdef CUOPT_DEBUG_WORK_PREDICTION
+      f_t actual_time         = features.interval_runtime;
+      f_t ratio               = (prediction > 0.0) ? (actual_time / prediction) : 0.0;
+      const char* worker_name = work_unit_context->name.c_str();
+      printf(
+        "[WORK_PRED_DS] %s: actual=%.6fs predicted=%.6fwu ratio=%.3f (iters=%d refacts=%d "
+        "updates=%d sparse_dz=%d dense_dz=%d flips=%d infeas=%d dy_nz=%.2f%%)\n",
+        worker_name,
+        actual_time,
+        prediction,
+        ratio,
+        remaining_iters,
+        features.num_refactors,
+        features.num_basis_updates,
+        features.sparse_delta_z_count,
+        features.dense_delta_z_count,
+        features.total_bound_flips,
+        features.num_infeasibilities,
+        features.delta_y_nz_percentage * 100.0);
+#endif
+
       work_unit_context->record_work(prediction);
     }
   });

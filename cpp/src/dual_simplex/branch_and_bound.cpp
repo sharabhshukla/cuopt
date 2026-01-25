@@ -40,7 +40,7 @@
 #include <vector>
 
 // bounds strenghtening work unit predictor is not yet accurate enough
-#define BSP_DISABLE_BOUNDS_STRENGTHENING
+// #define BSP_DISABLE_BOUNDS_STRENGTHENING
 
 namespace cuopt::linear_programming::dual_simplex {
 
@@ -2355,8 +2355,10 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
   // TODO: fix once the bounds strengthening predictor is more accurate
   if (true) {
     raft::common::nvtx::range scope_bs("BB::bound_strengthening");
-    feasible = worker.node_presolver->bounds_strengthening(
+    f_t bs_start_time = tic();
+    feasible          = worker.node_presolver->bounds_strengthening(
       worker.leaf_problem->lower, worker.leaf_problem->upper, lp_settings);
+    f_t bs_actual_time = toc(bs_start_time);
 
     if (settings_.deterministic) {
       static cuopt::work_unit_predictor_t<bounds_strengthening_predictor, cpu_work_unit_scaler_t>
@@ -2381,6 +2383,24 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
       // predicts milliseconds
       f_t prediction =
         std::max(f_t(0), static_cast<f_t>(bs_predictor.predict_scalar(features))) / 1000;
+
+#ifdef CUOPT_DEBUG_WORK_PREDICTION
+      f_t ratio = (prediction > 0.0) ? (bs_actual_time / prediction) : 0.0;
+      settings_.log.printf(
+        "[WORK_PRED_BS] W%d N%d: actual=%.6fs predicted=%.6fwu ratio=%.3f (m=%d n=%d nnz=%d "
+        "processed=%d changed=%d)\n",
+        worker.worker_id,
+        node_ptr->node_id,
+        bs_actual_time,
+        prediction,
+        ratio,
+        m,
+        n,
+        nnz,
+        worker.node_presolver->last_nnz_processed,
+        num_bounds_changed);
+#endif
+
       worker.work_context.record_work(prediction);
     }
   }
