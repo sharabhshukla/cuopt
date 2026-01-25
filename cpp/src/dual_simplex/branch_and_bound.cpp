@@ -1253,12 +1253,21 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
   diving_heuristics_settings_t<i_t, f_t> diving_settings = settings_.diving_settings;
   const i_t num_workers                                  = 2 * settings_.num_threads;
-  bool is_ramp_up_finished                               = false;
 
-  std::vector<bnb_worker_type_t> worker_types = {BEST_FIRST};
-  std::array<i_t, bnb_num_worker_types> max_num_workers_per_type;
-  max_num_workers_per_type.fill(0);
-  max_num_workers_per_type[BEST_FIRST] = num_workers;
+  if (!std::isfinite(upper_bound_)) { diving_settings.guided_diving = false; }
+  std::vector<bnb_worker_type_t> worker_types = bnb_get_worker_types(diving_settings);
+  std::array<i_t, bnb_num_worker_types> max_num_workers_per_type =
+    bnb_get_max_workers(num_workers, worker_types);
+
+#ifdef CUOPT_LOG_DEBUG
+  for (auto type : worker_types) {
+    settings_.log.debug("%c%d: max num of workers = %d",
+                        feasible_solution_symbol(type),
+                        type,
+                        max_num_workers_per_type[type]);
+  }
+#endif
+
   worker_pool_.init(num_workers, original_lp_, Arow_, var_types_, settings_);
   active_workers_per_type.fill(0);
 
@@ -1299,28 +1308,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
         repair_heuristic_solutions();
 
-        if (!is_ramp_up_finished) {
-          if (node_queue_.best_first_queue_size() >= min_node_queue_size_) {
-            if (!std::isfinite(upper_bound_)) { diving_settings.guided_diving = false; }
-            worker_types             = bnb_get_worker_types(diving_settings);
-            max_num_workers_per_type = bnb_get_max_workers(num_workers, worker_types);
-            is_ramp_up_finished      = true;
-
-#ifdef CUOPT_LOG_DEBUG
-            settings_.log.debug(
-              "Ramp-up phase is finished. num active workers = %d, heap size = %d\n",
-              active_workers_per_type[BEST_FIRST],
-              node_queue_.best_first_queue_size());
-
-            for (auto type : worker_types) {
-              settings_.log.debug("%c: max num of workers = %d",
-                                  feasible_solution_symbol(type),
-                                  max_num_workers_per_type[type]);
-            }
-#endif
-          }
-        }
-
         // If the guided diving was disabled previously due to the lack of an incumbent solution,
         // re-enable as soon as a new incumbent is found.
         if (settings_.diving_settings.guided_diving != diving_settings.guided_diving) {
@@ -1331,8 +1318,9 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
 #ifdef CUOPT_LOG_DEBUG
             for (auto type : worker_types) {
-              settings_.log.debug("%c: max num of workers = %d",
+              settings_.log.debug("%c%d: max num of workers = %d",
                                   feasible_solution_symbol(type),
+                                  type,
                                   max_num_workers_per_type[type]);
             }
 #endif
