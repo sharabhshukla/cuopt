@@ -2522,6 +2522,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
   lp.lower.resize(lp.num_cols + p);
   lp.upper.resize(lp.num_cols + p);
   lp.objective.resize(lp.num_cols + p);
+  edge_norms.resize(lp.num_cols + p);
   i_t nz = new_A_col.col_start[lp.num_cols];
   new_A_col.col_start.resize(lp.num_cols + p + 1);
   new_A_col.i.resize(nz + p);
@@ -2535,6 +2536,7 @@ i_t add_cuts(const simplex_solver_settings_t<i_t, f_t>& settings,
     lp.lower[j]     = 0.0;
     lp.upper[j]     = inf;
     lp.objective[j] = 0.0;
+    edge_norms[j] = 1.0;
     new_slacks.push_back(j);
   }
   settings.log.debug("Done adding slacks\n");
@@ -2664,6 +2666,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
                  i_t original_rows,
                  std::vector<variable_type_t>& var_types,
                  std::vector<variable_status_t>& vstatus,
+                 std::vector<f_t>& edge_norms,
                  std::vector<f_t>& x,
                  std::vector<f_t>& y,
                  std::vector<f_t>& z,
@@ -2740,6 +2743,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     std::vector<f_t> new_upper(lp.num_cols - slacks_to_remove.size());
     std::vector<variable_type_t> new_var_types(lp.num_cols - slacks_to_remove.size());
     std::vector<variable_status_t> new_vstatus(lp.num_cols - slacks_to_remove.size());
+    std::vector<f_t> new_edge_norms(lp.num_cols - slacks_to_remove.size());
     std::vector<i_t> new_basic_list;
     new_basic_list.reserve(lp.num_rows - slacks_to_remove.size());
     std::vector<i_t> new_nonbasic_list;
@@ -2755,6 +2759,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
         new_upper[h]      = lp.upper[k];
         new_var_types[h]  = var_types[k];
         new_vstatus[h]    = vstatus[k];
+        new_edge_norms[h] = edge_norms[k];
         new_solution_x[h] = x[k];
         new_solution_z[h] = z[k];
         new_is_slacks[h] = is_slack[k];
@@ -2786,6 +2791,7 @@ void remove_cuts(lp_problem_t<i_t, f_t>& lp,
     basic_list    = new_basic_list;
     nonbasic_list = new_nonbasic_list;
     vstatus       = new_vstatus;
+    edge_norms    = new_edge_norms;
     x             = new_solution_x;
     y             = new_solution_y;
     z             = new_solution_z;
@@ -2900,6 +2906,7 @@ void remove_cuts<int, double>(lp_problem_t<int, double>& lp,
                  int original_rows,
                  std::vector<variable_type_t>& var_types,
                  std::vector<variable_status_t>& vstatus,
+                 std::vector<double>& edge_norms,
                  std::vector<double>& x,
                  std::vector<double>& y,
                  std::vector<double>& z,

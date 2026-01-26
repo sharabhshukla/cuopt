@@ -1831,11 +1831,16 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       f_t cut_start_time = tic();
       cut_generation.generate_cuts(original_lp_, settings_, Arow_, new_slacks_, var_types_, basis_update, root_relax_soln_.x, basic_list, nonbasic_list);
       f_t cut_generation_time = toc(cut_start_time);
-      if (cut_generation_time > 1.0) {
+      if( 1 || cut_generation_time > 1.0) {
         settings_.log.printf("Cut generation time %.2f seconds\n", cut_generation_time);
       }
       // Score the cuts
+      f_t score_start_time = tic();
       cut_pool.score_cuts(root_relax_soln_.x);
+      f_t score_time = toc(score_start_time);
+      if( 1 || score_time > 1.0) {
+        settings_.log.printf("Cut scoring time %.2f seconds\n", score_time);
+      }
       // Get the best cuts from the cut pool
       csr_matrix_t<i_t, f_t> cuts_to_add(0, original_lp_.num_cols, 0);
       std::vector<f_t> cut_rhs;
@@ -1898,6 +1903,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                            cuts_to_add.m + original_lp_.num_rows);
       lp_settings.log.log = false;
 
+      f_t add_cuts_start_time = tic();
       mutex_original_lp_.lock();
       i_t add_cuts_status = add_cuts(settings_,
                                      cuts_to_add,
@@ -1911,6 +1917,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                      root_vstatus_,
                                      edge_norms_);
       mutex_original_lp_.unlock();
+      f_t add_cuts_time = toc(add_cuts_start_time);
+      if( 1 || add_cuts_time > 1.0) {
+        settings_.log.printf("Add cuts time %.2f seconds\n", add_cuts_time);
+      }
       if (add_cuts_status != 0) {
         settings_.log.printf("Failed to add cuts\n");
         return mip_status_t::NUMERICAL;
@@ -1927,9 +1937,13 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 #endif
       original_lp_.A.to_compressed_row(Arow_);
 
+      f_t node_presolve_start_time = tic();
       bounds_strengthening_t<i_t, f_t> node_presolve(original_lp_, Arow_, row_sense, var_types_);
       bool feasible = node_presolve.bounds_strengthening(original_lp_.lower, original_lp_.upper, settings_);
-
+      f_t node_presolve_time = toc(node_presolve_start_time);
+      if( 1 || node_presolve_time > 1.0) {
+        settings_.log.printf("Node presolve time %.2f seconds\n", node_presolve_time);
+      }
       if (!feasible) {
         settings_.log.printf("Bound strengthening failed\n");
         return mip_status_t::NUMERICAL;
@@ -1940,11 +1954,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       root_relax_soln_.y.resize(original_lp_.num_rows, 0.0);
       root_relax_soln_.z.resize(original_lp_.num_cols, 0.0);
 
-      // For now just clear the edge norms
-      edge_norms_.clear();
       i_t iter              = 0;
       bool initialize_basis = false;
       lp_settings.concurrent_halt = NULL;
+      f_t dual_phase2_start_time = tic();
       dual::status_t cut_status = dual_phase2_with_advanced_basis(2,
                                                                   0,
                                                                   initialize_basis,
@@ -1958,6 +1971,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                                                   root_relax_soln_,
                                                                   iter,
                                                                   edge_norms_);
+      f_t dual_phase2_time = toc(dual_phase2_start_time);
+      if( 1 || dual_phase2_time > 1.0) {
+        settings_.log.printf("Dual phase2 time %.2f seconds\n", dual_phase2_time);
+      }
       if (cut_status == dual::status_t::TIME_LIMIT) {
         solver_status_ = mip_status_t::TIME_LIMIT;
         set_final_solution(solution, root_objective_);
@@ -1973,6 +1990,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
 
       local_lower_bounds_.assign(settings_.num_bfs_workers, root_objective_);
 
+      f_t remove_cuts_start_time = tic();
       mutex_original_lp_.lock();
       remove_cuts(original_lp_,
                   settings_,
@@ -1981,6 +1999,7 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                   original_rows,
                   var_types_,
                   root_vstatus_,
+                  edge_norms_,
                   root_relax_soln_.x,
                   root_relax_soln_.y,
                   root_relax_soln_.z,
@@ -1988,7 +2007,10 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                   nonbasic_list,
                   basis_update);
       mutex_original_lp_.unlock();
-
+      f_t remove_cuts_time = toc(remove_cuts_start_time);
+      if( 1 || remove_cuts_time > 1.0) {
+        settings_.log.printf("Remove cuts time %.2f seconds\n", remove_cuts_time);
+      }
       fractional.clear();
       num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 

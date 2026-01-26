@@ -2419,8 +2419,11 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
         basic_list, nonbasic_list, delta_y_steepest_edge);
     } else {
       std::fill(delta_y_steepest_edge.begin(), delta_y_steepest_edge.end(), -1);
+      f_t steepest_edge_start = tic();
       i_t status = phase2::initialize_steepest_edge_norms(
             lp, settings, start_time, basic_list, ft, delta_y_steepest_edge);
+      f_t steepest_edge_time = toc(steepest_edge_start);
+      printf("Initialized steepest edge norms in %.2fs\n", steepest_edge_time);
       if (status == -2) {
         return dual::status_t::CONCURRENT_LIMIT;
       }
