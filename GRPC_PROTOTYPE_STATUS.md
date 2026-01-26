@@ -15,7 +15,6 @@
 
 - **Architecture Documentation** (`GRPC_ARCHITECTURE.md`)
   - Complete design document
-  - Migration path from legacy to gRPC
   - Pluggable client/server architecture
 
 ### Phase 2: Minimal Prototype
@@ -67,8 +66,8 @@
    - Measure latency and throughput
    - Test with multiple concurrent clients
 
-2. **Feature Parity**
-   - Ensure all legacy features work with gRPC
+2. **Feature Coverage**
+   - Ensure required features work with gRPC
    - Async workflow
    - Log streaming
    - Job cancellation
@@ -87,22 +86,6 @@
 - `cpp/CMakeLists.txt` - Build rules for gRPC
 - `conda/environments/*.yaml` - Regenerated with gRPC
 
-## 🗑️ Files to Delete (After Legacy Deprecation)
-
-When we fully migrate to gRPC and deprecate the legacy server, these files can be removed:
-
-### Custom Serialization Infrastructure
-- `cpp/include/cuopt/linear_programming/utilities/remote_serialization.hpp` - Pluggable serializer interface
-- `cpp/src/linear_programming/utilities/protobuf_serializer.cu` - Custom protobuf serializer
-- `cpp/src/linear_programming/utilities/serializers/` - Plugin directory
-  - `msgpack_serializer.cpp` - Msgpack plugin (can delete now, not used)
-  - `CMakeLists.txt` - Plugin build file
-
-### Legacy Server (Keep for Now)
-- `cpp/cuopt_remote_server.cpp` - Current TCP-based server (keep for comparison)
-
-**Rationale**: gRPC handles all serialization internally with generated code from `.proto` files. The custom pluggable serialization framework (`remote_serialization.hpp`, `protobuf_serializer.cu`) was necessary for the legacy TCP-based protocol but is redundant with gRPC.
-
 ## 🧪 Testing the Prototype
 
 ### Prerequisites
@@ -112,7 +95,7 @@ conda install grpc-cpp libgrpc -c conda-forge
 
 # Build with gRPC enabled
 cd /home/tmckay/repos/nvidia-cuopt
-./build.sh  # or your build command with -DBUILD_REMOTE_SERVER=ON
+./build.sh  # gRPC server builds when gRPC is available
 ```
 
 ### Run Server
@@ -143,19 +126,6 @@ Expected output:
 [Client] Test completed successfully!
 ```
 
-## 📊 Comparison: Legacy vs gRPC
-
-| Feature | Legacy Server | gRPC Server (Prototype) |
-|---------|---------------|------------------------|
-| Protocol | Custom TCP | gRPC (HTTP/2) |
-| Serialization | Custom (protobuf) | gRPC-generated |
-| Message Framing | Manual (4-byte length prefix) | Built-in |
-| Error Handling | Custom status codes | gRPC Status codes |
-| Log Streaming | Polling (GET_LOGS) | Server-side streaming (future) |
-| Type Safety | Runtime | Compile-time |
-| Tooling | Custom | Industry-standard |
-| Code Lines | ~2300 | ~350 (for same features) |
-
 ## 🎯 Success Criteria
 
 The gRPC prototype will be considered successful when:
@@ -163,7 +133,7 @@ The gRPC prototype will be considered successful when:
 2. ⏳ Server accepts SubmitJob requests
 3. ⏳ Server executes real LP/MIP solves (not just simulation)
 4. ⏳ Client retrieves actual results
-5. ⏳ Performance is comparable to legacy server
+5. ⏳ Performance is comparable to current baseline
 6. ⏳ Code is simpler and more maintainable
 
 **Current Status**: ✅ 1/6 complete (builds successfully)

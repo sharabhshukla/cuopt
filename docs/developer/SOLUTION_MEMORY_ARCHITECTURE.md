@@ -177,7 +177,7 @@ bool is_device_memory() const;
 The server calls `to_host()` before serialization:
 
 ```cpp
-// In cuopt_remote_server.cpp
+// In cuopt_grpc_server.cpp
 if (is_mip) {
   mip_solution_t<i_t, f_t> solution = solve_mip(...);
   solution.to_host(stream);  // Copy GPU → CPU
@@ -223,7 +223,7 @@ Pure GPU memory would fail for:
 | `cpp/src/linear_programming/solver_solution.cu` | LP solution implementation + `to_host()` |
 | `cpp/include/cuopt/linear_programming/mip/solver_solution.hpp` | MIP solution class declaration |
 | `cpp/src/mip/solver_solution.cu` | MIP solution implementation + `to_host()` |
-| `cpp/cuopt_remote_server.cpp` | Server calls `to_host()` before serialization |
+| `cpp/cuopt_grpc_server.cpp` | Server calls `to_host()` before serialization |
 | `cpp/src/linear_programming/utilities/protobuf_serializer.cu` | Uses host accessors for serialization |
 
 ## Summary

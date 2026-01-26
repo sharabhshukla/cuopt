@@ -343,7 +343,7 @@ add_subdirectory(src/linear_programming/utilities/serializers)
 
 ```bash
 # Build everything including the plugin
-./build.sh libcuopt cuopt_remote_server
+./build.sh libcuopt cuopt_grpc_server
 
 # Or just the plugin (after initial build)
 cd cpp/build
@@ -367,7 +367,7 @@ export CUOPT_SERIALIZER_LIB=/path/to/libcuopt_my_serializer.so
 export CUOPT_SERIALIZER_LIB=$CONDA_PREFIX/lib/libcuopt_my_serializer.so
 
 # Start the server
-cuopt_remote_server -p 8765
+cuopt_grpc_server -p 8765
 ```
 
 Server output will show:
@@ -396,7 +396,7 @@ python my_solver_script.py
 ```bash
 # Terminal 1: Start server with msgpack serializer
 export CUOPT_SERIALIZER_LIB=$CONDA_PREFIX/lib/libcuopt_msgpack_serializer.so
-cuopt_remote_server -p 8765
+cuopt_grpc_server -p 8765
 
 # Terminal 2: Run client with same serializer
 export CUOPT_SERIALIZER_LIB=$CONDA_PREFIX/lib/libcuopt_msgpack_serializer.so
@@ -591,5 +591,5 @@ See the MsgPack serializer for a complete working example:
 
 ### Symbol errors at runtime
 
-- Rebuild and reinstall with `./build.sh libcuopt cuopt_remote_server`
+- Rebuild and reinstall with `./build.sh libcuopt cuopt_grpc_server`
 - Ensure plugin links against `cuopt`

@@ -7,8 +7,8 @@
  * @file cuopt_grpc_server.cpp
  * @brief gRPC-based remote solve server with full worker process infrastructure
  *
- * This server uses gRPC for client communication but preserves all the
- * worker process infrastructure from cuopt_remote_server.cpp:
+ * This server uses gRPC for client communication but preserves the
+ * existing worker process infrastructure:
  * - Worker processes with shared memory job queues
  * - Pipe-based IPC for problem/result data
  * - Result tracking and retrieval threads
@@ -362,7 +362,7 @@ static void store_simple_result(const std::string& job_id,
 }
 
 // ============================================================================
-// Worker Infrastructure (copied from cuopt_remote_server.cpp)
+// Worker Infrastructure (shared with the remote solve server implementation)
 // ============================================================================
 void cleanup_shared_memory()
 {
