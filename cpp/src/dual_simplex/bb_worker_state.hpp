@@ -149,6 +149,9 @@ struct bb_worker_state_t {
   // Worker-local upper bound for BSP determinism (prevents cross-worker pruning races)
   f_t local_upper_bound{std::numeric_limits<f_t>::infinity()};
 
+  // Worker-local lower bound ceiling for numerical issues (merged to global at sync)
+  f_t local_lower_bound_ceiling{std::numeric_limits<f_t>::infinity()};
+
   // Queued integer solutions found during this horizon (merged at sync)
   std::vector<queued_integer_solution_t<i_t, f_t>> integer_solutions;
 
@@ -217,6 +220,8 @@ struct bb_worker_state_t {
 
     // Initialize worker-local upper bound from global (for BSP determinism)
     local_upper_bound = global_upper_bound;
+
+    local_lower_bound_ceiling = std::numeric_limits<f_t>::infinity();
 
     // Clear queued updates from previous horizon
     integer_solutions.clear();

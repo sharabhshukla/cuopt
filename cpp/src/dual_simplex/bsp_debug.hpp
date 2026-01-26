@@ -219,11 +219,9 @@ class bsp_debug_logger_t {
   {
     settings_ = settings;
     if (settings_.any_enabled()) {
-      // Create output directory if it doesn't exist
       try {
         std::filesystem::create_directories(settings_.output_dir);
       } catch (const std::filesystem::filesystem_error& e) {
-        // Silently disable debug output if we can't create the directory
         settings_.enable_event_log         = false;
         settings_.enable_timeline          = false;
         settings_.enable_tree_dot          = false;
@@ -575,7 +573,7 @@ class bsp_debug_logger_t {
   }
 
   // ========================================================================
-  // LP Determinism Logging (for debugging non-determinism in LP solver)
+  // LP Determinism Logging
   // ========================================================================
 
   void log_lp_input(int worker_id,

@@ -2710,6 +2710,15 @@ node_solve_info_t branch_and_bound_t<i_t, f_t>::solve_node_bsp(bb_worker_state_t
     return node_solve_info_t::WORK_LIMIT;
 
   } else {
+    // Update local lower bound ceiling for numerical issues (merged to global at sync)
+    if (node_ptr->lower_bound < worker.local_lower_bound_ceiling) {
+      worker.local_lower_bound_ceiling = node_ptr->lower_bound;
+    }
+    settings_.log.printf(
+      "LP returned numerical issue on node %d. Local best bound set to %+10.6e.\n",
+      node_ptr->node_id,
+      compute_user_objective(original_lp_, worker.local_lower_bound_ceiling));
+
     worker.record_numerical(node_ptr);
     worker.recompute_bounds_and_basis = true;
     search_tree.update(node_ptr, node_status_t::NUMERICAL);
@@ -2923,6 +2932,10 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
       pc_.pseudo_cost_sum_up[upd.variable] += upd.delta;
       pc_.pseudo_cost_num_up[upd.variable]++;
     }
+  }
+
+  for (const auto& worker : *bsp_workers_) {
+    fetch_min(lower_bound_ceiling_, worker.local_lower_bound_ceiling);
   }
 }
 
@@ -3299,8 +3312,8 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
   dive_tree.root.get_variable_bounds(
     worker.dive_lower, worker.dive_upper, worker.node_presolver->bounds_changed);
 
-  const i_t max_nodes_per_dive      = 100;
-  const i_t max_backtrack_depth     = 5;
+  const i_t max_nodes_per_dive      = settings_.diving_settings.max_nodes_per_dive;
+  const i_t max_backtrack_depth     = settings_.diving_settings.backtrack_limit;
   i_t nodes_this_dive               = 0;
   worker.lp_iters_this_dive         = 0;
   worker.recompute_bounds_and_basis = true;
@@ -3325,7 +3338,9 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
     stack.pop_front();
 
     // Prune check using snapshot upper bound
-    if (node_ptr->lower_bound >= worker.local_upper_bound) {
+    f_t rel_gap = user_relative_gap(original_lp_, worker.local_upper_bound, node_ptr->lower_bound);
+    if (node_ptr->lower_bound >= worker.local_upper_bound ||
+        rel_gap < settings_.relative_mip_gap_tol) {
       worker.recompute_bounds_and_basis = true;
       continue;
     }
@@ -3398,6 +3413,19 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
                                                                node_iter,
                                                                leaf_edge_norms,
                                                                &worker.work_context);
+
+    if (lp_status == dual::status_t::NUMERICAL) {
+      lp_status_t second_status = solve_linear_program_with_advanced_basis(*worker.leaf_problem,
+                                                                           lp_start_time,
+                                                                           lp_settings,
+                                                                           leaf_solution,
+                                                                           *worker.basis_factors,
+                                                                           worker.basic_list,
+                                                                           worker.nonbasic_list,
+                                                                           leaf_vstatus,
+                                                                           leaf_edge_norms);
+      lp_status                 = convert_lp_status_to_dual_status(second_status);
+    }
 
     ++nodes_this_dive;
     ++worker.total_nodes_explored;
