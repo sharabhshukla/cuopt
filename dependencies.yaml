@@ -303,7 +303,7 @@ dependencies:
           - zlib
           - bzip2
           - grpc-cpp
-          - protobuf
+          - libprotobuf
   test_cpp:
     common:
       - output_types: [conda]
