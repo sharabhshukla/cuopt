@@ -503,7 +503,6 @@ target_link_libraries(cuopt
   CCCL::CCCL
   raft::raft
   ${CUDSS_LIB_FILE}
-  ${CUDSS_LIBRARIES}
   PRIVATE
   protobuf::libprotobuf
   ${CUOPT_PRIVATE_CUDA_LIBS}
