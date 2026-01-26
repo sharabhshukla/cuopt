@@ -504,8 +504,8 @@ target_link_libraries(cuopt
   raft::raft
   ${CUDSS_LIB_FILE}
   ${CUDSS_LIBRARIES}
-  protobuf::libprotobuf
   PRIVATE
+  protobuf::libprotobuf
   ${CUOPT_PRIVATE_CUDA_LIBS}
   cuopt::mps_parser_static  # Static link - symbols embedded in libcuopt.so
   )
