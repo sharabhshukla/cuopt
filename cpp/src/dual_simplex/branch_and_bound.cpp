@@ -39,14 +39,13 @@
 #include <unordered_map>
 #include <vector>
 
-// bounds strenghtening work unit predictor is not yet accurate enough
 // #define BSP_DISABLE_BOUNDS_STRENGTHENING
 
 namespace cuopt::linear_programming::dual_simplex {
 
 namespace {
 
-static constexpr double FEATURE_LOG_INTERVAL = 0.25;  // Log at most every 500ms
+static constexpr double FEATURE_LOG_INTERVAL = 0.25;  // Log at most every 250ms
 
 template <typename f_t>
 bool is_fractional(f_t x, variable_type_t var_type, f_t integer_tol)
@@ -1660,18 +1659,16 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   {
     uint32_t lp_hash = detail::compute_hash(original_lp_.objective);
     lp_hash ^= detail::compute_hash(original_lp_.A.x.underlying());
-    settings_.log.printf("lp A.x hash: %08x\n",
-                         detail::compute_hash(original_lp_.A.x.underlying()));
+    settings_.log.debug("lp A.x hash: %08x\n", detail::compute_hash(original_lp_.A.x.underlying()));
     lp_hash ^= detail::compute_hash(original_lp_.A.i.underlying());
-    settings_.log.printf("lp A.j hash: %08x\n",
-                         detail::compute_hash(original_lp_.A.i.underlying()));
+    settings_.log.debug("lp A.j hash: %08x\n", detail::compute_hash(original_lp_.A.i.underlying()));
     lp_hash ^= detail::compute_hash(original_lp_.A.col_start.underlying());
-    settings_.log.printf("lp A.col_start hash: %08x\n",
-                         detail::compute_hash(original_lp_.A.col_start.underlying()));
+    settings_.log.debug("lp A.col_start hash: %08x\n",
+                        detail::compute_hash(original_lp_.A.col_start.underlying()));
     lp_hash ^= detail::compute_hash(original_lp_.rhs);
-    settings_.log.printf("lp rhs hash: %08x\n", detail::compute_hash(original_lp_.rhs));
+    settings_.log.debug("lp rhs hash: %08x\n", detail::compute_hash(original_lp_.rhs));
     lp_hash ^= detail::compute_hash(original_lp_.lower);
-    settings_.log.printf("lp lower hash: %08x\n", detail::compute_hash(original_lp_.lower));
+    settings_.log.debug("lp lower hash: %08x\n", detail::compute_hash(original_lp_.lower));
     lp_hash ^= detail::compute_hash(original_lp_.upper);
     settings_.log.printf(
       "Exploring the B&B tree using %d threads (best-first = %d, diving = %d) [LP hash: %08x]\n",
@@ -1775,7 +1772,6 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
   bsp_horizon_number_  = 0;
   bsp_terminated_.store(false);
 
-  // Initialize BFS worker pool
   bsp_workers_ = std::make_unique<bb_worker_pool_t<i_t, f_t>>();
   bsp_workers_->initialize(num_bfs_workers,
                            original_lp_,
@@ -1784,7 +1780,6 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
                            settings_.refactor_frequency,
                            settings_.deterministic);
 
-  // Initialize diving worker pool if we have diving workers
   if (num_diving_workers > 0) {
     std::vector<bnb_worker_type_t> diving_types = {bnb_worker_type_t::PSEUDOCOST_DIVING,
                                                    bnb_worker_type_t::LINE_SEARCH_DIVING,
@@ -1798,12 +1793,9 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
                                     var_types_,
                                     settings_.refactor_frequency,
                                     settings_.deterministic);
-
     calculate_variable_locks(original_lp_, var_up_locks_, var_down_locks_);
   }
 
-  // Initialize scheduler for automatic sync at horizon boundaries
-  // Workers will block in record_work() when they cross sync points
   bsp_scheduler_ = std::make_unique<work_unit_scheduler_t>(bsp_horizon_step_);
   // bsp_scheduler_->verbose = true;
 
@@ -1828,26 +1820,22 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
     num_diving_workers,
     bsp_horizon_step_);
 
-  // Assign the initial children of the root to worker 0 and worker 1
-  search_tree_.root.get_down_child()->origin_worker_id = -1;  // Pre-BSP marker
+  search_tree_.root.get_down_child()->origin_worker_id = -1;
   search_tree_.root.get_down_child()->creation_seq     = 0;
   search_tree_.root.get_up_child()->origin_worker_id   = -1;
   search_tree_.root.get_up_child()->creation_seq       = 1;
 
-  (*bsp_workers_)[0].enqueue_node_with_identity(search_tree_.root.get_down_child());
+  (*bsp_workers_)[0].enqueue_node(search_tree_.root.get_down_child());
   (*bsp_workers_)[0].track_node_assigned();
-  (*bsp_workers_)[1 % num_bfs_workers].enqueue_node_with_identity(search_tree_.root.get_up_child());
+  (*bsp_workers_)[1 % num_bfs_workers].enqueue_node(search_tree_.root.get_up_child());
   (*bsp_workers_)[1 % num_bfs_workers].track_node_assigned();
   BSP_DEBUG_FLUSH_ASSIGN_TRACE(bsp_debug_settings_, bsp_debug_logger_);
 
-  // Set sync callback - executed when all workers arrive at barrier
-  // Returns true to stop the scheduler (and all workers exit cleanly together)
   bsp_scheduler_->set_sync_callback([this](double sync_target) -> bool {
     bsp_sync_callback(0);
     return bsp_terminated_.load();
   });
 
-  // initialize global state snapshots
   for (auto& worker : *bsp_workers_) {
     worker.set_snapshots(upper_bound_.load(),
                          pc_.pseudo_cost_sum_up,
@@ -1864,6 +1852,7 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
 
     for (auto& worker : *bsp_diving_workers_) {
       worker.set_snapshots(upper_bound_.load(),
+                           exploration_stats_.total_lp_iters.load(),
                            pc_.pseudo_cost_sum_up,
                            pc_.pseudo_cost_sum_down,
                            pc_.pseudo_cost_num_up,
@@ -1877,19 +1866,15 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
 
   const int total_thread_count = num_bfs_workers + num_diving_workers;
 
-  // Main BSP execution - workers run in parallel with scheduler-driven sync
 #pragma omp parallel num_threads(total_thread_count)
   {
     int thread_id = omp_get_thread_num();
-
     if (thread_id < num_bfs_workers) {
-      // BFS worker
       auto& worker          = (*bsp_workers_)[thread_id];
       f_t worker_start_time = tic();
       run_worker_loop(worker, search_tree_);
       worker.total_runtime += toc(worker_start_time);
     } else {
-      // Diving worker
       int diving_id         = thread_id - num_bfs_workers;
       auto& worker          = (*bsp_diving_workers_)[diving_id];
       f_t worker_start_time = tic();
@@ -1898,7 +1883,6 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
     }
   }
 
-  // Print per-worker statistics
   settings_.log.printf("\n");
   settings_.log.printf("BSP BFS Worker Statistics:\n");
   settings_.log.printf(
@@ -1962,7 +1946,6 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
                          max_producer_wait_time_);
   }
 
-  // Finalize debug logger
   BSP_DEBUG_FINALIZE(bsp_debug_settings_, bsp_debug_logger_);
 }
 
@@ -1972,15 +1955,12 @@ void branch_and_bound_t<i_t, f_t>::run_worker_loop(bb_worker_state_t<i_t, f_t>& 
 {
   raft::common::nvtx::range scope("BB::worker_loop");
 
-  // Workers run continuously until scheduler signals stop (via sync callback)
-  // The scheduler handles synchronization at horizon boundaries via record_work()
   while (!bsp_terminated_.load() && !bsp_scheduler_->is_stopped() &&
          solver_status_ == mip_status_t::UNSET) {
-    // Check time limit directly - don't wait for sync if time is up
     if (toc(exploration_stats_.start_time) > settings_.time_limit) {
       solver_status_ = mip_status_t::TIME_LIMIT;
       bsp_terminated_.store(true);
-      bsp_scheduler_->stop();  // Wake up workers waiting at barrier
+      bsp_scheduler_->stop();
       break;
     }
 
@@ -1988,10 +1968,8 @@ void branch_and_bound_t<i_t, f_t>::run_worker_loop(bb_worker_state_t<i_t, f_t>& 
       mip_node_t<i_t, f_t>* node = worker.dequeue_node();
       if (node == nullptr) { continue; }
 
-      // Track that this node is being actively processed
       worker.current_node = node;
 
-      // Check if node should be pruned (use worker's snapshot for determinism)
       f_t upper_bound = worker.local_upper_bound;
       f_t rel_gap     = user_relative_gap(original_lp_, upper_bound, node->lower_bound);
       if (node->lower_bound >= upper_bound || rel_gap < settings_.relative_mip_gap_tol) {
@@ -2003,33 +1981,24 @@ void branch_and_bound_t<i_t, f_t>::run_worker_loop(bb_worker_state_t<i_t, f_t>& 
         continue;
       }
 
-      // Check if we can warm-start from the previous solve's basis
       bool is_child                     = (node->parent == worker.last_solved_node);
       worker.recompute_bounds_and_basis = !is_child;
 
-      // Solve the node - record_work() inside may block at sync points
-      // The scheduler's sync callback will execute during barrier waits
       node_solve_info_t status = solve_node_bsp(worker, node, search_tree, worker.horizon_end);
-
-      // Track last solved node for warm-start detection
-      worker.last_solved_node = node;
+      worker.last_solved_node  = node;
 
       if (status == node_solve_info_t::TIME_LIMIT || status == node_solve_info_t::WORK_LIMIT) {
-        // Time/work limit hit - the loop head will detect this and terminate properly
         continue;
       }
-      // Node completed successfully - loop back to process children
       worker.current_node = nullptr;
       continue;
     }
 
-    // No work available - advance to next sync point to participate in barrier
-    // This ensures all workers reach the sync point even if some have no work
+    // No work - advance to sync point to participate in barrier
     f_t nowork_start            = tic();
     cuopt::sync_result_t result = bsp_scheduler_->wait_for_next_sync(worker.work_context);
     worker.total_nowork_time += toc(nowork_start);
     if (result == cuopt::sync_result_t::STOPPED) { break; }
-    // After sync, bsp_sync_callback may have redistributed nodes to us
   }
 }
 
@@ -2042,8 +2011,6 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
   double horizon_start = bsp_current_horizon_ - bsp_horizon_step_;
   double horizon_end   = bsp_current_horizon_;
 
-  // Wait for external producers (CPUFJ) to reach horizon_start before processing
-  // This ensures we don't process B&B events before producers have caught up
   double wait_start = tic();
   producer_sync_.wait_for_producers(horizon_start);
   double wait_time = toc(wait_start);
@@ -2128,10 +2095,8 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
                             heap_snapshot,
                             all_events);
 
-  // Advance the horizon for next sync
   bsp_current_horizon_ += bsp_horizon_step_;
 
-  // Update worker snapshots for next horizon
   for (auto& worker : *bsp_workers_) {
     worker.set_snapshots(upper_bound_.load(),
                          pc_.pseudo_cost_sum_up,
@@ -2142,13 +2107,12 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
                          bsp_current_horizon_);
   }
 
-  // Update diving worker snapshots for next horizon
   if (bsp_diving_workers_) {
     std::vector<f_t> incumbent_snapshot;
     if (incumbent_.has_incumbent) { incumbent_snapshot = incumbent_.x; }
-
     for (auto& worker : *bsp_diving_workers_) {
       worker.set_snapshots(upper_bound_.load(),
+                           exploration_stats_.total_lp_iters.load(),
                            pc_.pseudo_cost_sum_up,
                            pc_.pseudo_cost_sum_down,
                            pc_.pseudo_cost_num_up,
@@ -2160,7 +2124,6 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     }
   }
 
-  // Check termination conditions
   f_t lower_bound = compute_bsp_lower_bound();
   f_t upper_bound = upper_bound_.load();
   f_t abs_gap     = upper_bound - lower_bound;
@@ -2168,7 +2131,6 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
 
   bool should_terminate = false;
 
-  // Gap tolerance reached
   if (abs_gap <= settings_.absolute_mip_gap_tol || rel_gap <= settings_.relative_mip_gap_tol) {
     should_terminate = true;
   }
@@ -2181,10 +2143,7 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     should_terminate = true;
   }
 
-  // Check if the next horizon would exceed work limit. If so, terminate now rather than
-  // letting workers continue past the limit. This is conservative (stops slightly early)
-  // but prevents workers from processing nodes beyond the work budget.
-  // bsp_current_horizon_ now holds the NEXT horizon's end value after the increment above.
+  // Stop early if next horizon exceeds work limit
   if (bsp_current_horizon_ > settings_.work_limit) {
     solver_status_   = mip_status_t::WORK_LIMIT;
     should_terminate = true;
@@ -2192,12 +2151,10 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
 
   if (should_terminate) { bsp_terminated_.store(true); }
 
-  // Progress logging with horizon number and state hash
   f_t obj              = compute_user_objective(original_lp_, upper_bound);
   f_t user_lower       = compute_user_objective(original_lp_, lower_bound);
   std::string gap_user = user_mip_gap<f_t>(obj, user_lower);
 
-  // Build list of workers that reached sync with no work
   std::string idle_workers;
   for (const auto& w : *bsp_workers_) {
     if (!w.has_work() && w.current_node == nullptr) {
@@ -2861,6 +2818,8 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
     }
   }
 
+  std::sort(all_pc_updates.begin(), all_pc_updates.end());
+
   for (const auto& upd : all_pc_updates) {
     if (upd.direction == rounding_direction_t::DOWN) {
       pc_.pseudo_cost_sum_down[upd.variable] += upd.delta;
@@ -2974,10 +2933,10 @@ void branch_and_bound_t<i_t, f_t>::balance_worker_loads()
     worker_order.push_back(w);
   }
 
-  // Distribute nodes - use enqueue_node_with_identity to preserve existing identity
+  // Distribute nodes - use enqueue_node to preserve existing identity
   for (size_t i = 0; i < all_nodes.size(); ++i) {
     size_t worker_idx = worker_order[i % num_workers];
-    (*bsp_workers_)[worker_idx].enqueue_node_with_identity(all_nodes[i]);
+    (*bsp_workers_)[worker_idx].enqueue_node(all_nodes[i]);
     (*bsp_workers_)[worker_idx].track_node_assigned();
 
     double wut = bsp_current_horizon_;
@@ -3051,9 +3010,13 @@ void branch_and_bound_t<i_t, f_t>::populate_diving_heap_at_sync()
 
   if (candidates.empty()) return;
 
-  // Sort candidates by score (lower is better for diving - closer to optimum)
+  // Sort candidates by score with deterministic tie-breaking by BSP identity
   std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
-    return a.second < b.second;
+    if (a.second != b.second) return a.second < b.second;
+    if (a.first->origin_worker_id != b.first->origin_worker_id) {
+      return a.first->origin_worker_id < b.first->origin_worker_id;
+    }
+    return a.first->creation_seq < b.first->creation_seq;
   });
 
   int nodes_to_take = std::min(target_total, (int)candidates.size());
@@ -3168,13 +3131,15 @@ void branch_and_bound_t<i_t, f_t>::merge_diving_solutions()
     }
   }
 
-  // Merge pseudo-cost updates from diving workers
+  // Merge pseudo-cost updates from diving workers in deterministic order
   std::vector<pseudo_cost_update_t<i_t, f_t>> all_diving_pc_updates;
   for (auto& worker : *bsp_diving_workers_) {
     for (auto& upd : worker.pseudo_cost_updates) {
       all_diving_pc_updates.push_back(upd);
     }
   }
+
+  std::sort(all_diving_pc_updates.begin(), all_diving_pc_updates.end());
 
   for (const auto& upd : all_diving_pc_updates) {
     if (upd.direction == rounding_direction_t::DOWN) {
@@ -3316,9 +3281,8 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
 #endif
 
     {
-      i_t bnb_lp_iters            = exploration_stats_.total_lp_iters.load();
       f_t factor                  = settings_.diving_settings.iteration_limit_factor;
-      i_t max_iter                = (i_t)(factor * bnb_lp_iters);
+      i_t max_iter                = (i_t)(factor * worker.total_lp_iters_snapshot);
       lp_settings.iteration_limit = max_iter - worker.lp_iters_this_dive;
       if (lp_settings.iteration_limit <= 0) { break; }
     }

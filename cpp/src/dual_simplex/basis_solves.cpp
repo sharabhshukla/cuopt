@@ -182,12 +182,12 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
     f_t fact_start = tic();
     csc_matrix_t<i_t, f_t> B(A.m, A.m, 1);
     form_b(A, basic_list, B);
-    ins_vector<i_t> row_perm(m);
-    ins_vector<i_t> col_perm(m);
+    std::vector<i_t> row_perm(m);
+    std::vector<i_t> col_perm(m);
     i_t row_singletons;
     i_t col_singletons;
     find_singletons(B, row_singletons, row_perm, col_singletons, col_perm);
-    ins_vector<i_t> row_perm_inv(m);
+    std::vector<i_t> row_perm_inv(m);
     inverse_permutation(row_perm, row_perm_inv);
 
 #ifdef PRINT_SINGLETONS
@@ -351,12 +351,12 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
         csc_matrix_t<i_t, f_t> SL(Sdim, Sdim, Snz);
         csc_matrix_t<i_t, f_t> SU(Sdim, Sdim, Snz);
         // Factorize S
-        ins_vector<i_t> S_perm_inv(Sdim);
+        std::vector<i_t> S_perm_inv(Sdim);
         std::optional<std::vector<i_t>> empty = std::nullopt;
         f_t actual_factor_start               = tic();
 
-        ins_vector<i_t> S_col_perm(Sdim);
-        ins_vector<i_t> identity(Sdim);
+        std::vector<i_t> S_col_perm(Sdim);
+        std::vector<i_t> identity(Sdim);
         for (i_t h = 0; h < Sdim; ++h) {
           identity[h] = h;
         }
@@ -380,7 +380,7 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
             deficient[h - Srank] = col_perm[num_singletons + S_col_perm[h]];
           }
           // Get S_perm
-          ins_vector<i_t> S_perm(Sdim);
+          std::vector<i_t> S_perm(Sdim);
           inverse_permutation(S_perm_inv, S_perm);
           // Get the slacks needed
           slacks_needed.resize(Sdim - Srank);
@@ -392,7 +392,7 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
         }
 
         // Need to permute col_perm[k] according to q
-        ins_vector<i_t> col_perm_sav(m - num_singletons);
+        std::vector<i_t> col_perm_sav(m - num_singletons);
         i_t q_j = 0;
         for (i_t h = num_singletons; h < m; ++h) {
           col_perm_sav[q_j] = col_perm[h];
@@ -404,7 +404,7 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
           q_j++;
         }
 
-        ins_vector<i_t> S_perm(m);
+        std::vector<i_t> S_perm(m);
         inverse_permutation(S_perm_inv, S_perm);
         actual_factor = toc(actual_factor_start);
 
@@ -479,7 +479,7 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
         assert(Unz <= Unz_max);
         U.col_start[m] = Unz;  // Finalize U
 
-        ins_vector<i_t> last_perm(Sdim);
+        std::vector<i_t> last_perm(Sdim);
         for (i_t k = 0; k < Sdim; ++k) {
           last_perm[k] = row_perm[num_singletons + k];
         }
@@ -634,7 +634,7 @@ i_t basis_repair(const csc_matrix_t<i_t, f_t>& A,
   assert(nonbasic_list.size() == n - m);
 
   // Create slack_map
-  ins_vector<i_t> slack_map(m);  // slack_map[i] = j if column j is e_i
+  std::vector<i_t> slack_map(m);  // slack_map[i] = j if column j is e_i
   i_t slacks_found = 0;
   for (i_t j = n - 1; j >= n - m; j--) {
     const i_t col_start = A.col_start[j];
@@ -650,7 +650,7 @@ i_t basis_repair(const csc_matrix_t<i_t, f_t>& A,
   assert(slacks_found == m);
 
   // Create nonbasic_map
-  ins_vector<i_t> nonbasic_map(
+  std::vector<i_t> nonbasic_map(
     n, -1);  // nonbasic_map[j] = p if nonbasic[p] = j, -1 if j is basic/superbasic
   const i_t num_nonbasic = nonbasic_list.size();
   for (i_t k = 0; k < num_nonbasic; ++k) {

@@ -404,12 +404,16 @@ class branch_and_bound_t {
   // Diving heap - nodes available for diving, sorted by objective estimate
   struct diving_entry_t {
     mip_node_t<i_t, f_t>* node;
-    f_t score;  // objective_estimate for diving priority
+    f_t score;
   };
   struct diving_score_comp {
     bool operator()(const diving_entry_t& a, const diving_entry_t& b) const
     {
-      return a.score > b.score;  // Min-heap by score (lower is better)
+      if (a.score != b.score) return a.score > b.score;  // Min-heap by score
+      if (a.node->origin_worker_id != b.node->origin_worker_id) {
+        return a.node->origin_worker_id > b.node->origin_worker_id;
+      }
+      return a.node->creation_seq > b.node->creation_seq;
     }
   };
   heap_t<diving_entry_t, diving_score_comp> diving_heap_;

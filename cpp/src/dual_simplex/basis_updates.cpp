@@ -556,7 +556,7 @@ i_t basis_update_t<i_t, f_t>::u_solve(std::vector<f_t>& x) const
   // 2. Solve for y such that U*y = bprime
   // 3. Compute Q*y = x
   const i_t m = U_.m;
-  ins_vector<f_t> bprime(m);
+  std::vector<f_t> bprime(m);
   inverse_permute_vector(col_permutation_, x, bprime);
 
 #ifdef CHECK_UPPER_SOLVE
@@ -607,7 +607,7 @@ i_t basis_update_t<i_t, f_t>::u_transpose_solve(std::vector<f_t>& x) const
   // 2. Solve for y such that U'*y = bprime
   // 3. Compute Q*y = x
   const i_t m = U_.m;
-  ins_vector<f_t> bprime(m);
+  std::vector<f_t> bprime(m);
   inverse_permute_vector(col_permutation_, x, bprime);
   dual_simplex::upper_triangular_transpose_solve(U_, bprime);
   permute_vector(col_permutation_, bprime, x);
@@ -864,7 +864,7 @@ i_t basis_update_t<i_t, f_t>::update(std::vector<f_t>& utilde, i_t leaving_index
 #endif
 
   // ubar = Q'*utilde
-  ins_vector<f_t> ubar(m);
+  std::vector<f_t> ubar(m);
   inverse_permute_vector(col_permutation_, utilde, ubar);
 
   // Find t
@@ -875,7 +875,7 @@ i_t basis_update_t<i_t, f_t>::update(std::vector<f_t>& utilde, i_t leaving_index
   const f_t delta = u_diagonal(t);
 
   // Solve U'*w = delta*et
-  ins_vector<f_t> w(m);
+  std::vector<f_t> w(m);
   w[t] = delta;
   dual_simplex::upper_triangular_transpose_solve(U_, w);
 #ifdef PARANOID
@@ -901,7 +901,7 @@ i_t basis_update_t<i_t, f_t>::update(std::vector<f_t>& utilde, i_t leaving_index
   // Set deltabar = w'*ubar
   const f_t deltabar = update_L ? dot<i_t, f_t>(w, ubar) : ubar[t];
   assert(std::abs(deltabar) > 0);
-  ins_vector<f_t> baru(m);
+  std::vector<f_t> baru(m);
   for (i_t k = 0; k < t; ++k) {
     baru[k] = ubar[k];
   }
@@ -918,11 +918,11 @@ i_t basis_update_t<i_t, f_t>::update(std::vector<f_t>& utilde, i_t leaving_index
     }
   }
 
-  ins_vector<f_t> d(m);
+  std::vector<f_t> d(m);
   d    = w;
   d[t] = 0.0;
   // dtilde^T = d^T Q^T -> dtilde = Q*d
-  ins_vector<f_t> dtilde(m);
+  std::vector<f_t> dtilde(m);
   permute_vector(col_permutation_, d, dtilde);
 
   update_upper(baru_ind, baru_val, t);
@@ -1032,7 +1032,7 @@ i_t basis_update_t<i_t, f_t>::lower_triangular_multiply(const csc_matrix_t<i_t, 
   std::vector<f_t> sval;
   const i_t in_col_start = in.col_start[in_col];
   const i_t in_col_end   = in.col_start[in_col + 1];
-  ins_vector<f_t> sbuffer(m);
+  std::vector<f_t> sbuffer(m);
   for (i_t p = in_col_start; p < in_col_end; ++p) {
     sbuffer[inverse_col_permutation_[in.i[p]]] = in.x[p];
   }
@@ -1066,7 +1066,7 @@ i_t basis_update_t<i_t, f_t>::lower_triangular_multiply(const csc_matrix_t<i_t, 
       }
     }
     if (fill) {
-      ins_vector<f_t> work2(m);
+      std::vector<f_t> work2(m);
       sind.push_back(r);
       sval.push_back(-dot);
 
@@ -1085,14 +1085,14 @@ i_t basis_update_t<i_t, f_t>::lower_triangular_multiply(const csc_matrix_t<i_t, 
     // assert(fill == false);
   }
 
-  ins_vector<f_t> workspace(m);
+  std::vector<f_t> workspace(m);
   const i_t nx = sind.size();
   for (i_t k = 0; k < nx; ++k) {
     const i_t j  = sind[k];
     const f_t x  = sval[k];
     workspace[j] = x;
   }
-  ins_vector<f_t> workspace2(m);
+  std::vector<f_t> workspace2(m);
   matrix_vector_multiply(L0_, 1.0, workspace, 0.0, workspace2);
   workspace = workspace2;
 
@@ -1985,7 +1985,7 @@ void basis_update_mpf_t<i_t, f_t>::l_multiply(std::vector<f_t>& inout) const
     add_sparse_column(S_, u_col, theta, inout);
   }
 
-  ins_vector<f_t> out(m, 0.0);
+  std::vector<f_t> out(m, 0.0);
   matrix_vector_multiply(L0_, 1.0, inout, 0.0, out);
   inout = out;
 }
@@ -1994,7 +1994,7 @@ template <typename i_t, typename f_t>
 void basis_update_mpf_t<i_t, f_t>::l_transpose_multiply(std::vector<f_t>& inout) const
 {
   const i_t m = L0_.m;
-  ins_vector<f_t> out(m, 0.0);
+  std::vector<f_t> out(m, 0.0);
   matrix_vector_multiply(L0_transpose_, 1.0, inout, 0.0, out);
 
   inout = out;

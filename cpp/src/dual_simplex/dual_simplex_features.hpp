@@ -15,7 +15,7 @@
 
 #include <cstdio>
 
-#define CUOPT_DEBUG_WORK_PREDICTION
+// #define CUOPT_DEBUG_WORK_PREDICTION
 
 namespace cuopt::linear_programming::dual_simplex {
 
