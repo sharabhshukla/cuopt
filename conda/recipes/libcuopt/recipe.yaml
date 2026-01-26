@@ -61,7 +61,7 @@ cache:
       - make
       - ninja
       - grpc-cpp
-      - protobuf
+      - libprotobuf
       - tbb-devel
       - zlib
       - bzip2
@@ -70,7 +70,7 @@ cache:
       - cuda-version =${{ cuda_version }}
       - grpc-cpp
       - libraft-headers =${{ minor_version }}
-      - protobuf
+      - libprotobuf
       - librmm =${{ minor_version }}
       - rapids-logger =0.2
       - cuda-nvtx-dev
@@ -151,7 +151,7 @@ outputs:
         - libboost-devel
         - cuda-version =${{ cuda_version }}
         - grpc-cpp
-        - protobuf
+        - libprotobuf
         - rapids-logger =0.2
         - librmm =${{ minor_version }}
         - libcublas
@@ -161,7 +161,7 @@ outputs:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - ${{ pin_subpackage("libmps-parser", exact=True) }}
         - libboost-devel
-        - protobuf
+        - libprotobuf
         - librmm =${{ minor_version }}
         - cuda-nvrtc
         - libcudss
@@ -172,7 +172,7 @@ outputs:
           - libcudss
           - libcurand
           - libcusparse
-          - protobuf
+          - libprotobuf
           - librmm
           - libboost
           - libboost_iostreams
