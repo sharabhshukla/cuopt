@@ -698,6 +698,8 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
 /**
  * @brief Set the initial primal solution for an LP solve.
  *
+ * @note This function is only supported for PDLP.
+ *
  * @param[in] settings - The solver settings object.
  * @param[in] primal_solution - A pointer to an array of type cuopt_float_t
  *            of size num_variables containing the initial primal values.
@@ -711,6 +713,8 @@ cuopt_int_t cuOptSetInitialPrimalSolution(cuOptSolverSettings settings,
 
 /**
  * @brief Set the initial dual solution for an LP solve.
+ *
+ * @note This function is only supported for PDLP.
  *
  * @param[in] settings - The solver settings object.
  * @param[in] dual_solution - A pointer to an array of type cuopt_float_t
