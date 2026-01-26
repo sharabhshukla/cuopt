@@ -187,10 +187,10 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
 
     double presolve_time = 0.0;
     std::unique_ptr<detail::third_party_presolve_t<i_t, f_t>> presolver;
+    std::optional<detail::third_party_presolve_result_t<i_t, f_t>> presolve_result;
     detail::problem_t<i_t, f_t> problem(op_problem, settings.get_tolerances());
 
     auto run_presolve = settings.presolve;
-    run_presolve      = run_presolve && settings.get_mip_callbacks().empty();
     run_presolve      = run_presolve && settings.initial_solutions.size() == 0;
 
     if (!run_presolve) { CUOPT_LOG_INFO("Presolve is disabled, skipping"); }
@@ -214,12 +214,17 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
                                         solver_stats_t<i_t, f_t>{},
                                         op_problem.get_handle_ptr()->get_stream());
       }
+      presolve_result.emplace(std::move(*result));
 
-      problem = detail::problem_t<i_t, f_t>(result->reduced_problem);
-      problem.set_implied_integers(result->implied_integer_indices);
+      problem = detail::problem_t<i_t, f_t>(presolve_result->reduced_problem);
+      problem.set_papilo_presolve_data(presolver.get(),
+                                       presolve_result->reduced_to_original_map,
+                                       presolve_result->original_to_reduced_map,
+                                       op_problem.get_n_variables());
+      problem.set_implied_integers(presolve_result->implied_integer_indices);
       presolve_time = timer.elapsed_time();
-      if (result->implied_integer_indices.size() > 0) {
-        CUOPT_LOG_INFO("%d implied integers", result->implied_integer_indices.size());
+      if (presolve_result->implied_integer_indices.size() > 0) {
+        CUOPT_LOG_INFO("%d implied integers", presolve_result->implied_integer_indices.size());
       }
       if (problem.is_objective_integral()) { CUOPT_LOG_INFO("Objective function is integral"); }
       CUOPT_LOG_INFO("Papilo presolve time: %f", presolve_time);

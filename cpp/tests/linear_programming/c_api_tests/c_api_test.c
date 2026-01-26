@@ -12,6 +12,7 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef _cplusplus
 #error "This file must be compiled as C code"
@@ -156,19 +157,10 @@ static void mip_get_solution_callback(const cuopt_float_t* solution,
       return;
     }
   }
-  if (cudaMemcpy(context->last_solution,
-                 solution,
-                 context->n_variables * sizeof(cuopt_float_t),
-                 cudaMemcpyDeviceToHost) != cudaSuccess) {
-    context->error = 1;
-    return;
-  }
-  if (cudaMemcpy(&context->last_objective,
-                 objective_value,
-                 sizeof(cuopt_float_t),
-                 cudaMemcpyDeviceToHost) != cudaSuccess) {
-    context->error = 1;
-  }
+  memcpy(context->last_solution,
+         solution,
+         context->n_variables * sizeof(cuopt_float_t));
+  memcpy(&context->last_objective, objective_value, sizeof(cuopt_float_t));
 }
 
 static void mip_set_solution_callback(cuopt_float_t* solution,
@@ -179,19 +171,10 @@ static void mip_set_solution_callback(cuopt_float_t* solution,
   if (context == NULL) { return; }
   context->set_calls += 1;
   if (context->last_solution == NULL) { return; }
-  if (cudaMemcpy(solution,
-                 context->last_solution,
-                 context->n_variables * sizeof(cuopt_float_t),
-                 cudaMemcpyHostToDevice) != cudaSuccess) {
-    context->error = 1;
-    return;
-  }
-  if (cudaMemcpy(objective_value,
-                 &context->last_objective,
-                 sizeof(cuopt_float_t),
-                 cudaMemcpyHostToDevice) != cudaSuccess) {
-    context->error = 1;
-  }
+  memcpy(solution,
+         context->last_solution,
+         context->n_variables * sizeof(cuopt_float_t));
+  memcpy(objective_value, &context->last_objective, sizeof(cuopt_float_t));
 }
 
 cuopt_int_t test_mip_callbacks()
@@ -257,13 +240,13 @@ cuopt_int_t test_mip_callbacks()
   }
 
   context.n_variables = num_variables;
-  status = cuOptSetMipGetSolutionCallback(settings, mip_get_solution_callback, &context);
+  status = cuOptSetMIPGetSolutionCallback(settings, mip_get_solution_callback, &context);
   if (status != CUOPT_SUCCESS) {
     printf("Error setting get-solution callback\n");
     goto DONE;
   }
 
-  status = cuOptSetMipSetSolutionCallback(settings, mip_set_solution_callback, &context);
+  status = cuOptSetMIPSetSolutionCallback(settings, mip_set_solution_callback, &context);
   if (status != CUOPT_SUCCESS) {
     printf("Error setting set-solution callback\n");
     goto DONE;

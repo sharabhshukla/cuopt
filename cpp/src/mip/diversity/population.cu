@@ -293,14 +293,22 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
           }
         }
 
-        rmm::device_uvector<f_t> user_objective_vec(1, temp_sol.handle_ptr->get_stream());
+        if (problem_ptr->has_papilo_presolve_data()) {
+          problem_ptr->papilo_uncrush_assignment(temp_sol.assignment);
+        }
 
+        std::vector<f_t> user_objective_vec(1);
+        std::vector<f_t> user_assignment_vec(temp_sol.assignment.size());
         f_t user_objective =
           temp_sol.problem_ptr->get_user_obj_from_solver_obj(temp_sol.get_objective());
-        user_objective_vec.set_element_async(0, user_objective, temp_sol.handle_ptr->get_stream());
-        CUOPT_LOG_DEBUG("Returning incumbent solution with objective %g", user_objective);
+        user_objective_vec[0] = user_objective;
+        raft::copy(user_assignment_vec.data(),
+                   temp_sol.assignment.data(),
+                   temp_sol.assignment.size(),
+                   temp_sol.handle_ptr->get_stream());
+        temp_sol.handle_ptr->sync_stream();
         get_sol_callback->get_solution(
-          temp_sol.assignment.data(), user_objective_vec.data(), get_sol_callback->get_user_data());
+          user_assignment_vec.data(), user_objective_vec.data(), get_sol_callback->get_user_data());
       }
     }
     // save the best objective here, because we might not have been able to return the solution to
@@ -312,24 +320,45 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
 
   for (auto callback : user_callbacks) {
     if (callback->get_type() == internals::base_solution_callback_type::SET_SOLUTION) {
-      auto set_sol_callback = static_cast<internals::set_solution_callback_t*>(callback);
-      rmm::device_uvector<f_t> incumbent_assignment(
-        problem_ptr->original_problem_ptr->get_n_variables(), sol.handle_ptr->get_stream());
+      auto set_sol_callback       = static_cast<internals::set_solution_callback_t*>(callback);
+      auto callback_num_variables = problem_ptr->original_problem_ptr->get_n_variables();
+      if (problem_ptr->has_papilo_presolve_data()) {
+        callback_num_variables = problem_ptr->get_papilo_original_num_variables();
+      }
+      rmm::device_uvector<f_t> incumbent_assignment(callback_num_variables,
+                                                    sol.handle_ptr->get_stream());
+
       rmm::device_uvector<f_t> dummy(0, sol.handle_ptr->get_stream());
       solution_t<i_t, f_t> outside_sol(sol);
       rmm::device_scalar<f_t> d_outside_sol_objective(sol.handle_ptr->get_stream());
+
       auto inf = std::numeric_limits<f_t>::infinity();
       d_outside_sol_objective.set_value_async(inf, sol.handle_ptr->get_stream());
       sol.handle_ptr->sync_stream();
-      set_sol_callback->set_solution(incumbent_assignment.data(),
-                                     d_outside_sol_objective.data(),
-                                     set_sol_callback->get_user_data());
 
-      f_t outside_sol_objective = d_outside_sol_objective.value(sol.handle_ptr->get_stream());
+      std::vector<f_t> h_incumbent_assignment(incumbent_assignment.size());
+      std::vector<f_t> h_outside_sol_objective(1);
+      set_sol_callback->set_solution(h_incumbent_assignment.data(),
+                                     h_outside_sol_objective.data(),
+                                     set_sol_callback->get_user_data());
+      raft::copy(incumbent_assignment.data(),
+                 h_incumbent_assignment.data(),
+                 incumbent_assignment.size(),
+                 sol.handle_ptr->get_stream());
+      raft::copy(d_outside_sol_objective.data(),
+                 h_outside_sol_objective.data(),
+                 1,
+                 sol.handle_ptr->get_stream());
+
+      f_t outside_sol_objective = h_outside_sol_objective[0];
+
       // The callback might be called without setting any valid solution or objective which triggers
       // asserts
       if (outside_sol_objective == inf) { return; }
-      CUOPT_LOG_DEBUG("Injecting external solution with objective %g", outside_sol_objective);
+
+      if (problem_ptr->has_papilo_presolve_data()) {
+        problem_ptr->papilo_crush_assignment(incumbent_assignment);
+      }
 
       if (context.settings.mip_scaling) {
         context.scaling.scale_solutions(incumbent_assignment, dummy);

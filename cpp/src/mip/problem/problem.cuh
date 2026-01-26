@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -40,6 +40,9 @@ namespace linear_programming::detail {
 template <typename i_t, typename f_t>
 class solution_t;
 
+template <typename i_t, typename f_t>
+class third_party_presolve_t;
+
 constexpr double OBJECTIVE_EPSILON = 1e-7;
 constexpr double MACHINE_EPSILON   = 1e-7;
 constexpr bool USE_REL_TOLERANCE   = true;
@@ -53,8 +56,8 @@ class problem_t {
   // copy constructor
   problem_t(const problem_t<i_t, f_t>& problem);
   problem_t(const problem_t<i_t, f_t>& problem, bool no_deep_copy);
-  problem_t(problem_t<i_t, f_t>&& problem) = default;
-  problem_t& operator=(problem_t&&)        = default;
+  problem_t(problem_t<i_t, f_t>&& problem) noexcept = default;
+  problem_t& operator=(problem_t&&) noexcept        = default;
   void op_problem_cstr_body(const optimization_problem_t<i_t, f_t>& problem_);
 
   problem_t<i_t, f_t> get_problem_after_fixing_vars(
@@ -89,6 +92,17 @@ class problem_t {
   void post_process_assignment(rmm::device_uvector<f_t>& current_assignment,
                                bool resize_to_original_problem = true);
   void post_process_solution(solution_t<i_t, f_t>& solution);
+  void set_papilo_presolve_data(const third_party_presolve_t<i_t, f_t>* presolver_ptr,
+                                std::vector<i_t> reduced_to_original,
+                                std::vector<i_t> original_to_reduced,
+                                i_t original_num_variables);
+  bool has_papilo_presolve_data() const { return presolve_data.has_papilo_presolve_data(); }
+  i_t get_papilo_original_num_variables() const
+  {
+    return presolve_data.get_papilo_original_num_variables();
+  }
+  void papilo_uncrush_assignment(rmm::device_uvector<f_t>& assignment) const;
+  void papilo_crush_assignment(rmm::device_uvector<f_t>& assignment) const;
   void compute_transpose_of_problem();
   f_t get_user_obj_from_solver_obj(f_t solver_obj) const;
   bool is_objective_integral() const { return objective_is_integral; }

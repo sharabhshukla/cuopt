@@ -17,6 +17,7 @@
 #include <linear_programming/utils.cuh>
 #include <mip/mip_constants.hpp>
 
+#include <mip/presolve/third_party_presolve.hpp>
 #include <mip/presolve/trivial_presolve.cuh>
 #include <mip/utils.cuh>
 
@@ -724,122 +725,6 @@ void problem_t<i_t, f_t>::check_problem_representation(bool check_transposed,
                    "is_binary_pb is incorrectly set");
     }
   }
-}
-
-template <typename i_t, typename f_t>
-bool problem_t<i_t, f_t>::pre_process_assignment(rmm::device_uvector<f_t>& assignment)
-{
-  raft::common::nvtx::range fun_scope("pre_process_assignment");
-  auto has_nans = cuopt::linear_programming::detail::has_nans(handle_ptr, assignment);
-  if (has_nans) {
-    CUOPT_LOG_DEBUG("Solution discarded due to nans");
-    return false;
-  }
-  cuopt_assert(assignment.size() == original_problem_ptr->get_n_variables(), "size mismatch");
-
-  // create a temp assignment with the var size after bounds standardization (free vars added)
-  rmm::device_uvector<f_t> temp_assignment(presolve_data.additional_var_used.size(),
-                                           handle_ptr->get_stream());
-  // copy the assignment to the first part(the original variable count) of the temp_assignment
-  raft::copy(
-    temp_assignment.data(), assignment.data(), assignment.size(), handle_ptr->get_stream());
-  auto d_additional_var_used =
-    cuopt::device_copy(presolve_data.additional_var_used, handle_ptr->get_stream());
-  auto d_additional_var_id_per_var =
-    cuopt::device_copy(presolve_data.additional_var_id_per_var, handle_ptr->get_stream());
-
-  thrust::for_each(handle_ptr->get_thrust_policy(),
-                   thrust::make_counting_iterator<i_t>(0),
-                   thrust::make_counting_iterator<i_t>(original_problem_ptr->get_n_variables()),
-                   [additional_var_used       = d_additional_var_used.data(),
-                    additional_var_id_per_var = d_additional_var_id_per_var.data(),
-                    assgn                     = temp_assignment.data()] __device__(auto idx) {
-                     if (additional_var_used[idx]) {
-                       cuopt_assert(additional_var_id_per_var[idx] != -1,
-                                    "additional_var_id_per_var is not set");
-                       // We have two non-negative variables y and z that simulate a free variable
-                       // x. If the value of x is negative, we can set z to be something higher than
-                       // y. If the value of  x is positive we can set y greater than z
-                       assgn[additional_var_id_per_var[idx]] = (assgn[idx] < 0 ? -assgn[idx] : 0.);
-                       assgn[idx] += assgn[additional_var_id_per_var[idx]];
-                     }
-                   });
-  assignment.resize(n_variables, handle_ptr->get_stream());
-  assignment.shrink_to_fit(handle_ptr->get_stream());
-  cuopt_assert(presolve_data.variable_mapping.size() == n_variables, "size mismatch");
-  thrust::gather(handle_ptr->get_thrust_policy(),
-                 presolve_data.variable_mapping.begin(),
-                 presolve_data.variable_mapping.end(),
-                 temp_assignment.begin(),
-                 assignment.begin());
-  handle_ptr->sync_stream();
-
-  auto has_integrality_discrepancy = cuopt::linear_programming::detail::has_integrality_discrepancy(
-    handle_ptr, integer_indices, assignment, tolerances.integrality_tolerance);
-  if (has_integrality_discrepancy) {
-    CUOPT_LOG_DEBUG("Solution discarded due to integrality discrepancy");
-    return false;
-  }
-
-  auto has_variable_bounds_violation =
-    cuopt::linear_programming::detail::has_variable_bounds_violation(handle_ptr, assignment, this);
-  if (has_variable_bounds_violation) {
-    CUOPT_LOG_DEBUG("Solution discarded due to variable bounds violation");
-    return false;
-  }
-  return true;
-}
-
-// this function is used to post process the assignment
-// it removes the additional variable for free variables
-// and expands the assignment to the original variable dimension
-template <typename i_t, typename f_t>
-void problem_t<i_t, f_t>::post_process_assignment(rmm::device_uvector<f_t>& current_assignment,
-                                                  bool resize_to_original_problem)
-{
-  raft::common::nvtx::range fun_scope("post_process_assignment");
-  cuopt_assert(current_assignment.size() == presolve_data.variable_mapping.size(), "size mismatch");
-  auto assgn       = make_span(current_assignment);
-  auto fixed_assgn = make_span(presolve_data.fixed_var_assignment);
-  auto var_map     = make_span(presolve_data.variable_mapping);
-  if (current_assignment.size() > 0) {
-    thrust::for_each(handle_ptr->get_thrust_policy(),
-                     thrust::make_counting_iterator<i_t>(0),
-                     thrust::make_counting_iterator<i_t>(current_assignment.size()),
-                     [fixed_assgn, var_map, assgn] __device__(auto idx) {
-                       fixed_assgn[var_map[idx]] = assgn[idx];
-                     });
-  }
-  expand_device_copy(
-    current_assignment, presolve_data.fixed_var_assignment, handle_ptr->get_stream());
-  auto h_assignment = cuopt::host_copy(current_assignment, handle_ptr->get_stream());
-  cuopt_assert(presolve_data.additional_var_id_per_var.size() == h_assignment.size(),
-               "Size mismatch");
-  cuopt_assert(presolve_data.additional_var_used.size() == h_assignment.size(), "Size mismatch");
-  for (i_t i = 0; i < (i_t)h_assignment.size(); ++i) {
-    if (presolve_data.additional_var_used[i]) {
-      cuopt_assert(presolve_data.additional_var_id_per_var[i] != -1,
-                   "additional_var_id_per_var is not set");
-      h_assignment[i] -= h_assignment[presolve_data.additional_var_id_per_var[i]];
-    }
-  }
-  raft::copy(
-    current_assignment.data(), h_assignment.data(), h_assignment.size(), handle_ptr->get_stream());
-  // this separate resizing is needed because of the callback
-  if (resize_to_original_problem) {
-    current_assignment.resize(original_problem_ptr->get_n_variables(), handle_ptr->get_stream());
-  }
-}
-
-template <typename i_t, typename f_t>
-void problem_t<i_t, f_t>::post_process_solution(solution_t<i_t, f_t>& solution)
-{
-  raft::common::nvtx::range fun_scope("post_process_solution");
-  post_process_assignment(solution.assignment);
-  // this is for resizing other fields such as excess, slack so that we can compute the feasibility
-  solution.resize_to_original_problem();
-  handle_ptr->sync_stream();
-  solution.post_process_completed = true;
 }
 
 template <typename i_t, typename f_t>
@@ -1677,6 +1562,50 @@ void problem_t<i_t, f_t>::preprocess_problem()
   compute_binary_var_table();
   cuopt_func_call(check_problem_representation(true));
   preprocess_called = true;
+}
+
+template <typename i_t, typename f_t>
+bool problem_t<i_t, f_t>::pre_process_assignment(rmm::device_uvector<f_t>& assignment)
+{
+  return presolve_data.pre_process_assignment(*this, assignment);
+}
+
+template <typename i_t, typename f_t>
+void problem_t<i_t, f_t>::post_process_assignment(rmm::device_uvector<f_t>& current_assignment,
+                                                  bool resize_to_original_problem)
+{
+  presolve_data.post_process_assignment(*this, current_assignment, resize_to_original_problem);
+}
+
+template <typename i_t, typename f_t>
+void problem_t<i_t, f_t>::post_process_solution(solution_t<i_t, f_t>& solution)
+{
+  presolve_data.post_process_solution(*this, solution);
+}
+
+template <typename i_t, typename f_t>
+void problem_t<i_t, f_t>::set_papilo_presolve_data(
+  const third_party_presolve_t<i_t, f_t>* presolver_ptr,
+  std::vector<i_t> reduced_to_original,
+  std::vector<i_t> original_to_reduced,
+  i_t original_num_variables)
+{
+  presolve_data.set_papilo_presolve_data(presolver_ptr,
+                                         std::move(reduced_to_original),
+                                         std::move(original_to_reduced),
+                                         original_num_variables);
+}
+
+template <typename i_t, typename f_t>
+void problem_t<i_t, f_t>::papilo_uncrush_assignment(rmm::device_uvector<f_t>& assignment) const
+{
+  presolve_data.papilo_uncrush_assignment(const_cast<problem_t&>(*this), assignment);
+}
+
+template <typename i_t, typename f_t>
+void problem_t<i_t, f_t>::papilo_crush_assignment(rmm::device_uvector<f_t>& assignment) const
+{
+  presolve_data.papilo_crush_assignment(const_cast<problem_t&>(*this), assignment);
 }
 
 template <typename i_t, typename f_t>

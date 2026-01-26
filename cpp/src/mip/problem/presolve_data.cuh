@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -18,6 +18,12 @@ namespace linear_programming::detail {
 
 template <typename i_t, typename f_t>
 class problem_t;
+
+template <typename i_t, typename f_t>
+class solution_t;
+
+template <typename i_t, typename f_t>
+class third_party_presolve_t;
 
 template <typename i_t, typename f_t>
 class presolve_data_t {
@@ -65,6 +71,23 @@ class presolve_data_t {
     additional_var_id_per_var.assign(problem.n_variables, -1);
   }
 
+  bool pre_process_assignment(problem_t<i_t, f_t>& problem, rmm::device_uvector<f_t>& assignment);
+  void post_process_assignment(problem_t<i_t, f_t>& problem,
+                               rmm::device_uvector<f_t>& current_assignment,
+                               bool resize_to_original_problem = true);
+  void post_process_solution(problem_t<i_t, f_t>& problem, solution_t<i_t, f_t>& solution);
+
+  void set_papilo_presolve_data(const third_party_presolve_t<i_t, f_t>* presolver_ptr,
+                                std::vector<i_t> reduced_to_original,
+                                std::vector<i_t> original_to_reduced,
+                                i_t original_num_variables);
+  bool has_papilo_presolve_data() const { return papilo_presolve_ptr != nullptr; }
+  i_t get_papilo_original_num_variables() const { return papilo_original_num_variables; }
+  void papilo_uncrush_assignment(problem_t<i_t, f_t>& problem,
+                                 rmm::device_uvector<f_t>& assignment) const;
+  void papilo_crush_assignment(problem_t<i_t, f_t>& problem,
+                               rmm::device_uvector<f_t>& assignment) const;
+
   presolve_data_t(presolve_data_t&&)                 = default;
   presolve_data_t& operator=(presolve_data_t&&)      = default;
   presolve_data_t& operator=(const presolve_data_t&) = delete;
@@ -79,6 +102,11 @@ class presolve_data_t {
   rmm::device_uvector<i_t> variable_mapping;
   rmm::device_uvector<f_t> fixed_var_assignment;
   rmm::device_uvector<i_t> var_flags;
+
+  const third_party_presolve_t<i_t, f_t>* papilo_presolve_ptr{nullptr};
+  std::vector<i_t> papilo_reduced_to_original_map{};
+  std::vector<i_t> papilo_original_to_reduced_map{};
+  i_t papilo_original_num_variables{0};
 };
 
 }  // namespace linear_programming::detail
