@@ -851,8 +851,9 @@ static thrust::tuple<fj_move_t, fj_staged_score_t> find_mtm_move(
   if (nnz_sum > fj_cpu.nnz_samples) nnz_pick_probability = (f_t)fj_cpu.nnz_samples / nnz_sum;
 
   for (size_t cstr_idx : target_cstrs) {
-    auto [c_lb, c_ub] = fj_cpu.cached_cstr_bounds[cstr_idx].get();
-    f_t cstr_tol      = fj_cpu.view.get_corrected_tolerance(cstr_idx, c_lb, c_ub);
+    auto c_lb    = fj_cpu.h_cstr_lb[cstr_idx];
+    auto c_ub    = fj_cpu.h_cstr_ub[cstr_idx];
+    f_t cstr_tol = fj_cpu.view.get_corrected_tolerance(cstr_idx, c_lb, c_ub);
 
     cuopt_assert(cstr_idx < fj_cpu.h_cstr_lb.size(), "cstr_idx is out of bounds");
     auto [offset_begin, offset_end] = range_for_constraint<i_t, f_t>(fj_cpu, cstr_idx);
@@ -1027,7 +1028,8 @@ static void recompute_lhs(fj_cpu_climber_t<i_t, f_t>& fj_cpu)
   fj_cpu.total_violations = 0;
   for (i_t cstr_idx = 0; cstr_idx < fj_cpu.view.pb.n_constraints; ++cstr_idx) {
     auto [offset_begin, offset_end] = range_for_constraint<i_t, f_t>(fj_cpu, cstr_idx);
-    auto [c_lb, c_ub]               = fj_cpu.cached_cstr_bounds[cstr_idx].get();
+    auto c_lb                       = fj_cpu.h_cstr_lb[cstr_idx];
+    auto c_ub                       = fj_cpu.h_cstr_ub[cstr_idx];
     auto delta_it =
       thrust::make_transform_iterator(thrust::make_counting_iterator(0), [&fj_cpu](i_t j) {
         return fj_cpu.h_coefficients[j] * fj_cpu.h_assignment[fj_cpu.h_variables[j]];
