@@ -17,8 +17,8 @@ fi
 # Install Boost and TBB
 bash ci/utils/install_boost_tbb.sh
 
-# Install Protobuf
-bash ci/utils/install_protobuf.sh
+# Install Protobuf + gRPC (protoc + grpc_cpp_plugin)
+bash ci/utils/install_protobuf_grpc.sh
 
 export SKBUILD_CMAKE_ARGS="-DCUOPT_BUILD_WHEELS=ON;-DDISABLE_DEPRECATION_WARNING=ON"
 

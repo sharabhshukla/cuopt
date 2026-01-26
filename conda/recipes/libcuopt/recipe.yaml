@@ -29,7 +29,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh -n -v ${BUILD_EXTRA_FLAGS} libmps_parser libcuopt deb --allgpuarch --cmake-args=\"-DCMAKE_INSTALL_LIBDIR=lib\"
+        ./build.sh -n -v ${BUILD_EXTRA_FLAGS} libmps_parser libcuopt deb --allgpuarch --cmake-args=\"-DCMAKE_INSTALL_LIBDIR=lib -DBUILD_REMOTE_SERVER=ON -DCUOPT_ENABLE_GRPC=ON\"
       secrets:
         - AWS_ACCESS_KEY_ID
         - AWS_SECRET_ACCESS_KEY
@@ -60,13 +60,17 @@ cache:
       - cmake ${{ cmake_version }}
       - make
       - ninja
+      - grpc-cpp
+      - protobuf
       - tbb-devel
       - zlib
       - bzip2
     host:
       - cpp-argparse
       - cuda-version =${{ cuda_version }}
+      - grpc-cpp
       - libraft-headers =${{ minor_version }}
+      - protobuf
       - librmm =${{ minor_version }}
       - rapids-logger =0.2
       - cuda-nvtx-dev
@@ -146,6 +150,8 @@ outputs:
         - ${{ pin_subpackage("libmps-parser", exact=True) }}
         - libboost-devel
         - cuda-version =${{ cuda_version }}
+        - grpc-cpp
+        - protobuf
         - rapids-logger =0.2
         - librmm =${{ minor_version }}
         - libcublas
@@ -155,6 +161,7 @@ outputs:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - ${{ pin_subpackage("libmps-parser", exact=True) }}
         - libboost-devel
+        - protobuf
         - librmm =${{ minor_version }}
         - cuda-nvrtc
         - libcudss
@@ -165,6 +172,7 @@ outputs:
           - libcudss
           - libcurand
           - libcusparse
+          - protobuf
           - librmm
           - libboost
           - libboost_iostreams
