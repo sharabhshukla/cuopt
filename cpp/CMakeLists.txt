@@ -751,42 +751,49 @@ if(BUILD_REMOTE_SERVER AND NOT BUILD_LP_ONLY)
     RUNTIME DESTINATION ${_BIN_DEST}
   )
 
-  # Standalone remote solve test client
-  add_executable(remote_solve_test tests/linear_programming/remote_solve_test.cpp)
-  target_compile_options(remote_solve_test
-    PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUOPT_CXX_FLAGS}>"
-  )
-  target_include_directories(remote_solve_test
-    PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libmps_parser/include"
-    "${CMAKE_CURRENT_BINARY_DIR}/include"
-  )
-  target_link_libraries(remote_solve_test
-    PUBLIC
-    cuopt
-  )
-  # Use RUNPATH so LD_LIBRARY_PATH can override during development
-  target_link_options(remote_solve_test PRIVATE -Wl,--enable-new-dtags)
+  # Standalone remote/local solve test clients (for debugging).
+  #
+  # TODO: These sources are not present in this repo checkout / distribution.
+  # Keep the build rules here but disabled by default; re-enable once the sources
+  # are restored at:
+  # - tests/linear_programming/remote_solve_test.cpp
+  # - tests/linear_programming/local_solve_test.cpp
+  if(FALSE)
+    add_executable(remote_solve_test tests/linear_programming/remote_solve_test.cpp)
+    target_compile_options(remote_solve_test
+      PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUOPT_CXX_FLAGS}>"
+    )
+    target_include_directories(remote_solve_test
+      PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src"
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/libmps_parser/include"
+      "${CMAKE_CURRENT_BINARY_DIR}/include"
+    )
+    target_link_libraries(remote_solve_test
+      PUBLIC
+      cuopt
+    )
+    # Use RUNPATH so LD_LIBRARY_PATH can override during development
+    target_link_options(remote_solve_test PRIVATE -Wl,--enable-new-dtags)
 
-  # Local solve test (for debugging)
-  add_executable(local_solve_test tests/linear_programming/local_solve_test.cpp)
-  target_compile_options(local_solve_test
-    PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUOPT_CXX_FLAGS}>"
-  )
-  target_include_directories(local_solve_test
-    PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libmps_parser/include"
-    "${CMAKE_CURRENT_BINARY_DIR}/include"
-  )
-  target_link_libraries(local_solve_test
-    PUBLIC
-    cuopt
-  )
-  target_link_options(local_solve_test PRIVATE -Wl,--enable-new-dtags)
+    add_executable(local_solve_test tests/linear_programming/local_solve_test.cpp)
+    target_compile_options(local_solve_test
+      PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUOPT_CXX_FLAGS}>"
+    )
+    target_include_directories(local_solve_test
+      PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src"
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/libmps_parser/include"
+      "${CMAKE_CURRENT_BINARY_DIR}/include"
+    )
+    target_link_libraries(local_solve_test
+      PUBLIC
+      cuopt
+    )
+    target_link_options(local_solve_test PRIVATE -Wl,--enable-new-dtags)
+  endif()
 endif()
 
 # cuopt_grpc_server - gRPC-based remote server (prototype)
