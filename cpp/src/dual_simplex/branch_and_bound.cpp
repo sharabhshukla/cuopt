@@ -2053,8 +2053,8 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
     state_data.push_back(static_cast<uint64_t>(exploration_stats_.nodes_unexplored));
     f_t ub = upper_bound_.load();
     f_t lb = compute_bsp_lower_bound();
-    state_data.push_back(static_cast<uint64_t>(ub * 1000000));
-    state_data.push_back(static_cast<uint64_t>(lb * 1000000));
+    state_data.push_back(std::bit_cast<uint64_t>(ub));
+    state_data.push_back(std::bit_cast<uint64_t>(lb));
 
     for (auto& worker : *bsp_workers_) {
       if (worker.current_node != nullptr) {
@@ -2627,12 +2627,17 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
   // Infeasible solutions from GPU heuristics are queued for repair; process them now
   {
     std::vector<std::vector<f_t>> to_repair;
-    mutex_repair_.lock();
-    if (repair_queue_.size() > 0) {
-      to_repair = repair_queue_;
-      repair_queue_.clear();
-    }
-    mutex_repair_.unlock();
+    // TODO: support repair queue in BSP mode
+    // mutex_repair_.lock();
+    // if (repair_queue_.size() > 0) {
+    //   to_repair = repair_queue_;
+    //   repair_queue_.clear();
+    // }
+    // mutex_repair_.unlock();
+
+    std::sort(to_repair.begin(),
+              to_repair.end(),
+              [](const std::vector<f_t>& a, const std::vector<f_t>& b) { return a < b; });
 
     if (to_repair.size() > 0) {
       settings_.log.debug("BSP sync: Attempting to repair %ld injected solutions\n",
@@ -2721,7 +2726,6 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
       // Process heuristic solution at its correct work unit timestamp position
       f_t new_upper = std::numeric_limits<f_t>::infinity();
 
-      mutex_upper_.lock();
       if (hsol.objective < upper_bound_) {
         upper_bound_ = hsol.objective;
         incumbent_.set_incumbent_solution(hsol.objective, hsol.solution);
@@ -2731,7 +2735,6 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
         BSP_DEBUG_LOG_INCUMBENT_UPDATE(
           bsp_debug_settings_, bsp_debug_logger_, hsol.wut, hsol.objective, "heuristic");
       }
-      mutex_upper_.unlock();
 
       if (new_upper < std::numeric_limits<f_t>::infinity()) {
         f_t user_obj    = compute_user_objective(original_lp_, new_upper);
@@ -2792,14 +2795,12 @@ void branch_and_bound_t<i_t, f_t>::process_history_and_sync(
 
       // Update incumbent
       bool improved = false;
-      mutex_upper_.lock();
       if (sol->objective < upper_bound_) {
         upper_bound_ = sol->objective;
         incumbent_.set_incumbent_solution(sol->objective, sol->solution);
         current_upper = sol->objective;
         improved      = true;
       }
-      mutex_upper_.unlock();
 
       // Notify diversity manager of new incumbent
       if (improved && settings_.solution_callback != nullptr) {
@@ -2880,7 +2881,7 @@ void branch_and_bound_t<i_t, f_t>::balance_worker_loads()
   const size_t num_workers = bsp_workers_->size();
   if (num_workers <= 1) return;
 
-  constexpr bool force_rebalance_every_sync = true;
+  constexpr bool force_rebalance_every_sync = false;
 
   // Count work for each worker: current_node (if any) + plunge_stack + backlog
   std::vector<size_t> work_counts(num_workers);
@@ -2933,7 +2934,7 @@ void branch_and_bound_t<i_t, f_t>::balance_worker_loads()
     worker_order.push_back(w);
   }
 
-  // Distribute nodes - use enqueue_node to preserve existing identity
+  // Distribute nodes
   for (size_t i = 0; i < all_nodes.size(); ++i) {
     size_t worker_idx = worker_order[i % num_workers];
     (*bsp_workers_)[worker_idx].enqueue_node(all_nodes[i]);
@@ -3011,6 +3012,8 @@ void branch_and_bound_t<i_t, f_t>::populate_diving_heap_at_sync()
   if (candidates.empty()) return;
 
   // Sort candidates by score with deterministic tie-breaking by BSP identity
+  // Technically not necessary as it stands since the worker assignments and ordering are
+  // deterministic
   std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
     if (a.second != b.second) return a.second < b.second;
     if (a.first->origin_worker_id != b.first->origin_worker_id) {

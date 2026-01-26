@@ -186,7 +186,7 @@ bool diversity_manager_t<i_t, f_t>::run_presolve(f_t time_limit)
     ls.constraint_prop.bounds_update.set_updated_bounds(*problem_ptr);
   }
   bool run_probing_cache = !fj_only_run;
-  // Don't run probing cache in deterministic mode yet as neither B&B nor CPUFJ needs it
+  // Don't run probing cache in deterministic mode yet as neither B&B nor CPUFJ need it
   // and it doesn't make use of work units yet
   if (context.settings.determinism_mode == CUOPT_MODE_DETERMINISTIC) { run_probing_cache = false; }
   if (run_probing_cache) {
