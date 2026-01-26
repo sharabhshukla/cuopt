@@ -307,9 +307,6 @@ class branch_and_bound_t {
   // Main BSP coordinator loop - runs in deterministic mode
   void run_bsp_coordinator(const csr_matrix_t<i_t, f_t>& Arow);
 
-  // Refill worker queues from the global pool
-  void refill_worker_queues(i_t target_queue_size);
-
   // Process history and synchronize - the "brain" of BSP
   void process_history_and_sync(const bb_event_batch_t<i_t, f_t>& events);
 

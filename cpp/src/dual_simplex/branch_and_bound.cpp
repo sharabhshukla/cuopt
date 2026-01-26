@@ -1967,67 +1967,6 @@ void branch_and_bound_t<i_t, f_t>::run_bsp_coordinator(const csr_matrix_t<i_t, f
 }
 
 template <typename i_t, typename f_t>
-void branch_and_bound_t<i_t, f_t>::refill_worker_queues(i_t target_queue_size)
-{
-  // Distribute nodes from global pool to workers in round-robin fashion
-  // This ensures deterministic assignment based on node ordering in the heap
-
-  std::vector<mip_node_t<i_t, f_t>*> nodes_to_assign;
-
-  // Pop nodes from heap while respecting incumbent bound
-  mutex_heap_.lock();
-  while (!heap_.empty()) {
-    mip_node_t<i_t, f_t>* node = heap_.top();
-
-    // Skip pruned nodes
-    if (node->lower_bound >= upper_bound_.load()) {
-      heap_.pop();
-      search_tree_.update(node, node_status_t::FATHOMED);
-      --exploration_stats_.nodes_unexplored;
-      continue;
-    }
-
-    // Check if we have enough nodes
-    if (nodes_to_assign.size() >= static_cast<size_t>(target_queue_size * bsp_workers_->size())) {
-      break;
-    }
-
-    heap_.pop();
-    nodes_to_assign.push_back(node);
-  }
-  mutex_heap_.unlock();
-
-  // Sort by BSP identity for deterministic distribution
-  // Uses lexicographic order of (origin_worker_id, creation_seq)
-  auto deterministic_less = [](const mip_node_t<i_t, f_t>* a, const mip_node_t<i_t, f_t>* b) {
-    // Lexicographic comparison of BSP identity tuple
-    if (a->origin_worker_id != b->origin_worker_id) {
-      return a->origin_worker_id < b->origin_worker_id;
-    }
-    return a->creation_seq < b->creation_seq;
-  };
-  std::sort(nodes_to_assign.begin(), nodes_to_assign.end(), deterministic_less);
-
-  for (size_t i = 0; i < nodes_to_assign.size(); ++i) {
-    int worker_id = i % bsp_workers_->size();
-    auto* node    = nodes_to_assign[i];
-    // Use enqueue_node_with_identity since these nodes already have BSP identity from root setup
-    (*bsp_workers_)[worker_id].enqueue_node_with_identity(node);
-    (*bsp_workers_)[worker_id].track_node_assigned();
-
-    // Debug: Log node assignment
-    double wut = bsp_current_horizon_ - bsp_horizon_step_;  // Start of current horizon
-    BSP_DEBUG_LOG_NODE_ASSIGNED(bsp_debug_settings_,
-                                bsp_debug_logger_,
-                                wut,
-                                worker_id,
-                                node->node_id,
-                                node->origin_worker_id,
-                                node->lower_bound);
-  }
-}
-
-template <typename i_t, typename f_t>
 void branch_and_bound_t<i_t, f_t>::run_worker_loop(bb_worker_state_t<i_t, f_t>& worker,
                                                    search_tree_t<i_t, f_t>& search_tree)
 {
@@ -2157,7 +2096,7 @@ void branch_and_bound_t<i_t, f_t>::bsp_sync_callback(int worker_id)
       for (auto* node : worker.plunge_stack) {
         state_data.push_back(node->get_id_packed());
       }
-      for (auto* node : worker.backlog) {
+      for (auto* node : worker.backlog.data()) {
         state_data.push_back(node->get_id_packed());
       }
     }
@@ -2957,10 +2896,10 @@ void branch_and_bound_t<i_t, f_t>::prune_worker_nodes_vs_incumbent()
       worker.plunge_stack = std::move(surviving);
     }
 
-    // Check nodes in backlog - filter in place
+    // Check nodes in backlog heap - filter and rebuild
     {
       std::vector<mip_node_t<i_t, f_t>*> surviving;
-      for (auto* node : worker.backlog) {
+      for (auto* node : worker.backlog.data()) {
         if (node->lower_bound >= upper_bound) {
           search_tree_.update(node, node_status_t::FATHOMED);
           --exploration_stats_.nodes_unexplored;
@@ -2968,7 +2907,10 @@ void branch_and_bound_t<i_t, f_t>::prune_worker_nodes_vs_incumbent()
           surviving.push_back(node);
         }
       }
-      worker.backlog = std::move(surviving);
+      worker.backlog.clear();
+      for (auto* node : surviving) {
+        worker.backlog.push(node);
+      }
     }
   }
 }
@@ -3008,7 +2950,7 @@ void branch_and_bound_t<i_t, f_t>::balance_worker_loads()
 
   std::vector<mip_node_t<i_t, f_t>*> all_nodes;
   for (auto& worker : *bsp_workers_) {
-    for (auto* node : worker.backlog) {
+    for (auto* node : worker.backlog.data()) {
       all_nodes.push_back(node);
     }
     worker.backlog.clear();
@@ -3068,8 +3010,8 @@ f_t branch_and_bound_t<i_t, f_t>::compute_bsp_lower_bound()
       lower_bound = std::min(node->lower_bound, lower_bound);
     }
 
-    // Check backlog nodes
-    for (auto* node : worker.backlog) {
+    // Check backlog heap nodes
+    for (auto* node : worker.backlog.data()) {
       lower_bound = std::min(node->lower_bound, lower_bound);
     }
   }
@@ -3094,11 +3036,11 @@ void branch_and_bound_t<i_t, f_t>::populate_diving_heap_at_sync()
   const int target_total                = num_diving * target_nodes_per_worker;
   f_t upper_bound                       = upper_bound_.load();
 
-  // Collect candidate nodes from BFS worker backlogs
+  // Collect candidate nodes from BFS worker backlog heaps
   std::vector<std::pair<mip_node_t<i_t, f_t>*, f_t>> candidates;
 
   for (auto& worker : *bsp_workers_) {
-    for (auto* node : worker.backlog) {
+    for (auto* node : worker.backlog.data()) {
       if (node->lower_bound < upper_bound) {
         f_t score = node->objective_estimate;
         if (!std::isfinite(score)) { score = node->lower_bound; }
@@ -3302,7 +3244,7 @@ void branch_and_bound_t<i_t, f_t>::dive_from_bsp(bsp_diving_worker_state_t<i_t, 
   dive_tree.root.get_variable_bounds(
     worker.dive_lower, worker.dive_upper, worker.node_presolver->bounds_changed);
 
-  const i_t max_nodes_per_dive      = settings_.diving_settings.max_nodes_per_dive;
+  const i_t max_nodes_per_dive      = settings_.diving_settings.node_limit;
   const i_t max_backtrack_depth     = settings_.diving_settings.backtrack_limit;
   i_t nodes_this_dive               = 0;
   worker.lp_iters_this_dive         = 0;

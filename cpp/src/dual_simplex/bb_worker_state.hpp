@@ -13,6 +13,7 @@
 #include <dual_simplex/diving_heuristics.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/mip_node.hpp>
+#include <dual_simplex/node_queue.hpp>
 #include <dual_simplex/types.hpp>
 #include <utilities/work_limit_timer.hpp>
 
@@ -38,6 +39,22 @@ enum class bnb_worker_type_t {
   LINE_SEARCH_DIVING = 2,  // Line search diving (9.2.4)
   GUIDED_DIVING = 3,  // Guided diving (9.2.3). If no incumbent is found yet, use pseudocost diving.
   COEFFICIENT_DIVING = 4  // Coefficient diving (9.2.1)
+};
+
+// Comparator for backlog heap: best-first by lower_bound with deterministic BSP identity tie-break
+// Returns true if 'a' has lower priority than 'b' (for max-heap behavior in std::push_heap)
+template <typename i_t, typename f_t>
+struct backlog_node_compare_t {
+  bool operator()(const mip_node_t<i_t, f_t>* a, const mip_node_t<i_t, f_t>* b) const
+  {
+    // Primary: prefer smaller lower_bound (best-first search)
+    if (a->lower_bound != b->lower_bound) { return a->lower_bound > b->lower_bound; }
+    // Deterministic tie-breaking by BSP identity tuple
+    if (a->origin_worker_id != b->origin_worker_id) {
+      return a->origin_worker_id > b->origin_worker_id;
+    }
+    return a->creation_seq > b->creation_seq;
+  }
 };
 
 // Queued pseudo-cost update for BSP determinism
@@ -86,7 +103,8 @@ struct bb_worker_state_t {
   // Backlog: nodes "plugged" when branching - candidates for load balancing
   // When branching with a sibling on the plunge stack, that sibling moves here.
   // At horizon sync, backlog nodes participate in redistribution.
-  std::vector<mip_node_t<i_t, f_t>*> backlog;
+  // Implemented as a priority heap ordered by lower_bound (best-first) with BSP identity tie-break.
+  heap_t<mip_node_t<i_t, f_t>*, backlog_node_compare_t<i_t, f_t>> backlog;
 
   // Current node being processed (may be paused at horizon boundary)
   mip_node_t<i_t, f_t>* current_node{nullptr};
@@ -297,7 +315,7 @@ struct bb_worker_state_t {
     if (!plunge_stack.empty()) {
       mip_node_t<i_t, f_t>* sibling = plunge_stack.back();
       plunge_stack.pop_back();
-      backlog.push_back(sibling);
+      backlog.push(sibling);
     }
 
     // Assign BSP identity to children
@@ -328,7 +346,7 @@ struct bb_worker_state_t {
   // Get next node to process using plunging strategy:
   // 1. Resume paused node if any
   // 2. Pop from plunge stack (depth-first continuation)
-  // 3. Fall back to backlog (best-first from plugged nodes)
+  // 3. Fall back to backlog heap (best-first from plugged nodes)
   mip_node_t<i_t, f_t>* dequeue_node()
   {
     // 1. Resume paused node if any
@@ -345,26 +363,9 @@ struct bb_worker_state_t {
       return node;
     }
 
-    // 3. Fall back to backlog - select best node (lowest lower_bound)
-    if (!backlog.empty()) {
-      auto best_it =
-        std::min_element(backlog.begin(),
-                         backlog.end(),
-                         [](const mip_node_t<i_t, f_t>* a, const mip_node_t<i_t, f_t>* b) {
-                           // Best-first: prefer lower bound
-                           if (a->lower_bound != b->lower_bound) {
-                             return a->lower_bound < b->lower_bound;
-                           }
-                           // Deterministic tie-breaking by BSP identity
-                           if (a->origin_worker_id != b->origin_worker_id) {
-                             return a->origin_worker_id < b->origin_worker_id;
-                           }
-                           return a->creation_seq < b->creation_seq;
-                         });
-      mip_node_t<i_t, f_t>* node = *best_it;
-      backlog.erase(best_it);
-      return node;
-    }
+    // 3. Fall back to backlog heap - pop best node (lowest lower_bound with BSP identity tie-break)
+    auto node_opt = backlog.pop();
+    if (node_opt.has_value()) { return node_opt.value(); }
 
     return nullptr;
   }
