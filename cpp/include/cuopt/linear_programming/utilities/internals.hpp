@@ -31,7 +31,7 @@ class base_solution_callback_t : public Callback {
     this->n_variables = n_variables_;
   }
 
-  void set_user_data(void* user_data_) { user_data = user_data_; }
+  void set_user_data(void* input_user_data) { user_data = input_user_data; }
   void* get_user_data() const { return user_data; }
 
   virtual base_solution_callback_type get_type() const = 0;

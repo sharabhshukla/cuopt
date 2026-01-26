@@ -52,7 +52,7 @@ struct solution_and_stream_view_t {
 
 class c_get_solution_callback_t : public cuopt::internals::get_solution_callback_t {
  public:
-  explicit c_get_solution_callback_t(cuOptMipGetSolutionCallback callback) : callback_(callback) {}
+  explicit c_get_solution_callback_t(cuOptMIPGetSolutionCallback callback) : callback_(callback) {}
 
   void get_solution(void* data, void* objective_value, void* user_data) override
   {
@@ -63,12 +63,12 @@ class c_get_solution_callback_t : public cuopt::internals::get_solution_callback
   }
 
  private:
-  cuOptMipGetSolutionCallback callback_;
+  cuOptMIPGetSolutionCallback callback_;
 };
 
 class c_set_solution_callback_t : public cuopt::internals::set_solution_callback_t {
  public:
-  explicit c_set_solution_callback_t(cuOptMipSetSolutionCallback callback) : callback_(callback) {}
+  explicit c_set_solution_callback_t(cuOptMIPSetSolutionCallback callback) : callback_(callback) {}
 
   void set_solution(void* data, void* objective_value, void* user_data) override
   {
@@ -78,7 +78,7 @@ class c_set_solution_callback_t : public cuopt::internals::set_solution_callback
   }
 
  private:
-  cuOptMipSetSolutionCallback callback_;
+  cuOptMIPSetSolutionCallback callback_;
 };
 
 // Owns solver settings and C callback wrappers for C API lifetime.
@@ -750,8 +750,8 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
   return CUOPT_SUCCESS;
 }
 
-cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
-                                           cuOptMipGetSolutionCallback callback,
+cuopt_int_t cuOptSetMIPGetSolutionCallback(cuOptSolverSettings settings,
+                                           cuOptMIPGetSolutionCallback callback,
                                            void* user_data)
 {
   if (settings == nullptr) { return CUOPT_INVALID_ARGUMENT; }
@@ -763,8 +763,8 @@ cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
   return CUOPT_SUCCESS;
 }
 
-cuopt_int_t cuOptSetMipSetSolutionCallback(cuOptSolverSettings settings,
-                                           cuOptMipSetSolutionCallback callback,
+cuopt_int_t cuOptSetMIPSetSolutionCallback(cuOptSolverSettings settings,
+                                           cuOptMIPSetSolutionCallback callback,
                                            void* user_data)
 {
   if (settings == nullptr) { return CUOPT_INVALID_ARGUMENT; }

@@ -682,24 +682,28 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
                                    cuopt_float_t* parameter_value);
 
 /**
- * @brief Callback for receiving incumbent MIP solutions with user context.
+ * @brief Type of callback for receiving incumbent MIP solutions with user context.
  *
- * @param[in] solution - Device pointer to incumbent solution values.
- * @param[in] objective_value - Device pointer to incumbent objective value.
- * @param[in] user_data - User context pointer.
+ * @param[in] solution - Pointer to incumbent solution values.
+ * The allocated array for solution pointer must be at least the number of variables in the original
+ * problem.
+ * @param[in] objective_value - Pointer to incumbent objective value.
+ * @param[in] user_data - Pointer to user data.
  */
-typedef void (*cuOptMipGetSolutionCallback)(const cuopt_float_t* solution,
+typedef void (*cuOptMIPGetSolutionCallback)(const cuopt_float_t* solution,
                                             const cuopt_float_t* objective_value,
                                             void* user_data);
 
 /**
- * @brief Callback for injecting MIP solutions with user context.
+ * @brief Type of callback for injecting MIP solutions with user context.
  *
- * @param[out] solution - Device pointer to solution values to set.
- * @param[out] objective_value - Device pointer to objective value to set.
- * @param[in] user_data - User context pointer.
+ * @param[out] solution - Pointer to solution values to set.
+ * The allocated array for solution pointer must be at least the number of variables in the original
+ * problem.
+ * @param[out] objective_value - Pointer to objective value to set.
+ * @param[in] user_data - Pointer to user data.
  */
-typedef void (*cuOptMipSetSolutionCallback)(cuopt_float_t* solution,
+typedef void (*cuOptMIPSetSolutionCallback)(cuopt_float_t* solution,
                                             cuopt_float_t* objective_value,
                                             void* user_data);
 
@@ -709,12 +713,12 @@ typedef void (*cuOptMipSetSolutionCallback)(cuopt_float_t* solution,
  * @param[in] settings - The solver settings object.
  * @param[in] callback - Callback function to receive incumbent solutions.
  * @param[in] user_data - User-defined pointer passed through to the callback.
- *  It will be forwarded to ``cuOptMipGetSolutionCallback`` when invoked.
+ *  It will be forwarded to ``cuOptMIPGetSolutionCallback`` when invoked.
  *
  * @return A status code indicating success or failure.
  */
-cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
-                                           cuOptMipGetSolutionCallback callback,
+cuopt_int_t cuOptSetMIPGetSolutionCallback(cuOptSolverSettings settings,
+                                           cuOptMIPGetSolutionCallback callback,
                                            void* user_data);
 
 /**
@@ -723,12 +727,12 @@ cuopt_int_t cuOptSetMipGetSolutionCallback(cuOptSolverSettings settings,
  * @param[in] settings - The solver settings object.
  * @param[in] callback - Callback function to inject solutions.
  * @param[in] user_data - User-defined pointer passed through to the callback.
- *  It will be forwarded to ``cuOptMipSetSolutionCallback`` when invoked.
+ *  It will be forwarded to ``cuOptMIPSetSolutionCallback`` when invoked.
  *
  * @return A status code indicating success or failure.
  */
-cuopt_int_t cuOptSetMipSetSolutionCallback(cuOptSolverSettings settings,
-                                           cuOptMipSetSolutionCallback callback,
+cuopt_int_t cuOptSetMIPSetSolutionCallback(cuOptSolverSettings settings,
+                                           cuOptMIPSetSolutionCallback callback,
                                            void* user_data);
 
 /** @brief Check if an optimization problem is a mixed integer programming problem.
