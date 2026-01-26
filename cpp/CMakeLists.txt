@@ -278,18 +278,23 @@ if(TARGET cudss AND NOT CUDSS_LIBRARIES)
 endif()
 
 # Protocol Buffers for remote solve serialization
-rapids_find_package(Protobuf CONFIG REQUIRED
-  BUILD_EXPORT_SET cuopt-exports
-  INSTALL_EXPORT_SET cuopt-exports
-)
+#
+# Use plain find_package so system installs (that don't ship ProtobufConfig.cmake)
+# can fall back to CMake's built-in FindProtobuf module.
+find_package(Protobuf REQUIRED)
+
+# Normalize target names across Protobuf providers (config vs module).
+if(TARGET Protobuf::libprotobuf AND NOT TARGET protobuf::libprotobuf)
+  add_library(protobuf::libprotobuf ALIAS Protobuf::libprotobuf)
+endif()
+if(TARGET Protobuf::protoc AND NOT TARGET protobuf::protoc)
+  add_executable(protobuf::protoc ALIAS Protobuf::protoc)
+endif()
 include_directories(${Protobuf_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # gRPC for remote solve service (optional, for gRPC-based implementation)
-rapids_find_package(gRPC CONFIG QUIET
-  BUILD_EXPORT_SET cuopt-exports
-  INSTALL_EXPORT_SET cuopt-exports
-)
+find_package(gRPC REQUIRED)
 if(gRPC_FOUND)
   message(STATUS "Found gRPC: ${gRPC_VERSION}")
   set(CUOPT_ENABLE_GRPC ON)
