@@ -38,4 +38,3 @@ else
     echo "/etc/os-release not found. Cannot determine OS. Please install Protobuf + gRPC development libraries manually."
     exit 1
 fi
-

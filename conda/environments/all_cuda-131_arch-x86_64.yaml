@@ -33,7 +33,6 @@ dependencies:
 - libcurand-dev
 - libcusolver-dev
 - libcusparse-dev
-- libgrpc
 - libraft-headers==26.2.*,>=0.0.0a0
 - librmm==26.2.*,>=0.0.0a0
 - make
@@ -51,6 +50,7 @@ dependencies:
 - pexpect
 - pip
 - pre-commit
+- protobuf
 - psutil>=6.0.0
 - pylibraft==26.2.*,>=0.0.0a0
 - pyrsistent
