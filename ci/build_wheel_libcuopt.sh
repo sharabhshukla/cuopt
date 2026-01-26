@@ -20,7 +20,7 @@ bash ci/utils/install_boost_tbb.sh
 # Install Protobuf + gRPC (protoc + grpc_cpp_plugin)
 bash ci/utils/install_protobuf_grpc.sh
 
-export SKBUILD_CMAKE_ARGS="-DCUOPT_BUILD_WHEELS=ON;-DDISABLE_DEPRECATION_WARNING=ON"
+export SKBUILD_CMAKE_ARGS="-DCUOPT_BUILD_WHEELS=ON;-DDISABLE_DEPRECATION_WARNING=ON;-DCUOPT_ENABLE_GRPC=ON"
 
 # For pull requests we are enabling assert mode.
 if [ "$RAPIDS_BUILD_TYPE" = "pull-request" ]; then
