@@ -56,7 +56,7 @@ set(gRPC_RE2_PROVIDER "module" CACHE STRING "" FORCE)
 FetchContent_Declare(
   grpc
   GIT_REPOSITORY https://github.com/grpc/grpc.git
-  GIT_TAG v1.51.1
+  GIT_TAG v1.76.0
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
   GIT_SUBMODULES_RECURSE TRUE
