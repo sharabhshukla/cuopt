@@ -1284,17 +1284,13 @@ i_t tableau_equality_t<i_t, f_t>::generate_base_equality(
     a_bar.i.push_back(j);
     a_bar.x.push_back(1.0);
 
-#ifdef CHECK_A_BAR_DENSE_DOT
-    std::vector<f_t> a_bar_dense(lp.num_cols);
-    a_bar.to_dense(a_bar_dense);
-
-    f_t a_bar_dense_dot = dot<i_t, f_t>(a_bar_dense, xstar);
-    if (std::abs(a_bar_dense_dot - b_bar[i]) > 1e-6) {
-      settings_.log.printf("a_bar_dense_dot = %e b_bar[%d] = %e\n", a_bar_dense_dot, i, b_bar[i]);
-      settings_.log.printf("x_j %e b_bar_i %e\n", x_j, b_bar[i]);
-      assert(false);
+    // Check that the tableau equality is satisfied
+    const f_t tableau_tol = 1e-6;
+    f_t a_bar_dot_xstar = a_bar.dot(xstar);
+    if (std::abs(a_bar_dot_xstar - b_bar_[i]) > tableau_tol) {
+      printf("bad tableau equality. error %e\n", std::abs(a_bar_dot_xstar - b_bar_[i]));
+      return -1;
     }
-#endif
 
     // We have that x_j + a_bar^T x_N == b_bar_i
     // So x_j + a_bar^T x_N >= b_bar_i
