@@ -293,18 +293,17 @@ endif()
 include_directories(${Protobuf_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-# gRPC for remote solve service (optional, for gRPC-based implementation)
-find_package(gRPC REQUIRED)
-if(gRPC_FOUND)
-  message(STATUS "Found gRPC: ${gRPC_VERSION}")
-  set(CUOPT_ENABLE_GRPC ON)
-  add_compile_definitions(CUOPT_ENABLE_GRPC)
-elseif(CUOPT_ENABLE_GRPC)
-  message(FATAL_ERROR "CUOPT_ENABLE_GRPC=ON but gRPC was not found")
-else()
-  message(STATUS "CUOPT_ENABLE_GRPC=OFF, gRPC-based remote solve disabled")
-  set(CUOPT_ENABLE_GRPC OFF)
+# gRPC for remote solve service.
+#
+# We treat gRPC as required, but allow it to come from either:
+# - an installed CMake package (gRPCConfig.cmake), or
+# - an in-tree build (e.g. python/libcuopt uses FetchContent(grpc), which defines gRPC::grpc++).
+if(NOT TARGET gRPC::grpc++)
+  find_package(gRPC CONFIG REQUIRED)
 endif()
+set(CUOPT_ENABLE_GRPC ON)
+add_compile_definitions(CUOPT_ENABLE_GRPC)
+message(STATUS "gRPC enabled (target gRPC::grpc++ is available)")
 
 # Generate C++ code from .proto file
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/linear_programming/utilities/cuopt_remote.proto")
@@ -327,9 +326,13 @@ endif()
 
 # Generate gRPC service code if gRPC is available
 if(CUOPT_ENABLE_GRPC)
-  find_program(_GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin)
-  if(NOT _GRPC_CPP_PLUGIN_EXECUTABLE)
-    message(FATAL_ERROR "grpc_cpp_plugin not found")
+  if(TARGET grpc_cpp_plugin)
+    set(_GRPC_CPP_PLUGIN_EXECUTABLE "$<TARGET_FILE:grpc_cpp_plugin>")
+  else()
+    find_program(_GRPC_CPP_PLUGIN_EXECUTABLE grpc_cpp_plugin)
+    if(NOT _GRPC_CPP_PLUGIN_EXECUTABLE)
+      message(FATAL_ERROR "grpc_cpp_plugin not found")
+    endif()
   endif()
 
   set(GRPC_PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/linear_programming/utilities/cuopt_remote_service.proto")
