@@ -320,8 +320,9 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
 
     // Start CPUFJ in deterministic mode with B&B integration
     if (context.branch_and_bound_ptr != nullptr) {
-      ls.start_cpufj_deterministic(*context.branch_and_bound_ptr);
+      // ls.start_cpufj_deterministic(*context.branch_and_bound_ptr);
     }
+    context.branch_and_bound_ptr->get_producer_sync().registration_complete();
 
     while (!check_b_b_preemption()) {
       if (timer.check_time_limit()) break;
@@ -329,7 +330,7 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     }
 
     // Stop CPUFJ when B&B is done
-    ls.stop_cpufj_deterministic();
+    // ls.stop_cpufj_deterministic();
 
     population.add_external_solutions_to_population();
     return population.best_feasible();
