@@ -375,6 +375,7 @@ i_t pseudo_costs_t<i_t, f_t>::variable_selection(const std::vector<i_t>& fractio
   i_t branch_var = fractional[0];
   f_t max_score  = -1;
   i_t select     = -1;
+
   for (i_t k = 0; k < num_fractional; k++) {
     if (score[k] > max_score) {
       max_score  = score[k];
@@ -418,17 +419,27 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
              pseudo_cost_down_avg,
              pseudo_cost_up_avg);
 
-  // const i_t max_iter     = 0.5 * bnb_lp_iter;
-  // const i_t gamma        = (max_iter - total_lp_iter) / (total_lp_iter + 1);
-  // const i_t max_v        = 5;
-  // const i_t min_v        = 1;
-  // i_t reliable_threshold = std::clamp((1 - gamma) * min_v + gamma * max_v, min_v, max_v);
-  // reliable_threshold     = total_lp_iter < max_iter ? reliable_threshold : 0;
   const int64_t bnb_total_lp_iter  = bnb_stats.total_lp_iters;
   const int64_t bnb_nodes_explored = bnb_stats.nodes_explored;
-  const i_t bnb_lp_iter_per_node =
-    bnb_stats.total_lp_iters.load() / bnb_stats.nodes_explored.load();
-  const i_t reliable_threshold = settings.reliability_branching_settings.reliable_threshold;
+  const i_t bnb_lp_iter_per_node   = bnb_total_lp_iter / bnb_stats.nodes_explored;
+
+  const i_t max_threshold = settings.reliability_branching_settings.max_reliable_threshold;
+  const i_t min_threshold = settings.reliability_branching_settings.min_reliable_threshold;
+  const i_t iter_factor   = settings.reliability_branching_settings.bnb_lp_factor;
+  const i_t iter_offset   = settings.reliability_branching_settings.bnb_lp_offset;
+  const int64_t alpha     = iter_factor * bnb_total_lp_iter;
+  const int64_t max_iter  = alpha + settings.reliability_branching_settings.bnb_lp_offset;
+
+  i_t reliable_threshold = settings.reliability_branching_settings.reliable_threshold;
+  if (reliable_threshold < 0) {
+    i_t gamma = (max_iter - sb_total_lp_iter) / (sb_total_lp_iter + 1);
+    gamma     = std::min(1, gamma);
+    gamma     = std::max<i_t>((alpha - sb_total_lp_iter) / (sb_total_lp_iter + 1), gamma);
+
+    reliable_threshold = (1 - gamma) * min_threshold + gamma * max_threshold;
+    reliable_threshold = sb_total_lp_iter < max_iter ? reliable_threshold : 0;
+  }
+
   std::vector<i_t> unreliable_list;
   omp_mutex_t score_mutex;
 
@@ -483,11 +494,13 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
   num_tasks                   = std::clamp(num_tasks, 1, max_tasks);
   assert(num_tasks > 0);
 
-  log.printf("RB iters = %d, B&B iters = %d, unreliable = %d, num_tasks = %d\n",
-             sb_total_lp_iter.load(),
-             bnb_total_lp_iter,
-             unreliable_list.size(),
-             num_tasks);
+  settings.log.printf(
+    "RB iters = %d, B&B iters = %d, unreliable = %d, num_tasks = %d, reliable_threshold = %d\n",
+    sb_total_lp_iter.load(),
+    bnb_total_lp_iter,
+    unreliable_list.size(),
+    num_tasks,
+    reliable_threshold);
 
 #pragma omp taskloop if (num_tasks > 1) priority(task_priority) num_tasks(num_tasks) untied
   for (int task_id = 0; task_id < num_tasks; ++task_id) {

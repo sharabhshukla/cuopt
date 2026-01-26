@@ -48,12 +48,6 @@ struct reliability_branching_settings_t {
   // Enable or disable reliability branching
   bool enable = false;
 
-  // For now, setting to 1, which correspond to pseudocost with strong branching
-  // initialization. Later, it can be set dynamically depending on the number
-  // of LP iterations in the strong branching and B&B.
-  // Set to 0 for disabling reliability branching
-  i_t reliable_threshold = 1;
-
   // Lower bound for the maximum number of LP iterations for a single trial branching
   i_t lower_max_lp_iter = 10;
 
@@ -72,7 +66,28 @@ struct reliability_branching_settings_t {
   i_t max_num_candidates = 100;
 
   // The maximum number of candidates evaluated that does not improve the best score.
-  i_t max_lookahead = 20;
+  i_t max_lookahead = 10;
+
+  // Define the maximum number of iteration spent in strong branching.
+  // Let `bnb_lp_iter` = total number of iterations in B&B, then
+  // `max iter in strong branching = bnb_lp_factor * bnb_lp_iter + bnb_lp_offset`.
+  // This is used for determining the `reliable_threshold`.
+  i_t bnb_lp_factor = 0.5;
+  i_t bnb_lp_offset = 100000;
+
+  // Threshold for determining for the number of pseudocost updates. Used for
+  // determining if the pseudocost is reliable or not.
+  // - <0: automatic
+  // - 0: disable (use pseudocost branching instead)
+  // - >0: will use the value for the threshold.
+  i_t reliable_threshold = -1;
+
+  // Maximum and minimum values for `reliable_threshold`. If strong branching is
+  // cheap, then the value of the `reliable_threshold` can be greater
+  // than the `max_reliable_threshold`.
+  // Only used when `reliable_threshold` is negative
+  i_t max_reliable_threshold = 5;
+  i_t min_reliable_threshold = 1;
 };
 
 template <typename i_t, typename f_t>
