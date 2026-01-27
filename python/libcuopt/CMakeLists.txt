@@ -45,7 +45,7 @@ FetchContent_MakeAvailable(argparse)
 # NOTE: This will significantly increase build time. Prefer baking gRPC into the
 # build image if you need gRPC-enabled wheels regularly.
 set(gRPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(gRPC_INSTALL OFF CACHE BOOL "" FORCE)
+set(gRPC_INSTALL ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(gRPC_SSL_PROVIDER "package" CACHE STRING "" FORCE)
 set(gRPC_ZLIB_PROVIDER "package" CACHE STRING "" FORCE)
