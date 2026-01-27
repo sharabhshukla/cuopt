@@ -172,6 +172,50 @@ void presolve_data_t<i_t, f_t>::set_papilo_presolve_data(
   std::vector<i_t> original_to_reduced,
   i_t original_num_variables)
 {
+  if (original_num_variables <= 0) {
+    CUOPT_LOG_ERROR("Papilo presolve data invalid: original_num_variables=%d",
+                    original_num_variables);
+    return;
+  }
+  if (reduced_to_original.empty()) {
+    CUOPT_LOG_ERROR("Papilo presolve data invalid: reduced_to_original is empty");
+    return;
+  }
+  if (original_to_reduced.empty()) {
+    CUOPT_LOG_ERROR("Papilo presolve data invalid: original_to_reduced is empty");
+    return;
+  }
+  if (original_to_reduced.size() != static_cast<size_t>(original_num_variables)) {
+    CUOPT_LOG_ERROR(
+      "Papilo presolve data invalid: original_to_reduced.size()=%zu "
+      "original_num_variables=%d",
+      original_to_reduced.size(),
+      original_num_variables);
+    return;
+  }
+  for (size_t i = 0; i < reduced_to_original.size(); ++i) {
+    const auto original_idx = reduced_to_original[i];
+    if (original_idx < 0 || original_idx >= original_num_variables) {
+      CUOPT_LOG_ERROR(
+        "Papilo presolve data invalid: reduced_to_original[%zu]=%d out of range [0,%d)",
+        i,
+        original_idx,
+        original_num_variables);
+      return;
+    }
+  }
+  for (size_t i = 0; i < original_to_reduced.size(); ++i) {
+    const auto reduced_idx = original_to_reduced[i];
+    if (reduced_idx < -1 || reduced_idx >= static_cast<i_t>(reduced_to_original.size())) {
+      CUOPT_LOG_ERROR(
+        "Papilo presolve data invalid: original_to_reduced[%zu]=%d out of range [-1,%zu)",
+        i,
+        reduced_idx,
+        reduced_to_original.size());
+      return;
+    }
+  }
+
   papilo_presolve_ptr            = presolver_ptr;
   papilo_reduced_to_original_map = std::move(reduced_to_original);
   papilo_original_to_reduced_map = std::move(original_to_reduced);
@@ -183,6 +227,9 @@ void presolve_data_t<i_t, f_t>::papilo_uncrush_assignment(
   problem_t<i_t, f_t>& problem, rmm::device_uvector<f_t>& assignment) const
 {
   if (papilo_presolve_ptr == nullptr) { return; }
+  cuopt_assert(!papilo_reduced_to_original_map.empty(), "Papilo reduced_to_original map is empty");
+  cuopt_assert(assignment.size() == papilo_reduced_to_original_map.size(),
+               "Papilo uncrush assignment size mismatch");
   auto h_assignment = cuopt::host_copy(assignment, problem.handle_ptr->get_stream());
   std::vector<f_t> full_assignment;
   papilo_presolve_ptr->uncrush_primal_solution(h_assignment, full_assignment);

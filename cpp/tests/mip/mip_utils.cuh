@@ -107,7 +107,6 @@ static void test_constraint_sanity_per_row(
   const std::vector<double>& variable_lower_bounds   = op_problem.get_variable_lower_bounds();
   const std::vector<double>& variable_upper_bounds   = op_problem.get_variable_upper_bounds();
   std::vector<double> residual(constraint_lower_bounds.size(), 0.0);
-  std::vector<double> viol(constraint_lower_bounds.size(), 0.0);
   auto h_solution = cuopt::host_copy(solution, solution.stream());
   // CSR SpMV
   for (size_t i = 0; i < offsets.size() - 1; ++i) {
@@ -140,7 +139,6 @@ static void test_constraint_sanity_per_row(
   const std::vector<double>& constraint_lower_bounds = op_problem.get_constraint_lower_bounds();
   const std::vector<double>& constraint_upper_bounds = op_problem.get_constraint_upper_bounds();
   std::vector<double> residual(constraint_lower_bounds.size(), 0.0);
-  std::vector<double> viol(constraint_lower_bounds.size(), 0.0);
   // CSR SpMV
   for (size_t i = 0; i < offsets.size() - 1; ++i) {
     for (int j = offsets[i]; j < offsets[i + 1]; ++j) {
