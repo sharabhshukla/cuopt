@@ -6,7 +6,7 @@ set -euo pipefail
 
 RAPIDS_INIT_PIP_REMOVE_NVIDIA_INDEX="true"
 export RAPIDS_INIT_PIP_REMOVE_NVIDIA_INDEX
-source rapids-init-pip
+source ./ci/rapids-init-pip
 
 package_name="libcuopt"
 package_dir="python/libcuopt"
