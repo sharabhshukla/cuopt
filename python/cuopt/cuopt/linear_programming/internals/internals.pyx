@@ -10,8 +10,8 @@
 from libc.stdint cimport uintptr_t
 from cpython.ref cimport PyObject
 
+import ctypes
 import numpy as np
-from numba.cuda.api import from_cuda_array_interface
 
 
 cdef extern from "cuopt/linear_programming/utilities/callbacks_implems.hpp" namespace "cuopt::internals":  # noqa
@@ -49,34 +49,11 @@ cdef class PyCallback:
         ptr = <PyObject*>self._user_data
         return <uintptr_t>ptr
 
-    def get_numba_matrix(self, data, shape, typestr):
-
-        sizeofType = 4 if typestr == "float32" else 8
-        desc = {
-            'shape': (shape,),
-            'strides': None,
-            'typestr': typestr,
-            'data': (data, True),
-            'version': 3,
-        }
-
-        data = from_cuda_array_interface(desc, None, False)
-        return data
-
     def get_numpy_array(self, data, shape, typestr):
-        sizeofType = 4 if typestr == "float32" else 8
-        desc = {
-            'shape': (shape,),
-            'strides': None,
-            'typestr': typestr,
-            'data': (data, False),
-            'version': 3
-        }
-        data = desc['data'][0]
-        shape = desc['shape']
-
-        numpy_array = np.array([data], dtype=desc['typestr']).reshape(shape)
-        return numpy_array
+        c_type = ctypes.c_float if typestr == "float32" else ctypes.c_double
+        addr = int(data)
+        buf = (c_type * shape).from_address(addr)
+        return np.ctypeslib.as_array(buf)
 
 cdef class GetSolutionCallback(PyCallback):
 

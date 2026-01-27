@@ -166,60 +166,40 @@ template <typename i_t, typename f_t>
 void presolve_data_t<i_t, f_t>::papilo_uncrush_assignment(
   problem_t<i_t, f_t>& problem, rmm::device_uvector<f_t>& assignment) const
 {
-  CUOPT_LOG_DEBUG("Entering papilo_uncrush_assignment");
-  if (papilo_presolve_ptr == nullptr) {
-    CUOPT_LOG_DEBUG("No papilo presolve ptr, skipping uncrush.");
-    return;
-  }
+  if (papilo_presolve_ptr == nullptr) { return; }
   auto h_assignment = cuopt::host_copy(assignment, problem.handle_ptr->get_stream());
-  CUOPT_LOG_DEBUG("Host assignment size before uncrush: {}", h_assignment.size());
   std::vector<f_t> full_assignment;
   papilo_presolve_ptr->uncrush_primal_solution(h_assignment, full_assignment);
-  CUOPT_LOG_DEBUG("Full assignment size after uncrush: {}", full_assignment.size());
   assignment.resize(full_assignment.size(), problem.handle_ptr->get_stream());
   raft::copy(assignment.data(),
              full_assignment.data(),
              full_assignment.size(),
              problem.handle_ptr->get_stream());
-  CUOPT_LOG_DEBUG("Copied full assignment back to device.");
   problem.handle_ptr->sync_stream();
-  CUOPT_LOG_DEBUG("Exiting papilo_uncrush_assignment");
 }
 
 template <typename i_t, typename f_t>
 void presolve_data_t<i_t, f_t>::papilo_crush_assignment(problem_t<i_t, f_t>& problem,
                                                         rmm::device_uvector<f_t>& assignment) const
 {
-  CUOPT_LOG_DEBUG("Entering papilo_crush_assignment");
-  if (papilo_presolve_ptr == nullptr) {
-    CUOPT_LOG_DEBUG("No papilo presolve ptr, skipping crush.");
-    return;
-  }
-  if (papilo_reduced_to_original_map.empty()) {
-    CUOPT_LOG_DEBUG("Reduced to original map is empty, skipping crush.");
-    return;
-  }
+  if (papilo_presolve_ptr == nullptr) { return; }
+  if (papilo_reduced_to_original_map.empty()) { return; }
   auto h_assignment = cuopt::host_copy(assignment, problem.handle_ptr->get_stream());
-  CUOPT_LOG_DEBUG("Host assignment size before crush: {}", h_assignment.size());
   std::vector<f_t> reduced_assignment(papilo_reduced_to_original_map.size());
   for (size_t i = 0; i < papilo_reduced_to_original_map.size(); ++i) {
     const i_t original_idx = papilo_reduced_to_original_map[i];
     if (original_idx < 0 || static_cast<size_t>(original_idx) >= h_assignment.size()) {
       reduced_assignment[i] = f_t{0};
-      CUOPT_LOG_DEBUG("Index {} maps to invalid original_idx ({}), assigning 0.", i, original_idx);
       continue;
     }
     reduced_assignment[i] = h_assignment[original_idx];
   }
-  CUOPT_LOG_DEBUG("Reduced assignment size after crush: {}", reduced_assignment.size());
   assignment.resize(reduced_assignment.size(), problem.handle_ptr->get_stream());
   raft::copy(assignment.data(),
              reduced_assignment.data(),
              reduced_assignment.size(),
              problem.handle_ptr->get_stream());
-  CUOPT_LOG_DEBUG("Copied reduced assignment back to device.");
   problem.handle_ptr->sync_stream();
-  CUOPT_LOG_DEBUG("Exiting papilo_crush_assignment");
 }
 
 #if MIP_INSTANTIATE_FLOAT

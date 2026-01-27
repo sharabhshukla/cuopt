@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import os
@@ -33,30 +33,34 @@ if RAPIDS_DATASET_ROOT_DIR is None:
 def test_incumbent_solver_callback(file_name):
     # Callback for incumbent solution
     class CustomGetSolutionCallback(GetSolutionCallback):
-        def __init__(self):
+        def __init__(self, user_data):
             super().__init__()
             self.n_callbacks = 0
             self.solutions = []
+            self.user_data = user_data
 
-        def get_solution(self, solution, solution_cost):
+        def get_solution(self, solution, solution_cost, user_data):
+            assert user_data is self.user_data
             self.n_callbacks += 1
             assert len(solution) > 0
             assert len(solution_cost) == 1
 
             self.solutions.append(
                 {
-                    "solution": solution.copy_to_host(),
-                    "cost": solution_cost.copy_to_host()[0],
+                    "solution": solution.tolist(),
+                    "cost": float(solution_cost[0]),
                 }
             )
 
     class CustomSetSolutionCallback(SetSolutionCallback):
-        def __init__(self, get_callback):
+        def __init__(self, get_callback, user_data):
             super().__init__()
             self.n_callbacks = 0
             self.get_callback = get_callback
+            self.user_data = user_data
 
-        def set_solution(self, solution, solution_cost):
+        def set_solution(self, solution, solution_cost, user_data):
+            assert user_data is self.user_data
             self.n_callbacks += 1
             if self.get_callback.solutions:
                 solution[:] = self.get_callback.solutions[-1]["solution"]
@@ -64,16 +68,17 @@ def test_incumbent_solver_callback(file_name):
                     self.get_callback.solutions[-1]["cost"]
                 )
 
-    get_callback = CustomGetSolutionCallback()
-    set_callback = CustomSetSolutionCallback(get_callback)
+    user_data = {"source": "test_incumbent_solver_callback"}
+    get_callback = CustomGetSolutionCallback(user_data)
+    set_callback = CustomSetSolutionCallback(get_callback, user_data)
 
     file_path = RAPIDS_DATASET_ROOT_DIR + file_name
     data_model_obj = cuopt_mps_parser.ParseMps(file_path)
 
     settings = solver_settings.SolverSettings()
     settings.set_parameter(CUOPT_TIME_LIMIT, 10)
-    settings.set_mip_callback(get_callback)
-    settings.set_mip_callback(set_callback)
+    settings.set_mip_callback(get_callback, user_data)
+    settings.set_mip_callback(set_callback, user_data)
     solution = solver.Solve(data_model_obj, settings)
 
     assert get_callback.n_callbacks > 0

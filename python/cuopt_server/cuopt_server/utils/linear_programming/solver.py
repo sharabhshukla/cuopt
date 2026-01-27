@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
@@ -78,11 +78,13 @@ class CustomGetSolutionCallback(GetSolutionCallback):
         self.req_id = req_id
         self.sender = sender
 
-    def get_solution(self, solution, solution_cost):
+    def get_solution(self, solution, solution_cost, user_data):
+        if user_data is not None:
+            assert user_data == self.req_id
         self.sender(
             self.req_id,
-            solution.copy_to_host(),
-            solution_cost.copy_to_host()[0],
+            solution.tolist(),
+            float(solution_cost[0]),
         )
 
 
@@ -608,7 +610,7 @@ def solve(LP_data, reqId, intermediate_sender, warmstart_data):
                 if intermediate_sender is not None
                 else None
             )
-            solver_settings.set_mip_callback(callback)
+            solver_settings.set_mip_callback(callback, reqId)
             solve_begin_time = time.time()
             sol = linear_programming.Solve(
                 data_model, solver_settings=solver_settings

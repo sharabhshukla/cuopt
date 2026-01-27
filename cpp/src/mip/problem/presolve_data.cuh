@@ -48,7 +48,11 @@ class presolve_data_t {
       objective_scaling_factor(other.objective_scaling_factor),
       variable_mapping(other.variable_mapping, stream),
       fixed_var_assignment(other.fixed_var_assignment, stream),
-      var_flags(other.var_flags, stream)
+      var_flags(other.var_flags, stream),
+      papilo_presolve_ptr(other.papilo_presolve_ptr),
+      papilo_reduced_to_original_map(other.papilo_reduced_to_original_map),
+      papilo_original_to_reduced_map(other.papilo_original_to_reduced_map),
+      papilo_original_num_variables(other.papilo_original_num_variables)
   {
   }
 

@@ -272,7 +272,6 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
     if (problem_ptr->branch_and_bound_callback != nullptr) {
       problem_ptr->branch_and_bound_callback(sol.get_host_assignment());
     }
-
     for (auto callback : user_callbacks) {
       if (callback->get_type() == internals::base_solution_callback_type::GET_SOLUTION) {
         auto get_sol_callback = static_cast<internals::get_solution_callback_t*>(callback);
@@ -292,7 +291,6 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
             return;
           }
         }
-
         if (problem_ptr->has_papilo_presolve_data()) {
           problem_ptr->papilo_uncrush_assignment(temp_sol.assignment);
         }
@@ -327,42 +325,32 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
       }
       rmm::device_uvector<f_t> incumbent_assignment(callback_num_variables,
                                                     sol.handle_ptr->get_stream());
-
-      rmm::device_uvector<f_t> dummy(0, sol.handle_ptr->get_stream());
       solution_t<i_t, f_t> outside_sol(sol);
       rmm::device_scalar<f_t> d_outside_sol_objective(sol.handle_ptr->get_stream());
-
       auto inf = std::numeric_limits<f_t>::infinity();
       d_outside_sol_objective.set_value_async(inf, sol.handle_ptr->get_stream());
       sol.handle_ptr->sync_stream();
-
       std::vector<f_t> h_incumbent_assignment(incumbent_assignment.size());
-      std::vector<f_t> h_outside_sol_objective(1);
+      std::vector<f_t> h_outside_sol_objective(1, inf);
       set_sol_callback->set_solution(h_incumbent_assignment.data(),
                                      h_outside_sol_objective.data(),
                                      set_sol_callback->get_user_data());
+
+      f_t outside_sol_objective = h_outside_sol_objective[0];
+      // The callback might be called without setting any valid solution or objective which triggers
+      // asserts
+      if (outside_sol_objective == inf) { return; }
+      d_outside_sol_objective.set_value_async(outside_sol_objective, sol.handle_ptr->get_stream());
       raft::copy(incumbent_assignment.data(),
                  h_incumbent_assignment.data(),
                  incumbent_assignment.size(),
                  sol.handle_ptr->get_stream());
-      raft::copy(d_outside_sol_objective.data(),
-                 h_outside_sol_objective.data(),
-                 1,
-                 sol.handle_ptr->get_stream());
-
-      f_t outside_sol_objective = h_outside_sol_objective[0];
-
-      // The callback might be called without setting any valid solution or objective which triggers
-      // asserts
-      if (outside_sol_objective == inf) { return; }
 
       if (problem_ptr->has_papilo_presolve_data()) {
         problem_ptr->papilo_crush_assignment(incumbent_assignment);
       }
 
-      if (context.settings.mip_scaling) {
-        context.scaling.scale_solutions(incumbent_assignment, dummy);
-      }
+      if (context.settings.mip_scaling) { context.scaling.scale_solutions(incumbent_assignment); }
       bool is_valid = problem_ptr->pre_process_assignment(incumbent_assignment);
       if (!is_valid) { return; }
       cuopt_assert(outside_sol.assignment.size() == incumbent_assignment.size(),

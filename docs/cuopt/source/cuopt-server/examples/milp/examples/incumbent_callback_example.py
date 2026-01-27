@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """
 MILP Incumbent and Logging Callback Example
@@ -61,7 +61,7 @@ def main():
         ip="localhost", port=5000, timeout_exception=False
     )
 
-    # Incumbent callback - receives intermediate solutions
+    # Incumbent callback - receives intermediate host solutions
     def callback(solution, solution_cost):
         """Called when solver finds a new incumbent solution."""
         print(f"Solution : {solution} cost : {solution_cost}\n")
