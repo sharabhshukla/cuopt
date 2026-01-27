@@ -310,12 +310,30 @@ class QuadraticExpression:
     ----------
     qmatrix : List[List[float]] or 2D numpy array.
         Matrix containing quadratic coefficient matrix terms.
+        Should be a square matrix with shape as (num_vars, num_vars).
+    qvars : List[Variable]
+        List of variables denoting the rows and cols in qmatrix,
+        qvars should be in the order of variables added to the problem
+        and can be obtained using problem.getVariables(). The length
+        of qvars should be equal to length of row/col in qmatrix.
     qvars1 : List[Variable]
         List of first variables for quadratic terms.
+        This should be used if adding quadratic terms in triplet (i, j, x)
+        format where i is the row variable, j is the column variable and
+        x is the corresponding coefficient. qvars1 contains all i variables
+        representing the row.
     qvars2 : List[Variable]
         List of second variables for quadratic terms.
+        This should be used if adding quadratic terms in triplet (i, j, x)
+        format where i is the row variable, j is the column variable and
+        x is the corresponding coefficient. qvars2 contains all j variables
+        representing the column.
     qcoefficients : List[float]
         List of coefficients for the quadratic terms.
+        This should be used if adding quadratic terms in triplet (i, j, x)
+        format where i is the row variable, j is the column variable and
+        x is the corresponding coefficient. qcoefficients contains all x
+        values representing coefficients for (i,j)
     vars : List[Variable]
         List of Variables for linear terms.
     coefficients : List[float]
@@ -327,11 +345,14 @@ class QuadraticExpression:
     --------
     >>> x = problem.addVariable()
     >>> y = problem.addVariable()
-    >>> # Create x^2 + 2*x*y + 3*x + 4
-    >>> quad_expr = QuadraticExpression(
+    >>> # Create objective x^2 + 2*x*y + 3*x + 4 using matrix
+    >>> quad_matrix = QuadraticExpression(
     ...     qmatrix=[[1.0, 2.0], [0.0, 0.0]],
-    ...     vars=[x], coefficients=[3.0], constant=4.0
+    ...     qvars=[x, y]
     ... )
+    >>> quad_obj_using_matrix = quad_matrix + 3*x + 4
+    >>> # Create objective x^2 + 2*x*y + 3*x + 4 using expression
+    >>> quad_obj_using_expr = x*x + 2*x*y + 3*x + 4
     """
 
     def __init__(
@@ -348,7 +369,14 @@ class QuadraticExpression:
         self.qmatrix = None
         self.qvars = qvars
         if qmatrix is not None:
+            if qvars is None:
+                raise ValueError("Missing qvars. Please check docs")
             self.qmatrix = coo_matrix(qmatrix)
+            mshape = self.qmatrix.shape
+            if mshape[0] != mshape[1]:
+                raise ValueError("qmatrix should be a square matrix")
+            if len(qvars) != mshape[0]:
+                raise ValueError("qvars length mismatch. Please check docs")
         self.qvars1 = qvars1
         self.qvars2 = qvars2
         self.qcoefficients = qcoefficients
