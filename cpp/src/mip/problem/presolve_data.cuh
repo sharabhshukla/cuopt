@@ -24,6 +24,13 @@ class solution_t;
 
 template <typename i_t, typename f_t>
 class third_party_presolve_t;
+struct substitution_t {
+  f_t timestamp;
+  i_t substituting_var;
+  i_t substituted_var;
+  f_t offset;
+  f_t coefficient;
+};
 
 template <typename i_t, typename f_t>
 class presolve_data_t {
@@ -52,7 +59,8 @@ class presolve_data_t {
       papilo_presolve_ptr(other.papilo_presolve_ptr),
       papilo_reduced_to_original_map(other.papilo_reduced_to_original_map),
       papilo_original_to_reduced_map(other.papilo_original_to_reduced_map),
-      papilo_original_num_variables(other.papilo_original_num_variables)
+      papilo_original_num_variables(other.papilo_original_num_variables),
+      variable_substitutions(other.variable_substitutions)
   {
   }
 
@@ -66,6 +74,7 @@ class presolve_data_t {
                                fixed_var_assignment.begin(),
                                fixed_var_assignment.end(),
                                0.);
+    variable_substitutions.clear();
   }
 
   void reset_additional_vars(const problem_t<i_t, f_t>& problem, const raft::handle_t* handle_ptr)
@@ -111,6 +120,9 @@ class presolve_data_t {
   std::vector<i_t> papilo_reduced_to_original_map{};
   std::vector<i_t> papilo_original_to_reduced_map{};
   i_t papilo_original_num_variables{0};
+  // Variable substitutions from probing: x_substituted = offset + coefficient * x_substituting
+  // Applied in post_process_assignment to recover substituted variable values
+  std::vector<substitution_t<i_t, f_t>> variable_substitutions;
 };
 
 }  // namespace linear_programming::detail

@@ -105,6 +105,7 @@ class problem_t {
   void papilo_crush_assignment(rmm::device_uvector<f_t>& assignment) const;
   void compute_transpose_of_problem();
   f_t get_user_obj_from_solver_obj(f_t solver_obj) const;
+  f_t get_solver_obj_from_user_obj(f_t user_obj) const;
   bool is_objective_integral() const { return objective_is_integral; }
   void compute_integer_fixed_problem();
   void fill_integer_fixed_problem(rmm::device_uvector<f_t>& assignment,
@@ -121,7 +122,14 @@ class problem_t {
   void add_cutting_plane_at_objective(f_t objective);
   void compute_vars_with_objective_coeffs();
   void test_problem_fixing_time();
-
+  void update_variable_bounds(const std::vector<i_t>& var_indices,
+                              const std::vector<f_t>& lb_values,
+                              const std::vector<f_t>& ub_values);
+  void substitute_variables(const std::vector<i_t>& var_indices,
+                            const std::vector<i_t>& var_to_substitude_indices,
+                            const std::vector<f_t>& offset_values,
+                            const std::vector<f_t>& coefficient_values);
+  void sort_rows_by_variables(const raft::handle_t* handle_ptr);
   enum var_flags_t : i_t {
     VAR_IMPLIED_INTEGER = 1 << 0,
   };
