@@ -92,7 +92,8 @@ pdhg_solver_t<i_t, f_t>::pdhg_solver_t(
     hyper_params_(hyper_params),
     new_bounds_idx_{new_bounds.size(), stream_view_},
     new_bounds_lower_{new_bounds.size(), stream_view_},
-    new_bounds_upper_{new_bounds.size(), stream_view_}
+    new_bounds_upper_{new_bounds.size(), stream_view_},
+    batch_size_divisor_(climber_strategies_.size())
 {
   if (!new_bounds.empty()) {
     std::vector<i_t> idx(new_bounds.size());
@@ -204,6 +205,7 @@ void pdhg_solver_t<i_t, f_t>::resize_context(i_t new_size)
     new_bounds_lower_.resize(new_size, stream_view_);
     new_bounds_upper_.resize(new_size, stream_view_);
   }
+  batch_size_divisor_ = cuda::fast_mod_div<size_t>(new_size);
 }
 
 template <typename i_t, typename f_t>
@@ -551,7 +553,7 @@ struct primal_reflected_major_projection_bulk_op {
   f_t* potential_next_primal;
   f_t* dual_slack;
   f_t* reflected_primal;
-  int batch_size;
+  cuda::fast_mod_div<size_t> batch_size;
 
   HDI void operator()(size_t idx)
   {
@@ -584,7 +586,7 @@ struct dual_reflected_major_projection_bulk_op {
   const f_t* dual_step_size;
   f_t* potential_next_dual;
   f_t* reflected_dual;
-  int batch_size;
+  cuda::fast_mod_div<size_t> batch_size;
 
   HDI void operator()(size_t idx)
   {
@@ -811,7 +813,7 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
                                potential_next_primal_solution_.data(),
                                dual_slack_.data(),
                                reflected_primal_.data(),
-                               (int)climber_strategies_.size()},
+                               batch_size_divisor_},
                              stream_view_.value());
       }
       if (new_bounds_idx_.size() != 0) {
@@ -869,7 +871,7 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
                                dual_step_size.data(),
                                potential_next_dual_solution_.data(),
                                reflected_dual_.data(),
-                               (int)climber_strategies_.size()},
+                               batch_size_divisor_},
                              stream_view_.value());
       }
 

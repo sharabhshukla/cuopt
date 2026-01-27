@@ -1761,6 +1761,89 @@ TEST(pdlp_class, many_different_bounds)
   }
 }
 
+TEST(pdlp_class, some_climber_hit_iteration_limit)
+{
+  // Same as above but with only two climber, one of wich should converge before iteration limit and
+  // the other should hit it We should be able to retrieve the solution of the climber that was
+  // optimal before iteration limit and correctly find iteration limit for the other climber
+
+  constexpr double lower_bounds = -33.0;
+  constexpr double upper_bounds = 10;
+
+  const raft::handle_t handle_{};
+  auto path = make_path_absolute("linear_programming/good-mps-some-var-bounds.mps");
+  cuopt::mps_parser::mps_data_model_t<int, double> op_problem =
+    cuopt::mps_parser::parse_mps<int, double>(path, true);
+
+  const auto& variable_lower_bounds = op_problem.get_variable_lower_bounds();
+  const auto& variable_upper_bounds = op_problem.get_variable_upper_bounds();
+
+  std::vector<std::tuple<int, double, double>> custom_bounds = {
+    {0, lower_bounds - 2500, upper_bounds},
+    {0, variable_lower_bounds[0], variable_upper_bounds[0]},
+  };
+  const int batch_size = custom_bounds.size();
+  std::vector<double> ref_objectives(batch_size);
+  std::vector<pdlp_termination_status_t> ref_statuses(batch_size);
+  std::vector<cuopt::mps_parser::mps_data_model_t<int, double>> ref_problems;
+  std::vector<std::vector<double>> ref_primal_solutions(batch_size);
+
+  // Solve each variant using PDLP
+  for (int i = 0; i < batch_size; ++i) {
+    const auto& bounds              = custom_bounds[i];
+    auto solver_settings            = pdlp_solver_settings_t<int, double>{};
+    solver_settings.method          = cuopt::linear_programming::method_t::PDLP;
+    solver_settings.iteration_limit = 500;
+    auto ref_prob                   = op_problem;
+    ref_prob.get_variable_lower_bounds()[std::get<0>(bounds)] = std::get<1>(bounds);
+    ref_prob.get_variable_upper_bounds()[std::get<0>(bounds)] = std::get<2>(bounds);
+    ref_problems.push_back(ref_prob);
+    auto solution     = solve_lp(&handle_, ref_prob, solver_settings);
+    ref_statuses[i]   = solution.get_termination_status(0);
+    ref_objectives[i] = solution.get_additional_termination_information(0).primal_objective;
+    ref_primal_solutions[i] =
+      host_copy(solution.get_primal_solution(), solution.get_primal_solution().stream());
+  }
+
+  auto solver_settings            = pdlp_solver_settings_t<int, double>{};
+  solver_settings.method          = cuopt::linear_programming::method_t::PDLP;
+  solver_settings.iteration_limit = 500;
+  for (int i = 0; i < batch_size; ++i) {
+    solver_settings.new_bounds.push_back(custom_bounds[i]);
+  }
+
+  optimization_problem_solution_t<int, double> batch_sol =
+    solve_lp(&handle_, op_problem, solver_settings);
+  EXPECT_EQ(batch_sol.get_terminations_status().size(), batch_size);
+  for (int i = 0; i < batch_size; ++i) {
+    const size_t primal_size = op_problem.get_n_variables();
+    EXPECT_EQ(batch_sol.get_termination_status(i), ref_statuses[i]);
+
+    // Check other information only for the one that has converged before iteration limit
+    if (ref_statuses[i] == pdlp_termination_status_t::Optimal) {
+      EXPECT_EQ(batch_sol.get_additional_termination_information(i).primal_objective,
+                ref_objectives[i]);
+      const auto current_primal_solution =
+        extract_subvector(batch_sol.get_primal_solution(), i * primal_size, primal_size);
+      const auto host_primal_solution =
+        host_copy(extract_subvector(batch_sol.get_primal_solution(), i * primal_size, primal_size),
+                  batch_sol.get_primal_solution().stream());
+      for (size_t p = 0; p < primal_size; ++p)
+        EXPECT_EQ(host_primal_solution[p], ref_primal_solutions[i][p]);
+      test_objective_sanity(ref_problems[i],
+                            current_primal_solution,
+                            batch_sol.get_additional_termination_information(i).primal_objective);
+      // Here we can enforce very low tolerance because the problem is simple so the solution is
+      // exact even accounting for scaling
+      test_constraint_sanity(ref_problems[i],
+                             batch_sol.get_additional_termination_information(i),
+                             current_primal_solution,
+                             1e-8,
+                             false);
+    }
+  }
+}
+
 }  // namespace cuopt::linear_programming::test
 
 CUOPT_TEST_PROGRAM_MAIN()

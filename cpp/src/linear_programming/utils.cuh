@@ -187,22 +187,6 @@ struct combine_finite_abs_bounds {
   }
 };
 
-// Used to wrap the problem input around a single batch
-// This is used to iterate over the primal and dual step sizes
-// For each variable of one problem in the batch, the same primal and dual step sizes should be
-// returned
-template <typename f_t>
-struct batch_wrapped_iterator {
-  batch_wrapped_iterator(const f_t* problem_input, int problem_size)
-    : problem_input_(problem_input), problem_size_(problem_size)
-  {
-  }
-  HDI f_t operator()(int id) { return problem_input_[id / problem_size_]; }
-
-  const f_t* problem_input_;
-  int problem_size_;
-};
-
 // Used to wrap the problem input around a problem inside the batch
 // This is used to iterate over (for example) the objective coefficient when they are the same for
 // all climbers Every variable with the same index across problems in the batch should have the same

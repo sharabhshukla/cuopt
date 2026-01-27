@@ -559,10 +559,10 @@ static cuopt::mps_parser::mps_data_model_t<i_t, f_t> simplex_problem_to_mps_data
   std::vector<f_t> constraint_upper(m);
 
   for (i_t i = 0; i < m; ++i) {
-    if (user_problem.row_sense[i] == 'G') {
+    if (user_problem.row_sense[i] == 'L') {
       constraint_lower[i] = -std::numeric_limits<f_t>::infinity();
       constraint_upper[i] = user_problem.rhs[i];
-    } else if (user_problem.row_sense[i] == 'L') {
+    } else if (user_problem.row_sense[i] == 'G') {
       constraint_lower[i] = user_problem.rhs[i];
       constraint_upper[i] = std::numeric_limits<f_t>::infinity();
     } else {
@@ -740,6 +740,7 @@ optimization_problem_solution_t<i_t, f_t> run_pdlp(detail::problem_t<i_t, f_t>& 
 
 template <typename i_t, typename f_t>
 static size_t batch_pdlp_memory_estimator(const optimization_problem_t<i_t, f_t>& problem,
+                                          int trial_batch_size,
                                           int max_batch_size)
 {
   size_t total_memory = 0;
@@ -758,32 +759,37 @@ static size_t batch_pdlp_memory_estimator(const optimization_problem_t<i_t, f_t>
   // Batch data estimator
 
   // Data from PDHG
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
 
   // Data from the saddle point state
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
 
   // Data for the convergeance information
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
 
   // Data for the localized duality gap container
-  total_memory += max_batch_size * problem.get_n_variables() * sizeof(f_t);
-  total_memory += max_batch_size * problem.get_n_constraints() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_variables() * sizeof(f_t);
+  total_memory += trial_batch_size * problem.get_n_constraints() * sizeof(f_t);
+
+  // Data for the solution
+  total_memory += problem.get_n_variables() * max_batch_size * sizeof(f_t);
+  total_memory += problem.get_n_constraints() * max_batch_size * sizeof(f_t);
+  total_memory += problem.get_n_variables() * max_batch_size * sizeof(f_t);
 
   // Add a 50% overhead to make sure we have enough memory considering other parts of the solver may
   // allocate at the same time
@@ -817,7 +823,8 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
   int memory_max_batch_size = max_batch_size;
 
   // Check if we don't hit the limit using max_batch_size
-  const size_t memory_estimate = batch_pdlp_memory_estimator(problem, max_batch_size);
+  const size_t memory_estimate =
+    batch_pdlp_memory_estimator(problem, max_batch_size, max_batch_size);
   size_t free_mem, total_mem;
   RAFT_CUDA_TRY(cudaMemGetInfo(&free_mem, &total_mem));
 
@@ -825,7 +832,8 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
     use_optimal_batch_size = true;
     // Decrement batch size iteratively until we find a batch size that fits
     while (memory_max_batch_size > 1) {
-      const size_t memory_estimate = batch_pdlp_memory_estimator(problem, memory_max_batch_size);
+      const size_t memory_estimate =
+        batch_pdlp_memory_estimator(problem, memory_max_batch_size, max_batch_size);
       if (memory_estimate <= free_mem) { break; }
       memory_max_batch_size--;
     }

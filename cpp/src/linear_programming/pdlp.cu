@@ -341,6 +341,31 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
 #endif
       return std::move(best_primal_solution_so_far);
     }
+
+    if (batch_mode_) {
+      // Set the termination status to TimeLimit for all climbers appart from the potentially
+      // already done ones
+      for (size_t i = 0; i < batch_solution_to_return_.get_terminations_status().size(); ++i) {
+        if (!current_termination_strategy_.is_done(
+              current_termination_strategy_.get_termination_status(i))) {
+          batch_solution_to_return_.get_terminations_status()[i] =
+            pdlp_termination_status_t::TimeLimit;
+        }
+      }
+      current_termination_strategy_.convert_gpu_terms_stats_to_host(
+        batch_solution_to_return_.get_additional_termination_informations());
+      return optimization_problem_solution_t<i_t, f_t>{
+        batch_solution_to_return_.get_primal_solution(),
+        batch_solution_to_return_.get_dual_solution(),
+        batch_solution_to_return_.get_reduced_cost(),
+        get_filled_warmed_start_data(),
+        problem_ptr->objective_name,
+        problem_ptr->var_names,
+        problem_ptr->row_names,
+        std::move(batch_solution_to_return_.get_additional_termination_informations()),
+        std::move(batch_solution_to_return_.get_terminations_status())};
+    }
+
 #ifdef PDLP_VERBOSE_MODE
     RAFT_CUDA_TRY(cudaDeviceSynchronize());
     std::cout << "Time Limit reached, returning current solution" << std::endl;
@@ -374,6 +399,30 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
     std::cout << "Iteration Limit reached, returning current solution" << std::endl;
 #endif
 
+    if (batch_mode_) {
+      // Set the termination status to IterationLimit for all climbers appart from the potentially
+      // already done ones
+      for (size_t i = 0; i < batch_solution_to_return_.get_terminations_status().size(); ++i) {
+        if (!current_termination_strategy_.is_done(
+              current_termination_strategy_.get_termination_status(i))) {
+          batch_solution_to_return_.get_terminations_status()[i] =
+            pdlp_termination_status_t::IterationLimit;
+        }
+      }
+      current_termination_strategy_.convert_gpu_terms_stats_to_host(
+        batch_solution_to_return_.get_additional_termination_informations());
+      return optimization_problem_solution_t<i_t, f_t>{
+        batch_solution_to_return_.get_primal_solution(),
+        batch_solution_to_return_.get_dual_solution(),
+        batch_solution_to_return_.get_reduced_cost(),
+        get_filled_warmed_start_data(),
+        problem_ptr->objective_name,
+        problem_ptr->var_names,
+        problem_ptr->row_names,
+        std::move(batch_solution_to_return_.get_additional_termination_informations()),
+        std::move(batch_solution_to_return_.get_terminations_status())};
+    }
+
     return current_termination_strategy_.fill_return_problem_solution(
       internal_solver_iterations_,
       pdhg_solver_,
@@ -395,6 +444,31 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
     RAFT_CUDA_TRY(cudaDeviceSynchronize());
     std::cout << "Concurrent Limit reached, returning current solution" << std::endl;
 #endif
+
+    if (batch_mode_) {
+      // Set the termination status to ConcurrentLimit for all climbers appart from the potentially
+      // already done ones
+      for (size_t i = 0; i < batch_solution_to_return_.get_terminations_status().size(); ++i) {
+        if (!current_termination_strategy_.is_done(
+              current_termination_strategy_.get_termination_status(i))) {
+          batch_solution_to_return_.get_terminations_status()[i] =
+            pdlp_termination_status_t::ConcurrentLimit;
+        }
+      }
+      current_termination_strategy_.convert_gpu_terms_stats_to_host(
+        batch_solution_to_return_.get_additional_termination_informations());
+      return optimization_problem_solution_t<i_t, f_t>{
+        batch_solution_to_return_.get_primal_solution(),
+        batch_solution_to_return_.get_dual_solution(),
+        batch_solution_to_return_.get_reduced_cost(),
+        get_filled_warmed_start_data(),
+        problem_ptr->objective_name,
+        problem_ptr->var_names,
+        problem_ptr->row_names,
+        std::move(batch_solution_to_return_.get_additional_termination_informations()),
+        std::move(batch_solution_to_return_.get_terminations_status())};
+    }
+
     return current_termination_strategy_.fill_return_problem_solution(
       internal_solver_iterations_,
       pdhg_solver_,
@@ -671,7 +745,8 @@ pdlp_solver_t<i_t, f_t>::check_batch_termination(const timer_t& timer)
                    dual_size_h_,
                    stream_view_);
         raft::copy(
-          batch_solution_to_return_.get_reduced_cost().data() + i * primal_size_h_,
+          batch_solution_to_return_.get_reduced_cost().data() +
+            climber_strategies_[i].original_index * primal_size_h_,
           current_termination_strategy_.get_convergence_information().get_reduced_cost().data() +
             i * primal_size_h_,
           primal_size_h_,
@@ -691,8 +766,6 @@ pdlp_solver_t<i_t, f_t>::check_batch_termination(const timer_t& timer)
       RAFT_CUDA_TRY(cudaStreamSynchronize(stream_view_));
       current_termination_strategy_.convert_gpu_terms_stats_to_host(
         batch_solution_to_return_.get_additional_termination_informations());
-      // Resize the vectors before returning them: the found values are still there, they just got
-      // swapped to the end
       return optimization_problem_solution_t<i_t, f_t>{
         batch_solution_to_return_.get_primal_solution(),
         batch_solution_to_return_.get_dual_solution(),
@@ -740,7 +813,8 @@ pdlp_solver_t<i_t, f_t>::check_batch_termination(const timer_t& timer)
                    dual_size_h_,
                    stream_view_);
         raft::copy(
-          batch_solution_to_return_.get_reduced_cost().data() + i * primal_size_h_,
+          batch_solution_to_return_.get_reduced_cost().data() +
+            climber_strategies_[i].original_index * primal_size_h_,
           current_termination_strategy_.get_convergence_information().get_reduced_cost().data() +
             i * primal_size_h_,
           primal_size_h_,

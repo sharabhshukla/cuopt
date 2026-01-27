@@ -130,6 +130,7 @@ class pdhg_solver_t {
   rmm::device_uvector<i_t> new_bounds_idx_;
   rmm::device_uvector<f_t> new_bounds_lower_;
   rmm::device_uvector<f_t> new_bounds_upper_;
+  cuda::fast_mod_div<size_t> batch_size_divisor_;
 };
 
 }  // namespace cuopt::linear_programming::detail

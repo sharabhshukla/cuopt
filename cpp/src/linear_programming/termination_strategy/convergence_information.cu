@@ -174,6 +174,19 @@ convergence_information_t<i_t, f_t>::convergence_information_t(
                                     stream_view_);
     dot_product_bytes_ = std::max(dot_product_bytes_, byte_needed);
 
+    cub::DeviceSegmentedReduce::Sum(
+      nullptr,
+      dot_product_bytes_,
+      thrust::make_transform_iterator(
+        thrust::make_zip_iterator(dual_dot_.data(),
+                                  problem_wrap_container(problem_ptr->objective_coefficients)),
+        tuple_multiplies<f_t>{}),
+      primal_objective_.data(),
+      climber_strategies_.size(),
+      primal_size_h_,
+      stream_view_);
+    dot_product_bytes_ = std::max(dot_product_bytes_, byte_needed);
+
     dot_product_storage_.resize(dot_product_bytes_, stream_view_);
   }
 
