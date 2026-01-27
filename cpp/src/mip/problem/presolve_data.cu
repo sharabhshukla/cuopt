@@ -205,6 +205,9 @@ void presolve_data_t<i_t, f_t>::papilo_crush_assignment(problem_t<i_t, f_t>& pro
   for (size_t i = 0; i < papilo_reduced_to_original_map.size(); ++i) {
     const i_t original_idx = papilo_reduced_to_original_map[i];
     if (original_idx < 0 || static_cast<size_t>(original_idx) >= h_assignment.size()) {
+      CUOPT_LOG_DEBUG(
+        "papilo_crush_assignment: invalid original_idx %d at reduced index %zu", original_idx, i);
+      cuopt_assert(false, "invalid original_idx");
       reduced_assignment[i] = f_t{0};
       continue;
     }

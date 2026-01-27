@@ -24,6 +24,8 @@ class solution_t;
 
 template <typename i_t, typename f_t>
 class third_party_presolve_t;
+
+template <typename i_t, typename f_t>
 struct substitution_t {
   f_t timestamp;
   i_t substituting_var;

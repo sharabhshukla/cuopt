@@ -128,8 +128,8 @@ void test_incumbent_callback(std::string test_instance)
 
 TEST(mip_solve, incumbent_callback_test)
 {
-  std::vector<std::string> test_instances = {// "mip/50v-10.mps", "mip/neos5-free-bound.mps",
-                                             "mip/swath1.mps"};
+  std::vector<std::string> test_instances = {
+    "mip/50v-10.mps", "mip/neos5-free-bound.mps", "mip/swath1.mps"};
   for (const auto& test_instance : test_instances) {
     test_incumbent_callback(test_instance);
   }
