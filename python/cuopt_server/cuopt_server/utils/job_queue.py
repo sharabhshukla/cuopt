@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import io
@@ -513,7 +513,9 @@ class BaseResult:
         # we can send the sentinel value
         if self.is_done():
             logging.warning("Incumbent added after job marked done!")
-        sol["solution"] = sol["solution"].tolist()
+        solution = sol.get("solution")
+        if hasattr(solution, "tolist"):
+            sol["solution"] = solution.tolist()
         self.incumbents.append(sol)
 
     def get_current_incumbents(self):
