@@ -23,6 +23,11 @@ message(STATUS "=============================================================")
 
 # Check if cuopt is already available. If so, it is the user's responsibility to ensure that the
 # CMake package is also available at build time of the Python cuopt package.
+find_package(Protobuf REQUIRED)
+if(TARGET Protobuf::libprotobuf AND NOT TARGET protobuf::libprotobuf)
+  add_library(protobuf::libprotobuf ALIAS Protobuf::libprotobuf)
+endif()
+
 find_package(cuopt "${RAPIDS_VERSION}")
 
 if(cuopt_FOUND)

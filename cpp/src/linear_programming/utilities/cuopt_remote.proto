@@ -258,17 +258,6 @@ enum MIPTerminationStatus {
   MIP_TIME_LIMIT = 5;
 }
 
-// Request types for async operations
-enum RequestType {
-  SUBMIT_JOB = 0;        // Submit a new solve job
-  CHECK_STATUS = 1;      // Check job status
-  GET_RESULT = 2;        // Retrieve completed result
-  DELETE_RESULT = 3;     // Delete result from server
-  GET_LOGS = 4;          // Retrieve buffered log entries
-  CANCEL_JOB = 5;        // Cancel a queued or running job
-  WAIT_FOR_RESULT = 6;   // Block until job completes, returns result
-}
-
 // Job status for async operations
 enum JobStatus {
   QUEUED = 0;           // Job submitted, waiting in queue
@@ -277,20 +266,6 @@ enum JobStatus {
   FAILED = 3;           // Job failed with error
   NOT_FOUND = 4;        // Job ID not found
   CANCELLED = 5;        // Job was cancelled by user
-}
-
-// Generic request wrapper for async operations
-message AsyncRequest {
-  RequestType request_type = 1;
-  bytes job_id = 2;  // For status/get/delete/get_logs operations (bytes to avoid UTF-8 validation warnings)
-  bool blocking = 3;  // If true, server waits and returns solution (sync mode)
-  int64 frombyte = 4; // For GET_LOGS: byte offset to start reading from
-
-  // For SUBMIT_JOB requests
-  oneof job_data {
-    SolveLPRequest lp_request = 10;
-    SolveMIPRequest mip_request = 11;
-  }
 }
 
 // Response for job submission
@@ -326,45 +301,11 @@ message DeleteResponse {
   string message = 2;
 }
 
-// Response for log retrieval (file-based, like Python server)
-message LogsResponse {
-  ResponseStatus status = 1;
-  bytes job_id = 2;               // (bytes to avoid UTF-8 validation warnings)
-  repeated string log_lines = 3;  // Log lines read from file
-  int64 nbytes = 4;               // Ending byte position (use as frombyte in next request)
-  bool job_exists = 5;            // False if job_id not found
-}
-
 // Response for cancel job
 message CancelResponse {
   ResponseStatus status = 1;
   string message = 2;
   JobStatus job_status = 3;       // Status of job after cancel attempt
-}
-
-// Generic response wrapper
-message AsyncResponse {
-  RequestType request_type = 1;
-
-  oneof response_data {
-    SubmitResponse submit_response = 10;
-    StatusResponse status_response = 11;
-    ResultResponse result_response = 12;
-    DeleteResponse delete_response = 13;
-    LogsResponse logs_response = 14;
-    CancelResponse cancel_response = 15;
-  }
-}
-
-// Legacy synchronous response (for backward compatibility)
-message SolveResponse {
-  ResponseStatus status = 1;
-  string error_message = 2;
-
-  oneof solution {
-    LPSolution lp_solution = 10;
-    MIPSolution mip_solution = 11;
-  }
 }
 
 enum ResponseStatus {

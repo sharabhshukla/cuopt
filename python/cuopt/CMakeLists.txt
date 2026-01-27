@@ -1,5 +1,5 @@
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
@@ -18,6 +18,10 @@ project(
             # that is fixed we need to keep C.
             C CXX CUDA)
 
+find_package(Protobuf REQUIRED)
+if(TARGET Protobuf::libprotobuf AND NOT TARGET protobuf::libprotobuf)
+  add_library(protobuf::libprotobuf ALIAS Protobuf::libprotobuf)
+endif()
 
 find_package(cuopt "${RAPIDS_VERSION}")
 find_package(mps_parser "${RAPIDS_VERSION}")

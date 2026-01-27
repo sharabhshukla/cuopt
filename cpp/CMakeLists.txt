@@ -430,6 +430,17 @@ if(WRITE_FATBIN)
   target_link_options(cuopt PRIVATE "${CUOPT_BINARY_DIR}/fatbin.ld")
 endif()
 
+# Prefer the RAPIDS-provided CCCL headers when present in a conda env.
+# This avoids mixing multiple CCCL header trees (e.g., CUDA toolkit vs RAPIDS).
+if(DEFINED ENV{CONDA_PREFIX})
+  set(_CUOPT_CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+  if(EXISTS "${_CUOPT_CONDA_PREFIX}/include/rapids/cuda/std/__cccl/version.h")
+    message(STATUS "cuOpt: using RAPIDS CCCL headers from ${_CUOPT_CONDA_PREFIX}/include/rapids")
+    target_include_directories(cuopt BEFORE PRIVATE "${_CUOPT_CONDA_PREFIX}/include/rapids")
+  endif()
+  unset(_CUOPT_CONDA_PREFIX)
+endif()
+
 add_library(cuopt::cuopt ALIAS cuopt)
 # ##################################################################################################
 # - include paths ---------------------------------------------------------------------------------
@@ -635,6 +646,15 @@ target_include_directories(cuopt_cli
   ${CUDSS_INCLUDE}
   "$<INSTALL_INTERFACE:include>"
 )
+
+# Prefer RAPIDS CCCL headers for cuopt_cli when available in conda.
+if(DEFINED ENV{CONDA_PREFIX})
+  set(_CUOPT_CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+  if(EXISTS "${_CUOPT_CONDA_PREFIX}/include/rapids/cuda/std/__cccl/version.h")
+    target_include_directories(cuopt_cli BEFORE PRIVATE "${_CUOPT_CONDA_PREFIX}/include/rapids")
+  endif()
+  unset(_CUOPT_CONDA_PREFIX)
+endif()
 
 target_link_libraries(cuopt_cli
   PUBLIC

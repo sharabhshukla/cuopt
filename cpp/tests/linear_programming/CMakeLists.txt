@@ -1,5 +1,5 @@
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
@@ -28,6 +28,20 @@ if (NOT SKIP_C_PYTHON_ADAPTERS)
         PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/c_api_tests"
     )
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(_CUOPT_CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+        if(EXISTS "${_CUOPT_CONDA_PREFIX}/include/rapids/cuda/std/__cccl/version.h")
+            target_include_directories(c_api_tester BEFORE PRIVATE "${_CUOPT_CONDA_PREFIX}/include/rapids")
+        endif()
+        unset(_CUOPT_CONDA_PREFIX)
+    endif()
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(_CUOPT_CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+        if(EXISTS "${_CUOPT_CONDA_PREFIX}/include/rapids/cuda/std/__cccl/version.h")
+            target_include_directories(c_api_tester BEFORE PRIVATE "${_CUOPT_CONDA_PREFIX}/include/rapids")
+        endif()
+        unset(_CUOPT_CONDA_PREFIX)
+    endif()
 
     add_executable(C_API_TEST "${CMAKE_CURRENT_SOURCE_DIR}/c_api_tests/c_api_tests.cpp")
 
@@ -38,6 +52,20 @@ if (NOT SKIP_C_PYTHON_ADAPTERS)
         "${CUOPT_TEST_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/c_api_tests"
     )
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(_CUOPT_CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+        if(EXISTS "${_CUOPT_CONDA_PREFIX}/include/rapids/cuda/std/__cccl/version.h")
+            target_include_directories(C_API_TEST BEFORE PRIVATE "${_CUOPT_CONDA_PREFIX}/include/rapids")
+        endif()
+        unset(_CUOPT_CONDA_PREFIX)
+    endif()
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(_CUOPT_CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+        if(EXISTS "${_CUOPT_CONDA_PREFIX}/include/rapids/cuda/std/__cccl/version.h")
+            target_include_directories(C_API_TEST BEFORE PRIVATE "${_CUOPT_CONDA_PREFIX}/include/rapids")
+        endif()
+        unset(_CUOPT_CONDA_PREFIX)
+    endif()
 
     target_link_libraries(C_API_TEST
         PRIVATE

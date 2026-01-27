@@ -164,7 +164,7 @@ optimization_problem_solution_t<i_t, f_t> solve_lp_remote(
 #if CUOPT_ENABLE_GRPC
   const std::string address = config.host + ":" + std::to_string(config.port);
 
-  // Serialize as SolveLPRequest (server expects this protobuf, not AsyncRequest)
+  // Serialize as SolveLPRequest for gRPC submission.
   std::vector<uint8_t> request_data = serializer->serialize_lp_request(view, settings);
   CUOPT_LOG_DEBUG(std::string("[remote_solve] Serialized LP request (gRPC): ") +
                   std::to_string(request_data.size()) + " bytes");
@@ -191,6 +191,7 @@ optimization_problem_solution_t<i_t, f_t> solve_lp_remote(
                    request_data.size(),
                    static_cast<long>(max_bytes),
                    used_upload ? "UploadAndSubmit" : "SubmitJob");
+    CUOPT_LOG_INFO("gRPC job_id: %s", job_id.c_str());
   }
 
   // Optional realtime logs on client side
@@ -205,6 +206,7 @@ optimization_problem_solution_t<i_t, f_t> solve_lp_remote(
   std::string status;
   int64_t result_size_bytes = 0;
   int64_t max_message_bytes = 0;
+  std::string last_status;
   while (true) {
     std::string st_err;
     if (!grpc_remote::check_status(
@@ -216,6 +218,10 @@ optimization_problem_solution_t<i_t, f_t> solve_lp_remote(
         "gRPC CheckStatus failed: " + st_err, cuopt::error_type_t::RuntimeError));
     }
 
+    if (settings.log_to_console && status != last_status) {
+      CUOPT_LOG_INFO("gRPC status for job %s: %s", job_id.c_str(), status.c_str());
+      last_status = status;
+    }
     if (status == "COMPLETED") { break; }
     if (status == "FAILED" || status == "CANCELLED" || status == "NOT_FOUND") {
       stop_logs = true;
@@ -336,6 +342,7 @@ mip_solution_t<i_t, f_t> solve_mip_remote(
                    request_data.size(),
                    static_cast<long>(max_bytes),
                    used_upload ? "UploadAndSubmit" : "SubmitJob");
+    CUOPT_LOG_INFO("gRPC job_id: %s", job_id.c_str());
   }
 
   volatile bool stop_logs = false;
@@ -360,6 +367,7 @@ mip_solution_t<i_t, f_t> solve_mip_remote(
   std::string status;
   int64_t result_size_bytes = 0;
   int64_t max_message_bytes = 0;
+  std::string last_status;
   while (true) {
     std::string st_err;
     if (!grpc_remote::check_status(
@@ -399,6 +407,10 @@ mip_solution_t<i_t, f_t> solve_mip_remote(
       }
     }
 
+    if (settings.log_to_console && status != last_status) {
+      CUOPT_LOG_INFO("gRPC status for job %s: %s", job_id.c_str(), status.c_str());
+      last_status = status;
+    }
     if (status == "COMPLETED") { break; }
     if (status == "FAILED" || status == "CANCELLED" || status == "NOT_FOUND") {
       stop_logs = true;

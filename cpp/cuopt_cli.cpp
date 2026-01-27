@@ -317,6 +317,7 @@ int run_single_file(const std::string& file_path,
       auto& mip_settings = settings.get_mip_settings();
       auto solution = cuopt::linear_programming::solve_mip(handle_ptr.get(), view, mip_settings);
       if (solution.get_error_status().get_error_type() != cuopt::error_type_t::Success) {
+        auto log = dummy_logger(settings);
         CUOPT_LOG_ERROR("MIP solve failed: %s", solution.get_error_status().what());
         return -1;
       }
@@ -324,6 +325,7 @@ int run_single_file(const std::string& file_path,
       auto& lp_settings = settings.get_pdlp_settings();
       auto solution     = cuopt::linear_programming::solve_lp(handle_ptr.get(), view, lp_settings);
       if (solution.get_error_status().get_error_type() != cuopt::error_type_t::Success) {
+        auto log = dummy_logger(settings);
         CUOPT_LOG_ERROR("LP solve failed: %s", solution.get_error_status().what());
         return -1;
       }
