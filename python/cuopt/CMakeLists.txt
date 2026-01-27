@@ -18,11 +18,6 @@ project(
             # that is fixed we need to keep C.
             C CXX CUDA)
 
-find_package(Protobuf REQUIRED)
-if(TARGET Protobuf::libprotobuf AND NOT TARGET protobuf::libprotobuf)
-  add_library(protobuf::libprotobuf ALIAS Protobuf::libprotobuf)
-endif()
-
 find_package(cuopt "${RAPIDS_VERSION}")
 find_package(mps_parser "${RAPIDS_VERSION}")
 
