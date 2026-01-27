@@ -498,10 +498,9 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
 #pragma omp taskloop if (num_tasks > 1) priority(task_priority) num_tasks(num_tasks) untied
   for (i_t i = 0; i < num_candidates; ++i) {
     const i_t j = unreliable_list[i];
+    std::lock_guard<omp_mutex_t> lock(pseudo_cost_mutex[j]);
 
     if (toc(start_time) > settings.time_limit) { continue; }
-
-    pseudo_cost_mutex[j].lock();
     if (pseudo_cost_num_down[j] < reliable_threshold) {
       // Do trial branching on the down branch
       f_t obj = trial_branching(worker_data->leaf_problem,
@@ -527,11 +526,8 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
         pseudo_cost_num_down[j]++;
       }
     }
-    pseudo_cost_mutex[j].unlock();
 
     if (toc(start_time) > settings.time_limit) { continue; }
-
-    pseudo_cost_mutex[j].lock();
     if (pseudo_cost_num_up[j] < reliable_threshold) {
       f_t obj = trial_branching(worker_data->leaf_problem,
                                 settings,
@@ -556,28 +552,23 @@ i_t pseudo_costs_t<i_t, f_t>::reliable_variable_selection(
         pseudo_cost_num_up[j]++;
       }
     }
-    pseudo_cost_mutex[j].unlock();
 
     if (toc(start_time) > settings.time_limit) { continue; }
-
-    pseudo_cost_mutex[j].lock();
     f_t pc_up   = pseudo_cost_num_up[j] > 0 ? pseudo_cost_sum_up[j] / pseudo_cost_num_up[j]
                                             : pseudo_cost_up_avg;
     f_t pc_down = pseudo_cost_sum_down[j] > 0 ? pseudo_cost_sum_down[j] / pseudo_cost_num_down[j]
                                               : pseudo_cost_down_avg;
-    pseudo_cost_mutex[j].unlock();
 
     constexpr f_t eps = 1e-6;
     const f_t f_down  = solution[j] - std::floor(solution[j]);
     const f_t f_up    = std::ceil(solution[j]) - solution[j];
     f_t score         = std::max(f_down * pc_down, eps) * std::max(f_up * pc_up, eps);
 
-    score_mutex.lock();
+    std::lock_guard<omp_mutex_t> score_lock(score_mutex);
     if (score > max_score) {
       max_score  = score;
       branch_var = j;
     }
-    score_mutex.unlock();
   }
 
   log.printf(
