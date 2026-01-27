@@ -179,15 +179,30 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
       fraction_values.push_back(original_root_soln_x[j]);
     }
 
-    std::vector<f_t> primal_solutions =
-      batch_pdlp_solve(original_problem, fractional, fraction_values);
+    const auto solutions = batch_pdlp_solve(original_problem, fractional, fraction_values);
     std::chrono::steady_clock::time_point end_batch = std::chrono::steady_clock::now();
     std::chrono::duration<f_t> duration             = end_batch - start_batch;
-    settings.log.printf("Batch PDLP strong branching took %.2f seconds\n", duration.count());
+
+    // Find max iteration on how many are done accross the batch
+    i_t max_iterations = 0;
+    i_t amount_done    = 0;
+    for (i_t k = 0; k < solutions.get_additional_termination_informations().size(); k++) {
+      max_iterations = std::max(
+        max_iterations, solutions.get_additional_termination_information(k).number_of_steps_taken);
+      // TODO batch mode infeasible: should also count as done if infeasible
+      if (solutions.get_termination_status(k) == pdlp_termination_status_t::Optimal) {
+        amount_done++;
+      }
+    }
+
+    settings.log.printf(
+      "Batch PDLP strong branching took %.2f seconds. Solved %d/%d with max %d iterations\n",
+      duration.count(),
+      amount_done,
+      fractional.size() * 2,
+      max_iterations);
 
     for (i_t k = 0; k < fractional.size(); k++) {
-      const i_t j = fractional[k];
-
       // Call BatchLP solver. Solve 2*fractional.size() subproblems.
       // Let j = fractional[k]. We want to solve the two trial branching problems
       // Branch down:
@@ -196,14 +211,19 @@ void strong_branching(const user_problem_t<i_t, f_t>& original_problem,
       // x_j <= floor(root_soln[j])
       // l <= x < u
       // Let the optimal objective value of thie problem be obj_down
-      f_t obj_down = primal_solutions[k];
+      f_t obj_down = (solutions.get_termination_status(k) == pdlp_termination_status_t::Optimal)
+                       ? solutions.get_dual_objective_value(k)
+                       : root_obj;
 
       // Branch up:
       // minimize c^T x
       // subject to lb <= A*x <= ub
       // x_j >= ceil(root_soln[j])
       // Let the optimal objective value of thie problem be obj_up
-      f_t obj_up = primal_solutions[k + fractional.size()];
+      f_t obj_up = (solutions.get_termination_status(k + fractional.size()) ==
+                    pdlp_termination_status_t::Optimal)
+                     ? solutions.get_dual_objective_value(k + fractional.size())
+                     : root_obj;
 
       pc.strong_branch_down[k] = obj_down - root_obj;
       pc.strong_branch_up[k]   = obj_up - root_obj;

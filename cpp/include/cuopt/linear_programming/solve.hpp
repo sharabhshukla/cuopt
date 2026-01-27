@@ -103,7 +103,7 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
  * - detect_infeasibility: will be set to false
  */
 template <typename i_t, typename f_t>
-std::vector<f_t> batch_pdlp_solve(
+optimization_problem_solution_t<i_t, f_t> batch_pdlp_solve(
   const dual_simplex::user_problem_t<i_t, f_t>& user_problem,
   const std::vector<i_t>& fractional,
   const std::vector<f_t>& root_soln_x,

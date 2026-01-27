@@ -607,10 +607,11 @@ static cuopt::mps_parser::mps_data_model_t<i_t, f_t> simplex_problem_to_mps_data
 }
 
 template <typename i_t, typename f_t>
-std::vector<f_t> batch_pdlp_solve(const dual_simplex::user_problem_t<i_t, f_t>& user_problem,
-                                  const std::vector<i_t>& fractional,
-                                  const std::vector<f_t>& root_soln_x,
-                                  pdlp_solver_settings_t<i_t, f_t> const& settings)
+optimization_problem_solution_t<i_t, f_t> batch_pdlp_solve(
+  const dual_simplex::user_problem_t<i_t, f_t>& user_problem,
+  const std::vector<i_t>& fractional,
+  const std::vector<f_t>& root_soln_x,
+  pdlp_solver_settings_t<i_t, f_t> const& settings)
 {
   cuopt::mps_parser::mps_data_model_t<i_t, f_t> mps_model =
     simplex_problem_to_mps_data_model(user_problem);
@@ -618,14 +619,7 @@ std::vector<f_t> batch_pdlp_solve(const dual_simplex::user_problem_t<i_t, f_t>& 
   auto batch_solution =
     batch_pdlp_solve(user_problem.handle_ptr, mps_model, fractional, root_soln_x, settings);
 
-  // Gather all primal solutions from the batch on the host
-  // *2 because we have both lower and upper branch
-  std::vector<f_t> primal_solutions(fractional.size() * 2);
-  for (size_t i = 0; i < fractional.size() * 2; i++) {
-    primal_solutions[i] = batch_solution.get_objective_value(i);
-  }
-
-  return primal_solutions;
+  return batch_solution;
 }
 
 template <typename i_t, typename f_t>
@@ -853,6 +847,7 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
     warm_start_settings.pdlp_solver_mode     = pdlp_solver_mode_t::Stable3;
     warm_start_settings.detect_infeasibility = false;
     warm_start_settings.iteration_limit      = iteration_limit;
+    warm_start_settings.inside_mip           = true;
     optimization_problem_solution_t<i_t, f_t> original_solution =
       solve_lp(problem, warm_start_settings);
     if (primal_dual_init) {
@@ -883,6 +878,7 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
   batch_settings.pdlp_solver_mode                 = pdlp_solver_mode_t::Stable3;
   batch_settings.detect_infeasibility             = false;
   batch_settings.iteration_limit                  = iteration_limit;
+  batch_settings.inside_mip                       = true;
   if (primal_dual_init) {
     batch_settings.set_initial_primal_solution(
       initial_primal.data(), initial_primal.size(), initial_primal.stream());
@@ -1163,7 +1159,8 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
   bool is_batch_mode)
 {
   try {
-    print_version_info();
+    if (!settings_const.inside_mip) print_version_info();
+
     pdlp_solver_settings_t<i_t, f_t> settings(settings_const);
     // Create log stream for file logging and add it to default logger
     init_logger_t log(settings.log_file, settings.log_to_console);
@@ -1193,13 +1190,15 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
       problem_checking_t<i_t, f_t>::check_initial_solution_representation(op_problem, settings);
     }
 
-    CUOPT_LOG_INFO(
-      "Solving a problem with %d constraints, %d variables (%d integers), and %d nonzeros",
-      op_problem.get_n_constraints(),
-      op_problem.get_n_variables(),
-      0,
-      op_problem.get_nnz());
-    op_problem.print_scaling_information();
+    if (!settings_const.inside_mip) {
+      CUOPT_LOG_INFO(
+        "Solving a problem with %d constraints, %d variables (%d integers), and %d nonzeros",
+        op_problem.get_n_constraints(),
+        op_problem.get_n_variables(),
+        0,
+        op_problem.get_nnz());
+      op_problem.print_scaling_information();
+    }
 
     // Check for crossing bounds. Return infeasible if there are any
     if (problem_checking_t<i_t, f_t>::has_crossing_bounds(op_problem)) {
@@ -1214,7 +1213,9 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
     std::unique_ptr<detail::third_party_presolve_t<i_t, f_t>> presolver;
     auto run_presolve = settings.presolve;
     run_presolve = run_presolve && settings.get_pdlp_warm_start_data().total_pdlp_iterations_ == -1;
-    if (!run_presolve) { CUOPT_LOG_INFO("Third-party presolve is disabled, skipping"); }
+    if (!run_presolve && !settings_const.inside_mip) {
+      CUOPT_LOG_INFO("Third-party presolve is disabled, skipping");
+    }
 
     if (run_presolve) {
       detail::sort_csr(op_problem);
@@ -1239,9 +1240,11 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
       CUOPT_LOG_INFO("Papilo presolve time: %f", presolve_time);
     }
 
-    CUOPT_LOG_INFO("Objective offset %f scaling_factor %f",
-                   problem.presolve_data.objective_offset,
-                   problem.presolve_data.objective_scaling_factor);
+    if (!settings_const.inside_mip) {
+      CUOPT_LOG_INFO("Objective offset %f scaling_factor %f",
+                     problem.presolve_data.objective_offset,
+                     problem.presolve_data.objective_scaling_factor);
+    }
 
     if (settings.user_problem_file != "") {
       CUOPT_LOG_INFO("Writing user problem to file: %s", settings.user_problem_file.c_str());
@@ -1426,7 +1429,7 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
     const std::vector<int>& fractional,                                                \
     const std::vector<F_TYPE>& root_soln_x,                                            \
     pdlp_solver_settings_t<int, F_TYPE> const& settings);                              \
-  template std::vector<F_TYPE> batch_pdlp_solve(                                       \
+  template optimization_problem_solution_t<int, F_TYPE> batch_pdlp_solve(              \
     const dual_simplex::user_problem_t<int, F_TYPE>& user_problem,                     \
     const std::vector<int>& fractional,                                                \
     const std::vector<F_TYPE>& root_soln_x,                                            \
