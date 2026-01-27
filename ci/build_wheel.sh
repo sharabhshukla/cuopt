@@ -10,6 +10,8 @@ package_dir=$2
 
 source rapids-configure-sccache
 source rapids-date-string
+RAPIDS_INIT_PIP_REMOVE_NVIDIA_INDEX="true"
+export RAPIDS_INIT_PIP_REMOVE_NVIDIA_INDEX
 source rapids-init-pip
 
 # Update the version to accomdate nightly and release changes for the wheel name
@@ -26,7 +28,6 @@ RAPIDS_PIP_WHEEL_ARGS=(
   -v
   --no-deps
   --disable-pip-version-check
-  --extra-index-url=https://pypi.nvidia.com
 )
 
 # Only use --build-constraint when build isolation is enabled.
