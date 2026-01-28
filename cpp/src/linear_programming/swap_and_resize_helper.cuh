@@ -52,8 +52,10 @@ void matrix_swap(rmm::device_uvector<f_t>& matrix,
 {
   if (swap_pairs.empty()) { return; }
 
-  const i_t batch_size = matrix.size() / vector_size;
   cuopt_assert(vector_size > 0, "Vector size must be greater than 0");
+  cuopt_assert(matrix.size() % static_cast<size_t>(vector_size) == 0,
+               "Matrix size must be divisible by vector size");
+  const i_t batch_size = matrix.size() / vector_size;
   cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
 
   const size_t swap_count  = swap_pairs.size();

@@ -111,7 +111,7 @@ void localized_duality_gap_container_t<i_t, f_t>::resize_context(i_t new_size)
     static_cast<i_t>(primal_solution_.size() / primal_size_h_);
   cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
   cuopt_assert(new_size > 0, "New size must be greater than 0");
-  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+  cuopt_assert(new_size < batch_size, "New size must be less than batch size");
 
   primal_solution_.resize(new_size * primal_size_h_, primal_solution_.stream());
   dual_solution_.resize(new_size * dual_size_h_, dual_solution_.stream());

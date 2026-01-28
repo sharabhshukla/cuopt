@@ -71,7 +71,7 @@ adaptive_step_size_strategy_t<i_t, f_t>::adaptive_step_size_strategy_t(
   if (batch_mode_) {
     // Pass down any input pointer of the right type, actual pointer does not matter
     size_t byte_needed = 0;
-    cub::DeviceSegmentedReduce::Sum(
+    RAFT_CUDA_TRY(cub::DeviceSegmentedReduce::Sum(
       nullptr,
       byte_needed,
       thrust::make_transform_iterator(thrust::make_zip_iterator(norm_squared_delta_primal_.data(),
@@ -80,27 +80,27 @@ adaptive_step_size_strategy_t<i_t, f_t>::adaptive_step_size_strategy_t(
       interaction_.data(),
       climber_strategies_.size(),
       primal_size_,
-      stream_view_);
+      stream_view_));
     dot_product_bytes = std::max(dot_product_bytes, byte_needed);
 
-    cub::DeviceSegmentedReduce::Sum(
+    RAFT_CUDA_TRY(cub::DeviceSegmentedReduce::Sum(
       nullptr,
       byte_needed,
       thrust::make_transform_iterator(norm_squared_delta_primal_.data(), power_two_func_t<f_t>{}),
       norm_squared_delta_primal_.data(),
       climber_strategies_.size(),
       primal_size_,
-      stream_view_);
+      stream_view_));
     dot_product_bytes = std::max(dot_product_bytes, byte_needed);
 
-    cub::DeviceSegmentedReduce::Sum(
+    RAFT_CUDA_TRY(cub::DeviceSegmentedReduce::Sum(
       nullptr,
       byte_needed,
       thrust::make_transform_iterator(norm_squared_delta_dual_.data(), power_two_func_t<f_t>{}),
       norm_squared_delta_dual_.data(),
       climber_strategies_.size(),
       dual_size_,
-      stream_view_);
+      stream_view_));
     dot_product_bytes = std::max(dot_product_bytes, byte_needed);
 
     dot_product_storage.resize(dot_product_bytes, stream_view_);
@@ -157,7 +157,7 @@ void adaptive_step_size_strategy_t<i_t, f_t>::resize_context(i_t new_size)
   [[maybe_unused]] const auto batch_size = static_cast<i_t>(interaction_.size());
   cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
   cuopt_assert(new_size > 0, "New size must be greater than 0");
-  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+  cuopt_assert(new_size < batch_size, "New size must be less than batch size");
 
   interaction_.resize(new_size, stream_view_);
   norm_squared_delta_primal_.resize(new_size, stream_view_);

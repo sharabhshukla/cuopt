@@ -613,7 +613,7 @@ optimization_problem_solution_t<i_t, f_t> run_pdlp(detail::problem_t<i_t, f_t>& 
     // Should be filled with more information from dual simplex
     std::vector<
       typename optimization_problem_solution_t<i_t, f_t>::additional_termination_information_t>
-      info;
+      info(1);
     info[0].primal_objective      = vertex_solution.user_objective;
     info[0].number_of_steps_taken = vertex_solution.iterations;
     auto crossover_end            = std::chrono::high_resolution_clock::now();
@@ -716,10 +716,10 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
 
   rmm::cuda_stream_view stream = problem.get_handle_ptr()->get_stream();
 
-  rmm::device_uvector<double> initial_primal(0, stream);
-  rmm::device_uvector<double> initial_dual(0, stream);
-  double initial_step_size     = std::numeric_limits<f_t>::signaling_NaN();
-  double initial_primal_weight = std::numeric_limits<f_t>::signaling_NaN();
+  rmm::device_uvector<f_t> initial_primal(0, stream);
+  rmm::device_uvector<f_t> initial_dual(0, stream);
+  f_t initial_step_size     = std::numeric_limits<f_t>::signaling_NaN();
+  f_t initial_primal_weight = std::numeric_limits<f_t>::signaling_NaN();
 
   cuopt_assert(settings.new_bounds.size() > 0, "Batch size should be greater than 0");
   const int max_batch_size  = settings.new_bounds.size();
@@ -762,10 +762,10 @@ optimization_problem_solution_t<i_t, f_t> run_batch_pdlp(
     optimization_problem_solution_t<i_t, f_t> original_solution =
       solve_lp(problem, warm_start_settings);
     if (primal_dual_init) {
-      initial_primal = rmm::device_uvector<double>(
-        original_solution.get_primal_solution(), original_solution.get_primal_solution().stream());
-      initial_dual      = rmm::device_uvector<double>(original_solution.get_dual_solution(),
-                                                 original_solution.get_dual_solution().stream());
+      initial_primal    = rmm::device_uvector<f_t>(original_solution.get_primal_solution(),
+                                                original_solution.get_primal_solution().stream());
+      initial_dual      = rmm::device_uvector<f_t>(original_solution.get_dual_solution(),
+                                              original_solution.get_dual_solution().stream());
       initial_step_size = original_solution.get_pdlp_warm_start_data().initial_step_size_;
     }
     if (primal_weight_init) {

@@ -35,9 +35,9 @@ inline constexpr int dual_stride   = 1;
 
 // #define BATCH_VERBOSE_MODE
 
-static bool deterministic_batch_pdlp = true;
+inline constexpr bool deterministic_batch_pdlp = true;
 
-static bool enable_batch_resizing = true;
+inline constexpr bool enable_batch_resizing = true;
 
 // Value used to determine what we see as too small (the value) or too large (1/value) values when
 // computing the new primal weight during the restart.

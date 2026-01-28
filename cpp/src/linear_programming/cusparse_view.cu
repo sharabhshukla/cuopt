@@ -83,6 +83,7 @@ cusparse_dn_vec_descr_wrapper_t<f_t>& cusparse_dn_vec_descr_wrapper_t<f_t>::oper
 {
   if (need_destruction_) { RAFT_CUSPARSE_TRY(cusparseDestroyDnVec(descr_)); }
   descr_                  = other.descr_;
+  need_destruction_       = other.need_destruction_;
   other.need_destruction_ = false;
   return *this;
 }
@@ -125,6 +126,7 @@ cusparse_dn_mat_descr_wrapper_t<f_t>& cusparse_dn_mat_descr_wrapper_t<f_t>::oper
 {
   if (need_destruction_) { RAFT_CUSPARSE_TRY(cusparseDestroyDnMat(descr_)); }
   descr_                  = other.descr_;
+  need_destruction_       = other.need_destruction_;
   other.need_destruction_ = false;
   return *this;
 }

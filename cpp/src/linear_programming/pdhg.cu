@@ -192,7 +192,7 @@ void pdhg_solver_t<i_t, f_t>::resize_context(i_t new_size)
   [[maybe_unused]] const auto batch_size = static_cast<i_t>(tmp_primal_.size() / primal_size_h_);
   cuopt_assert(batch_size > 0, "Batch size must be greater than 0");
   cuopt_assert(new_size > 0, "New size must be greater than 0");
-  cuopt_assert(new_size < batch_size, "New size must be less than or equal to batch size");
+  cuopt_assert(new_size < batch_size, "New size must be less than batch size");
 
   tmp_primal_.resize(new_size * primal_size_h_, stream_view_);
   tmp_dual_.resize(new_size * dual_size_h_, stream_view_);

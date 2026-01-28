@@ -196,6 +196,7 @@ template <typename i_t, typename f_t>
 int optimal_batch_size_handler(const optimization_problem_t<i_t, f_t>& op_problem,
                                int max_batch_size)
 {
+  cuopt_assert(max_batch_size > 0, "Max batch size must be greater than 0");
   if (max_batch_size == 1) return 1;
 
   // Try to quickly find what is the optimal batch size for the problem
