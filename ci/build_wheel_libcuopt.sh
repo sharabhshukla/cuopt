@@ -22,6 +22,16 @@ bash ci/utils/install_protobuf_grpc.sh
 
 export SKBUILD_CMAKE_ARGS="-DCUOPT_BUILD_WHEELS=ON;-DDISABLE_DEPRECATION_WARNING=ON;-DCUOPT_ENABLE_GRPC=ON"
 
+# If gRPC is installed into /usr/local (Rocky8 fallback), ensure CMake searches it.
+if [ -d /usr/local/lib/cmake/grpc ] || [ -d /usr/local/lib64/cmake/grpc ]; then
+    export SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS};-DCMAKE_PREFIX_PATH=/usr/local"
+fi
+
+# Ensure protoc/grpc_cpp_plugin can load /usr/local libs at build time.
+if [ -d /usr/local/lib64 ]; then
+    export LD_LIBRARY_PATH="/usr/local/lib64:${LD_LIBRARY_PATH:-}"
+fi
+
 # For pull requests we are enabling assert mode.
 if [ "$RAPIDS_BUILD_TYPE" = "pull-request" ]; then
     echo "Building in assert mode"

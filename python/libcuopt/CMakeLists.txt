@@ -39,29 +39,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse)
 
-# gRPC (required for this build). Build as an in-tree dependency so we don't rely
-# on system grpc-devel packages (not available on RockyLinux 8 images).
-#
-# NOTE: This will significantly increase build time. Prefer baking gRPC into the
-# build image if you need gRPC-enabled wheels regularly.
-set(gRPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(gRPC_INSTALL ON CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-set(gRPC_SSL_PROVIDER "package" CACHE STRING "" FORCE)
-set(gRPC_ZLIB_PROVIDER "package" CACHE STRING "" FORCE)
-set(gRPC_PROTOBUF_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_ABSL_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_CARES_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_RE2_PROVIDER "module" CACHE STRING "" FORCE)
-FetchContent_Declare(
-  grpc
-  GIT_REPOSITORY https://github.com/grpc/grpc.git
-  GIT_TAG v1.76.0
-  GIT_SHALLOW TRUE
-  GIT_PROGRESS TRUE
-  GIT_SUBMODULES_RECURSE TRUE
-)
-FetchContent_MakeAvailable(grpc)
+# gRPC must be available as an installed CMake package (gRPCConfig.cmake).
+# On RockyLinux 8 wheel builds we install it in CI via `ci/utils/install_protobuf_grpc.sh`.
+find_package(gRPC CONFIG REQUIRED)
 
 find_package(Boost 1.65 REQUIRED)
 if(Boost_FOUND)

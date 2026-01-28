@@ -279,9 +279,13 @@ endif()
 
 # Protocol Buffers for remote solve serialization
 #
-# Use plain find_package so system installs (that don't ship ProtobufConfig.cmake)
-# can fall back to CMake's built-in FindProtobuf module.
-find_package(Protobuf REQUIRED)
+# Prefer CONFIG mode when available (e.g. source-installed protobuf under
+# /usr/local provides ProtobufConfig.cmake). Fall back to module mode for older
+# system installs that don't ship a config package.
+find_package(Protobuf CONFIG QUIET)
+if(NOT Protobuf_FOUND)
+  find_package(Protobuf REQUIRED)
+endif()
 
 # Normalize target names across Protobuf providers (config vs module).
 if(TARGET Protobuf::libprotobuf AND NOT TARGET protobuf::libprotobuf)
@@ -321,7 +325,13 @@ else()
 endif()
 
 if(NOT _PROTOBUF_PROTOC)
-  message(FATAL_ERROR "protoc not found (Protobuf_PROTOC_EXECUTABLE is empty)")
+  # FindProtobuf.cmake can report libprotobuf without locating protoc.
+  # Fall back to PATH lookup (e.g. /usr/local/bin/protoc or /usr/bin/protoc).
+  find_program(_PROTOBUF_PROTOC protoc)
+endif()
+
+if(NOT _PROTOBUF_PROTOC)
+  message(FATAL_ERROR "protoc not found (install protobuf-compiler / ensure protoc is on PATH)")
 endif()
 
 # Generate gRPC service code if gRPC is available
