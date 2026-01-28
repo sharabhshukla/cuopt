@@ -98,6 +98,7 @@ class mip_solver_settings_t {
   // benchmarks
   benchmark_info_t* benchmark_info_ptr = nullptr;
   method_t root_lp_method              = static_cast<method_t>(CUOPT_METHOD_CONCURRENT);
+  bool root_lp_crossover               = false;  // Enable crossover for root LP solve
 
  private:
   std::vector<internals::base_solution_callback_t*> mip_callbacks_;

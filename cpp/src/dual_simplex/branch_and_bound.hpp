@@ -100,6 +100,7 @@ class branch_and_bound_t {
   void set_new_solution(const std::vector<f_t>& solution);
 
   void set_concurrent_lp_root_solve(bool enable) { enable_concurrent_lp_root_solve_ = enable; }
+  void set_root_lp_method(int method) { root_lp_method_ = method; }
 
   // Repair a low-quality solution from the heuristics.
   bool repair_solution(const std::vector<f_t>& leaf_edge_norms,
@@ -165,6 +166,7 @@ class branch_and_bound_t {
   bool enable_concurrent_lp_root_solve_{false};
   std::atomic<int> root_concurrent_halt_{0};
   bool is_root_solution_set{false};
+  int root_lp_method_{0};  // 0=Concurrent, 1=PDLP, 2=DualSimplex, 3=Barrier
 
   // Pseudocosts
   pseudo_costs_t<i_t, f_t> pc_;

@@ -206,7 +206,12 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     branch_and_bound = std::make_unique<dual_simplex::branch_and_bound_t<i_t, f_t>>(
       branch_and_bound_problem, branch_and_bound_settings);
     context.branch_and_bound_ptr = branch_and_bound.get();
-    branch_and_bound->set_concurrent_lp_root_solve(true);
+    // Pass the root LP method to branch_and_bound
+    branch_and_bound->set_root_lp_method(static_cast<int>(context.settings.root_lp_method));
+    // Enable concurrent mode only if user specified Concurrent method (default)
+    // Otherwise, diversity_manager will use the specified method (PDLP, DualSimplex, or Barrier)
+    bool use_concurrent = (context.settings.root_lp_method == static_cast<method_t>(CUOPT_METHOD_CONCURRENT));
+    branch_and_bound->set_concurrent_lp_root_solve(use_concurrent);
 
     // Set the primal heuristics -> branch and bound callback
     context.problem_ptr->branch_and_bound_callback =
