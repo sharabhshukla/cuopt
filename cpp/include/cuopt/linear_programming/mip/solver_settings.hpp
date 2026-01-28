@@ -19,8 +19,13 @@
 
 namespace cuopt::linear_programming {
 
-// Forward declaration from pdlp/solver_settings.hpp
-enum method_t : int;
+// Method enum - must match pdlp/solver_settings.hpp definition
+enum method_t : int {
+  Concurrent  = CUOPT_METHOD_CONCURRENT,
+  PDLP        = CUOPT_METHOD_PDLP,
+  DualSimplex = CUOPT_METHOD_DUAL_SIMPLEX,
+  Barrier     = CUOPT_METHOD_BARRIER
+};
 
 struct benchmark_info_t {
   double last_improvement_of_best_feasible    = 0;
