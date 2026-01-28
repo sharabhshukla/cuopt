@@ -728,6 +728,7 @@ cuopt_int_t cuOptSetMIPGetSolutionCallback(cuOptSolverSettings settings,
  * @param[in] callback - Callback function to inject solutions.
  * @param[in] user_data - User-defined pointer passed through to the callback.
  *  It will be forwarded to ``cuOptMIPSetSolutionCallback`` when invoked.
+ * @note Registering a set-solution callback disables presolve.
  *
  * @return A status code indicating success or failure.
  */

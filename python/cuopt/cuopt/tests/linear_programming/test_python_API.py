@@ -321,7 +321,7 @@ def test_read_write_mps_and_relaxation():
         assert v.getValue() == pytest.approx(expected_values_lp[i])
 
 
-def test_incumbent_solutions():
+def _run_incumbent_solutions(include_set_callback):
     # Callback for incumbent solution
     class CustomGetSolutionCallback(GetSolutionCallback):
         def __init__(self, user_data):
@@ -368,10 +368,15 @@ def test_incumbent_solutions():
 
     user_data = {"source": "test_incumbent_solutions"}
     get_callback = CustomGetSolutionCallback(user_data)
-    set_callback = CustomSetSolutionCallback(get_callback, user_data)
+    set_callback = (
+        CustomSetSolutionCallback(get_callback, user_data)
+        if include_set_callback
+        else None
+    )
     settings = SolverSettings()
     settings.set_mip_callback(get_callback, user_data)
-    settings.set_mip_callback(set_callback, user_data)
+    if include_set_callback:
+        settings.set_mip_callback(set_callback, user_data)
     settings.set_parameter("time_limit", 1)
 
     prob.solve(settings)
@@ -385,6 +390,14 @@ def test_incumbent_solutions():
         assert 2 * x_val + 4 * y_val >= 230
         assert 3 * x_val + 2 * y_val <= 190
         assert 5 * x_val + 3 * y_val == cost
+
+
+def test_incumbent_get_solutions():
+    _run_incumbent_solutions(include_set_callback=False)
+
+
+def test_incumbent_get_set_solutions():
+    _run_incumbent_solutions(include_set_callback=True)
 
 
 def test_warm_start():

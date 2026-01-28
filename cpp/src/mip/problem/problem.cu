@@ -1800,12 +1800,6 @@ void problem_t<i_t, f_t>::papilo_uncrush_assignment(rmm::device_uvector<f_t>& as
 }
 
 template <typename i_t, typename f_t>
-void problem_t<i_t, f_t>::papilo_crush_assignment(rmm::device_uvector<f_t>& assignment) const
-{
-  presolve_data.papilo_crush_assignment(const_cast<problem_t&>(*this), assignment);
-}
-
-template <typename i_t, typename f_t>
 void problem_t<i_t, f_t>::get_host_user_problem(
   cuopt::linear_programming::dual_simplex::user_problem_t<i_t, f_t>& user_problem) const
 {

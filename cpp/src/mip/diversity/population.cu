@@ -275,10 +275,11 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
     for (auto callback : user_callbacks) {
       if (callback->get_type() == internals::base_solution_callback_type::GET_SOLUTION) {
         auto get_sol_callback = static_cast<internals::get_solution_callback_t*>(callback);
+        f_t user_objective    = sol.get_user_objective();
         solution_t<i_t, f_t> temp_sol(sol);
         problem_ptr->post_process_assignment(temp_sol.assignment);
-        rmm::device_uvector<f_t> dummy(0, temp_sol.handle_ptr->get_stream());
         if (context.settings.mip_scaling) {
+          rmm::device_uvector<f_t> dummy(0, temp_sol.handle_ptr->get_stream());
           context.scaling.unscale_solutions(temp_sol.assignment, dummy);
           // Need to get unscaled problem as well
           problem_t<i_t, f_t> n_problem(*sol.problem_ptr->original_problem_ptr);
@@ -287,7 +288,10 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
           scaled_sol.resize_to_original_problem();
           scaled_sol.compute_feasibility();
           if (!scaled_sol.get_feasible()) {
-            CUOPT_LOG_DEBUG("Discard infeasible after unscaling");
+            CUOPT_LOG_DEBUG(
+              "Discard infeasible after unscaling. Unscaled objective = %g Excess = %g",
+              scaled_sol.get_objective(),
+              scaled_sol.get_total_excess());
             return;
           }
         }
@@ -297,8 +301,6 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
 
         std::vector<f_t> user_objective_vec(1);
         std::vector<f_t> user_assignment_vec(temp_sol.assignment.size());
-        f_t user_objective =
-          temp_sol.problem_ptr->get_user_obj_from_solver_obj(temp_sol.get_objective());
         user_objective_vec[0] = user_objective;
         raft::copy(user_assignment_vec.data(),
                    temp_sol.assignment.data(),
@@ -335,7 +337,6 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
       set_sol_callback->set_solution(h_incumbent_assignment.data(),
                                      h_outside_sol_objective.data(),
                                      set_sol_callback->get_user_data());
-
       f_t outside_sol_objective = h_outside_sol_objective[0];
       // The callback might be called without setting any valid solution or objective which triggers
       // asserts
@@ -345,10 +346,6 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
                  h_incumbent_assignment.data(),
                  incumbent_assignment.size(),
                  sol.handle_ptr->get_stream());
-
-      if (problem_ptr->has_papilo_presolve_data()) {
-        problem_ptr->papilo_crush_assignment(incumbent_assignment);
-      }
 
       if (context.settings.mip_scaling) { context.scaling.scale_solutions(incumbent_assignment); }
       bool is_valid = problem_ptr->pre_process_assignment(incumbent_assignment);
@@ -361,9 +358,10 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
                  sol.handle_ptr->get_stream());
       outside_sol.compute_feasibility();
 
-      CUOPT_LOG_DEBUG("Injected solution feasibility =  %d objective = %g",
+      CUOPT_LOG_DEBUG("Injected solution feasibility =  %d objective = %g excess = %g",
                       outside_sol.get_feasible(),
-                      outside_sol.get_user_objective());
+                      outside_sol.get_user_objective(),
+                      outside_sol.get_total_excess());
 
       cuopt_assert(std::abs(outside_sol.get_user_objective() - outside_sol_objective) <= 1e-6,
                    "External solution objective mismatch");

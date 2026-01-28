@@ -28,6 +28,7 @@
 #include <cuopt/linear_programming/mip/solver_solution.hpp>
 #include <cuopt/linear_programming/pdlp/pdlp_hyper_params.cuh>
 #include <cuopt/linear_programming/solve.hpp>
+#include <cuopt/linear_programming/utilities/internals.hpp>
 
 #include <mps_parser/mps_data_model.hpp>
 
@@ -190,8 +191,20 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
     std::optional<detail::third_party_presolve_result_t<i_t, f_t>> presolve_result;
     detail::problem_t<i_t, f_t> problem(op_problem, settings.get_tolerances());
 
-    auto run_presolve = settings.presolve;
-    run_presolve      = run_presolve && settings.initial_solutions.size() == 0;
+    auto run_presolve              = settings.presolve;
+    run_presolve                   = run_presolve && settings.initial_solutions.size() == 0;
+    bool has_set_solution_callback = false;
+    for (auto callback : settings.get_mip_callbacks()) {
+      if (callback != nullptr &&
+          callback->get_type() == internals::base_solution_callback_type::SET_SOLUTION) {
+        has_set_solution_callback = true;
+        break;
+      }
+    }
+    if (run_presolve && has_set_solution_callback) {
+      CUOPT_LOG_WARN("Presolve is disabled because set_solution callbacks are provided.");
+      run_presolve = false;
+    }
 
     if (!run_presolve) { CUOPT_LOG_INFO("Presolve is disabled, skipping"); }
 

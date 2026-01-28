@@ -259,6 +259,10 @@ class SolverSettings:
         user_data : object
             User context passed to the callback.
 
+        Notes
+        -----
+        Registering a SetSolutionCallback disables presolve.
+
         Examples
         --------
         >>> # Callback for incumbent solution

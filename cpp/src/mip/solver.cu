@@ -5,8 +5,6 @@
  */
 /* clang-format on */
 
-#include "feasibility_jump/feasibility_jump.cuh"
-
 #include <mip/mip_constants.hpp>
 #include "diversity/diversity_manager.cuh"
 #include "local_search/local_search.cuh"

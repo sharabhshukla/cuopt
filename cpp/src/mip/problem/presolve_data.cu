@@ -241,33 +241,6 @@ void presolve_data_t<i_t, f_t>::papilo_uncrush_assignment(
   problem.handle_ptr->sync_stream();
 }
 
-template <typename i_t, typename f_t>
-void presolve_data_t<i_t, f_t>::papilo_crush_assignment(problem_t<i_t, f_t>& problem,
-                                                        rmm::device_uvector<f_t>& assignment) const
-{
-  if (papilo_presolve_ptr == nullptr) { return; }
-  if (papilo_reduced_to_original_map.empty()) { return; }
-  auto h_assignment = cuopt::host_copy(assignment, problem.handle_ptr->get_stream());
-  std::vector<f_t> reduced_assignment(papilo_reduced_to_original_map.size());
-  for (size_t i = 0; i < papilo_reduced_to_original_map.size(); ++i) {
-    const i_t original_idx = papilo_reduced_to_original_map[i];
-    if (original_idx < 0 || static_cast<size_t>(original_idx) >= h_assignment.size()) {
-      CUOPT_LOG_DEBUG(
-        "papilo_crush_assignment: invalid original_idx %d at reduced index %zu", original_idx, i);
-      cuopt_assert(false, "invalid original_idx");
-      reduced_assignment[i] = f_t{0};
-      continue;
-    }
-    reduced_assignment[i] = h_assignment[original_idx];
-  }
-  assignment.resize(reduced_assignment.size(), problem.handle_ptr->get_stream());
-  raft::copy(assignment.data(),
-             reduced_assignment.data(),
-             reduced_assignment.size(),
-             problem.handle_ptr->get_stream());
-  problem.handle_ptr->sync_stream();
-}
-
 #if MIP_INSTANTIATE_FLOAT
 template class presolve_data_t<int, float>;
 #endif

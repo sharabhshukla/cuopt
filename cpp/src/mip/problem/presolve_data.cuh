@@ -100,8 +100,6 @@ class presolve_data_t {
   i_t get_papilo_original_num_variables() const { return papilo_original_num_variables; }
   void papilo_uncrush_assignment(problem_t<i_t, f_t>& problem,
                                  rmm::device_uvector<f_t>& assignment) const;
-  void papilo_crush_assignment(problem_t<i_t, f_t>& problem,
-                               rmm::device_uvector<f_t>& assignment) const;
 
   presolve_data_t(presolve_data_t&&)                 = default;
   presolve_data_t& operator=(presolve_data_t&&)      = default;

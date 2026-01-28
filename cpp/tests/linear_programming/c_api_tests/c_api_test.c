@@ -177,7 +177,7 @@ static void mip_set_solution_callback(cuopt_float_t* solution,
   memcpy(objective_value, &context->last_objective, sizeof(cuopt_float_t));
 }
 
-cuopt_int_t test_mip_callbacks()
+static cuopt_int_t test_mip_callbacks_internal(int include_set_callback)
 {
   cuOptOptimizationProblem problem = NULL;
   cuOptSolverSettings settings = NULL;
@@ -246,10 +246,12 @@ cuopt_int_t test_mip_callbacks()
     goto DONE;
   }
 
-  status = cuOptSetMIPSetSolutionCallback(settings, mip_set_solution_callback, &context);
-  if (status != CUOPT_SUCCESS) {
-    printf("Error setting set-solution callback\n");
-    goto DONE;
+  if (include_set_callback) {
+    status = cuOptSetMIPSetSolutionCallback(settings, mip_set_solution_callback, &context);
+    if (status != CUOPT_SUCCESS) {
+      printf("Error setting set-solution callback\n");
+      goto DONE;
+    }
   }
 
   status = cuOptSolve(problem, settings, &solution);
@@ -264,8 +266,13 @@ cuopt_int_t test_mip_callbacks()
     goto DONE;
   }
 
-  if (context.get_calls < 1 || context.set_calls < 1) {
-    printf("Expected callbacks to be called at least once\n");
+  if (context.get_calls < 1) {
+    printf("Expected get-solution callback to be called at least once\n");
+    status = CUOPT_INVALID_ARGUMENT;
+    goto DONE;
+  }
+  if (include_set_callback && context.set_calls < 1) {
+    printf("Expected set-solution callback to be called at least once\n");
     status = CUOPT_INVALID_ARGUMENT;
     goto DONE;
   }
@@ -276,6 +283,16 @@ DONE:
   cuOptDestroySolverSettings(&settings);
   cuOptDestroySolution(&solution);
   return status;
+}
+
+cuopt_int_t test_mip_get_callbacks_only()
+{
+  return test_mip_callbacks_internal(0);
+}
+
+cuopt_int_t test_mip_get_set_callbacks()
+{
+  return test_mip_callbacks_internal(1);
 }
 
 cuopt_int_t burglar_problem()

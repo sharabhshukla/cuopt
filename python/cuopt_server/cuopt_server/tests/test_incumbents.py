@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import time
@@ -9,7 +9,7 @@ from cuopt_server.tests.utils.utils import RequestClient
 client = RequestClient()
 
 
-def test_incumbent_callback(cuoptproc):  # noqa
+def _run_incumbent_callback(cuoptproc, include_set_callback):  # noqa
     data = {
         "csr_constraint_matrix": {
             "offsets": [0, 2],
@@ -35,7 +35,10 @@ def test_incumbent_callback(cuoptproc):  # noqa
         },
     }
 
-    params = {"incumbent_solutions": True}
+    params = {
+        "incumbent_solutions": True,
+        "incumbent_set_solutions": include_set_callback,
+    }
     res = client.post("/cuopt/request", params=params, json=data, block=False)
     assert res.status_code == 200
     reqId = res.json()["reqId"]
@@ -65,3 +68,11 @@ def test_incumbent_callback(cuoptproc):  # noqa
         time.sleep(1)
         cnt += 1
     assert saw_sentinel
+
+
+def test_incumbent_callback_get_only(cuoptproc):  # noqa
+    _run_incumbent_callback(cuoptproc, include_set_callback=False)
+
+
+def test_incumbent_callback_get_set(cuoptproc):  # noqa
+    _run_incumbent_callback(cuoptproc, include_set_callback=True)

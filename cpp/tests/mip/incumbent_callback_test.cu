@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -101,7 +102,7 @@ void check_solutions(const test_get_solution_callback_t& get_solution_callback,
   }
 }
 
-void test_incumbent_callback(std::string test_instance)
+void test_incumbent_callback(std::string test_instance, bool include_set_callback)
 {
   const raft::handle_t handle_{};
   std::cout << "Running: " << test_instance << std::endl;
@@ -113,25 +114,38 @@ void test_incumbent_callback(std::string test_instance)
 
   auto settings       = mip_solver_settings_t<int, double>{};
   settings.time_limit = 30.;
+  settings.presolve   = true;
   int user_data       = 42;
   std::vector<std::pair<std::vector<double>, double>> solutions;
   test_get_solution_callback_t get_solution_callback(
     solutions, op_problem.get_n_variables(), &user_data);
-  test_set_solution_callback_t set_solution_callback(solutions, &user_data);
   settings.set_mip_callback(&get_solution_callback, &user_data);
-  settings.set_mip_callback(&set_solution_callback, &user_data);
+  std::unique_ptr<test_set_solution_callback_t> set_solution_callback;
+  if (include_set_callback) {
+    set_solution_callback = std::make_unique<test_set_solution_callback_t>(solutions, &user_data);
+    settings.set_mip_callback(set_solution_callback.get(), &user_data);
+  }
   auto solution = solve_mip(op_problem, settings);
   EXPECT_GE(get_solution_callback.n_calls, 1);
-  EXPECT_GE(set_solution_callback.n_calls, 1);
+  if (include_set_callback) { EXPECT_GE(set_solution_callback->n_calls, 1); }
   check_solutions(get_solution_callback, mps_problem, settings);
 }
 
-TEST(mip_solve, incumbent_callback_test)
+TEST(mip_solve, incumbent_get_callback_test)
 {
   std::vector<std::string> test_instances = {
     "mip/50v-10.mps", "mip/neos5-free-bound.mps", "mip/swath1.mps"};
   for (const auto& test_instance : test_instances) {
-    test_incumbent_callback(test_instance);
+    test_incumbent_callback(test_instance, false);
+  }
+}
+
+TEST(mip_solve, incumbent_get_set_callback_test)
+{
+  std::vector<std::string> test_instances = {
+    "mip/50v-10.mps", "mip/neos5-free-bound.mps", "mip/swath1.mps"};
+  for (const auto& test_instance : test_instances) {
+    test_incumbent_callback(test_instance, true);
   }
 }
 

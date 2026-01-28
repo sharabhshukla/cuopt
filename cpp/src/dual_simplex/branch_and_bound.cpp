@@ -336,9 +336,7 @@ void branch_and_bound_t<i_t, f_t>::set_new_solution(const std::vector<f_t>& solu
       }
     }
   } else {
-    settings_.log.printf(
-      "[DEBUG] set_new_solution: Solution objective not better than current upper_bound_. Not "
-      "accepted.\n");
+    settings_.log.debug("Solution objective not better than current upper_bound_. Not accepted.\n");
   }
   mutex_upper_.unlock();
   if (is_feasible) { report_heuristic(obj); }
