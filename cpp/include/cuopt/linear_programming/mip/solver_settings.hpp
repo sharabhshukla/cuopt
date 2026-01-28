@@ -19,13 +19,8 @@
 
 namespace cuopt::linear_programming {
 
-// Method enum - must match pdlp/solver_settings.hpp definition
-enum method_t : int {
-  Concurrent  = CUOPT_METHOD_CONCURRENT,
-  PDLP        = CUOPT_METHOD_PDLP,
-  DualSimplex = CUOPT_METHOD_DUAL_SIMPLEX,
-  Barrier     = CUOPT_METHOD_BARRIER
-};
+// Forward declaration - full definition in pdlp/solver_settings.hpp
+enum method_t : int;
 
 struct benchmark_info_t {
   double last_improvement_of_best_feasible    = 0;
@@ -102,7 +97,7 @@ class mip_solver_settings_t {
   // this is for extracting info from different places of the solver during
   // benchmarks
   benchmark_info_t* benchmark_info_ptr = nullptr;
-  method_t root_lp_method              = method_t::Concurrent;
+  method_t root_lp_method              = static_cast<method_t>(CUOPT_METHOD_CONCURRENT);
 
  private:
   std::vector<internals::base_solution_callback_t*> mip_callbacks_;
