@@ -351,7 +351,7 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
       for (size_t i = 0; i < batch_solution_to_return_.get_terminations_status().size(); ++i) {
         if (!current_termination_strategy_.is_done(
               current_termination_strategy_.get_termination_status(i))) {
-          batch_solution_to_return_.get_terminations_status()[i] =
+          batch_solution_to_return_.get_terminations_status()[climber_strategies_[i].original_index] =
             pdlp_termination_status_t::TimeLimit;
         }
       }
@@ -408,7 +408,7 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
       for (size_t i = 0; i < batch_solution_to_return_.get_terminations_status().size(); ++i) {
         if (!current_termination_strategy_.is_done(
               current_termination_strategy_.get_termination_status(i))) {
-          batch_solution_to_return_.get_terminations_status()[i] =
+          batch_solution_to_return_.get_terminations_status()[climber_strategies_[i].original_index] =
             pdlp_termination_status_t::IterationLimit;
         }
       }
@@ -454,7 +454,7 @@ std::optional<optimization_problem_solution_t<i_t, f_t>> pdlp_solver_t<i_t, f_t>
       for (size_t i = 0; i < batch_solution_to_return_.get_terminations_status().size(); ++i) {
         if (!current_termination_strategy_.is_done(
               current_termination_strategy_.get_termination_status(i))) {
-          batch_solution_to_return_.get_terminations_status()[i] =
+          batch_solution_to_return_.get_terminations_status()[climber_strategies_[i].original_index] =
             pdlp_termination_status_t::ConcurrentLimit;
         }
       }
