@@ -171,7 +171,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
       solver_settings_.enable_reliability_branching;
 
     if (context.settings.num_cpu_threads < 0) {
-      branch_and_bound_settings.num_threads = omp_get_max_threads() - 1;
+      branch_and_bound_settings.num_threads = std::max(1, omp_get_max_threads() - 1);
     } else {
       branch_and_bound_settings.num_threads = std::max(1, context.settings.num_cpu_threads);
     }
