@@ -19,6 +19,9 @@
 
 namespace cuopt::linear_programming {
 
+// Forward declaration from pdlp/solver_settings.hpp
+enum method_t : int;
+
 struct benchmark_info_t {
   double last_improvement_of_best_feasible    = 0;
   double last_improvement_after_recombination = 0;
@@ -94,6 +97,7 @@ class mip_solver_settings_t {
   // this is for extracting info from different places of the solver during
   // benchmarks
   benchmark_info_t* benchmark_info_ptr = nullptr;
+  method_t root_lp_method              = method_t::Concurrent;
 
  private:
   std::vector<internals::base_solution_callback_t*> mip_callbacks_;
