@@ -95,6 +95,9 @@ set_target_properties(mps_parser
   CXX_SCAN_FOR_MODULES OFF
 )
 
+# The static library is linked into the shared `libcuopt.so`, so it must be PIC.
+set_target_properties(mps_parser_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_compile_options(mps_parser
   PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${MPS_PARSER_CXX_FLAGS}>"
 )
