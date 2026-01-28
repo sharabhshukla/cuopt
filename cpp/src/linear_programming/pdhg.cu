@@ -96,6 +96,7 @@ pdhg_solver_t<i_t, f_t>::pdhg_solver_t(
     batch_size_divisor_(climber_strategies_.size())
 {
   if (!new_bounds.empty()) {
+    cuopt_assert(new_bounds.size() == climber_strategies_.size(), "New bounds size must be equal to climber strategies size");
     std::vector<i_t> idx(new_bounds.size());
     std::vector<f_t> lower(new_bounds.size());
     std::vector<f_t> upper(new_bounds.size());
@@ -668,91 +669,90 @@ struct dual_reflected_projection_bulk_op {
 };
 
 template <typename i_t, typename f_t>
-__global__ void refine_primal_projection_major_batch_kernel(
-  i_t batch_size,
-  i_t n_variables,
-  raft::device_span<const i_t> idx,
-  raft::device_span<const f_t> lower,
-  raft::device_span<const f_t> upper,
-  raft::device_span<const f_t> current_primal,
-  raft::device_span<const f_t> objective,
-  raft::device_span<const f_t> Aty,
-  raft::device_span<const f_t> primal_step_size,
-  raft::device_span<f_t> potential_next,
-  raft::device_span<f_t> dual_slack,
-  raft::device_span<f_t> reflected_primal)
-{
-  int climber_id = blockIdx.x * blockDim.x + threadIdx.x;
-  if (climber_id >= batch_size) return;
+struct refine_primal_projection_major_bulk_op {
+  raft::device_span<const i_t> idx;
+  raft::device_span<const f_t> lower;
+  raft::device_span<const f_t> upper;
+  raft::device_span<const f_t> current_primal;
+  raft::device_span<const f_t> objective;
+  raft::device_span<const f_t> Aty;
+  raft::device_span<const f_t> primal_step_size;
+  raft::device_span<f_t> potential_next;
+  raft::device_span<f_t> dual_slack;
+  raft::device_span<f_t> reflected_primal;
+  int batch_size;
 
-  i_t var_idx = idx[climber_id];
-  f_t l       = lower[climber_id];
-  f_t u       = upper[climber_id];
+  HDI void operator()(size_t climber_id)
+  {
+    i_t var_idx = idx[climber_id];
+    f_t l       = lower[climber_id];
+    f_t u       = upper[climber_id];
 
-  size_t global_idx = (size_t)var_idx * batch_size + climber_id;
+    size_t global_idx = (size_t)var_idx * batch_size + climber_id;
 
-  f_t x     = current_primal[global_idx];
-  f_t c     = objective[var_idx];
-  f_t y_aty = Aty[global_idx];
-  f_t tau   = primal_step_size[climber_id];
+    f_t x     = current_primal[global_idx];
+    f_t c     = objective[var_idx];
+    f_t y_aty = Aty[global_idx];
+    f_t tau   = primal_step_size[climber_id];
 
-  auto [next_clamped, delta_primal, reflected_primal_value] =
-    primal_reflected_major_projection_batch<f_t>{}(x, c, y_aty, {l, u}, tau);
+    auto [next_clamped, delta_primal, reflected_primal_value] =
+      primal_reflected_major_projection_batch<f_t>{}(x, c, y_aty, {l, u}, tau);
 
-  potential_next[global_idx]   = next_clamped;
-  dual_slack[global_idx]       = delta_primal;
-  reflected_primal[global_idx] = reflected_primal_value;
-}
-
-template <typename i_t, typename f_t>
-__global__ void refine_primal_projection_batch_kernel(i_t batch_size,
-                                                      i_t n_variables,
-                                                      raft::device_span<const i_t> idx,
-                                                      raft::device_span<const f_t> lower,
-                                                      raft::device_span<const f_t> upper,
-                                                      raft::device_span<const f_t> current_primal,
-                                                      raft::device_span<const f_t> objective,
-                                                      raft::device_span<const f_t> Aty,
-                                                      raft::device_span<const f_t> primal_step_size,
-                                                      raft::device_span<f_t> reflected_primal)
-{
-  int climber_id = blockIdx.x * blockDim.x + threadIdx.x;
-  if (climber_id >= batch_size) return;
-
-  i_t var_idx = idx[climber_id];
-  f_t l       = lower[climber_id];
-  f_t u       = upper[climber_id];
-
-  size_t global_idx = (size_t)var_idx * batch_size + climber_id;
-
-  f_t x     = current_primal[global_idx];
-  f_t c     = objective[var_idx];
-  f_t y_aty = Aty[global_idx];
-  f_t tau   = primal_step_size[climber_id];
-
-  reflected_primal[global_idx] = primal_reflected_projection_batch<f_t>{}(x, c, y_aty, {l, u}, tau);
-}
+    potential_next[global_idx]   = next_clamped;
+    dual_slack[global_idx]       = delta_primal;
+    reflected_primal[global_idx] = reflected_primal_value;
+  }
+};
 
 template <typename i_t, typename f_t>
-__global__ void refine_initial_primal_projection_kernel(i_t batch_size,
-                                                        i_t n_variables,
-                                                        raft::device_span<const i_t> idx,
-                                                        raft::device_span<const f_t> lower,
-                                                        raft::device_span<const f_t> upper,
-                                                        raft::device_span<f_t> primal_solution)
-{
-  int climber_id = blockIdx.x * blockDim.x + threadIdx.x;
-  if (climber_id >= batch_size) return;
+struct refine_primal_projection_bulk_op {
+  raft::device_span<const i_t> idx;
+  raft::device_span<const f_t> lower;
+  raft::device_span<const f_t> upper;
+  raft::device_span<const f_t> current_primal;
+  raft::device_span<const f_t> objective;
+  raft::device_span<const f_t> Aty;
+  raft::device_span<const f_t> primal_step_size;
+  raft::device_span<f_t> reflected_primal;
+  int batch_size;
 
-  i_t var_idx = idx[climber_id];
-  f_t l       = lower[climber_id];
-  f_t u       = upper[climber_id];
+  HDI void operator()(size_t climber_id)
+  {
+    i_t var_idx = idx[climber_id];
+    f_t l       = lower[climber_id];
+    f_t u       = upper[climber_id];
 
-  // When refining, the solution is not yet transposed
-  size_t global_idx           = (size_t)climber_id * n_variables + var_idx;
-  using f_t2                  = typename type_2<f_t>::type;
-  primal_solution[global_idx] = clamp<f_t, f_t2>{}(primal_solution[global_idx], {l, u});
-}
+    size_t global_idx = (size_t)var_idx * batch_size + climber_id;
+
+    f_t x     = current_primal[global_idx];
+    f_t c     = objective[var_idx];
+    f_t y_aty = Aty[global_idx];
+    f_t tau   = primal_step_size[climber_id];
+
+    reflected_primal[global_idx] = primal_reflected_projection_batch<f_t>{}(x, c, y_aty, {l, u}, tau);
+  }
+};
+
+template <typename i_t, typename f_t>
+struct refine_initial_primal_projection_bulk_op {
+  raft::device_span<const i_t> idx;
+  raft::device_span<const f_t> lower;
+  raft::device_span<const f_t> upper;
+  raft::device_span<f_t> primal_solution;
+  i_t n_variables;
+
+  HDI void operator()(size_t climber_id)
+  {
+    i_t var_idx = idx[climber_id];
+    f_t l       = lower[climber_id];
+    f_t u       = upper[climber_id];
+
+    // When refining, the solution is not yet transposed
+    size_t global_idx           = (size_t)climber_id * n_variables + var_idx;
+    using f_t2                  = typename type_2<f_t>::type;
+    primal_solution[global_idx] = clamp<f_t, f_t2>{}(primal_solution[global_idx], {l, u});
+  }
+};
 
 template <typename i_t, typename f_t>
 void pdhg_solver_t<i_t, f_t>::refine_initial_primal_projection()
@@ -763,15 +763,17 @@ void pdhg_solver_t<i_t, f_t>::refine_initial_primal_projection()
   print("new_bounds_lower_", new_bounds_lower_);
   print("new_bounds_upper_", new_bounds_upper_);
 #endif
-  const auto [grid_size, block_size] = kernel_config_from_batch_size(climber_strategies_.size());
-  refine_initial_primal_projection_kernel<<<grid_size, block_size, 0, stream_view_>>>(
-    (i_t)climber_strategies_.size(),
-    problem_ptr->n_variables,
-    raft::device_span<const i_t>(new_bounds_idx_.data(), new_bounds_idx_.size()),
-    raft::device_span<const f_t>(new_bounds_lower_.data(), new_bounds_lower_.size()),
-    raft::device_span<const f_t>(new_bounds_upper_.data(), new_bounds_upper_.size()),
-    raft::device_span<f_t>(current_saddle_point_state_.get_primal_solution().data(),
-                           current_saddle_point_state_.get_primal_solution().size()));
+  cuopt_assert(new_bounds_idx_.size() == climber_strategies_.size(), "New bounds index size must be equal to climber strategies size");
+  cuopt_assert(new_bounds_lower_.size() == climber_strategies_.size(), "New bounds lower size must be equal to climber strategies size");
+  cuopt_assert(new_bounds_upper_.size() == climber_strategies_.size(), "New bounds upper size must be equal to climber strategies size");
+  cub::DeviceFor::Bulk(climber_strategies_.size(),
+                       refine_initial_primal_projection_bulk_op<i_t, f_t>{
+                         make_span(new_bounds_idx_),
+                         make_span(new_bounds_lower_),
+                         make_span(new_bounds_upper_),
+                         make_span(current_saddle_point_state_.get_primal_solution()),
+                         problem_ptr->n_variables},
+                       stream_view_.value());
 }
 
 template <typename i_t, typename f_t>
@@ -822,25 +824,23 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
         print("new_bounds_lower_", new_bounds_lower_);
         print("new_bounds_upper_", new_bounds_upper_);
 #endif
-        const auto [grid_size, block_size] =
-          kernel_config_from_batch_size(climber_strategies_.size());
-        refine_primal_projection_major_batch_kernel<<<grid_size, block_size, 0, stream_view_>>>(
-          (i_t)climber_strategies_.size(),
-          problem_ptr->n_variables,
-          raft::device_span<const i_t>(new_bounds_idx_.data(), new_bounds_idx_.size()),
-          raft::device_span<const f_t>(new_bounds_lower_.data(), new_bounds_lower_.size()),
-          raft::device_span<const f_t>(new_bounds_upper_.data(), new_bounds_upper_.size()),
-          raft::device_span<const f_t>(current_saddle_point_state_.get_primal_solution().data(),
-                                       current_saddle_point_state_.get_primal_solution().size()),
-          raft::device_span<const f_t>(problem_ptr->objective_coefficients.data(),
-                                       problem_ptr->objective_coefficients.size()),
-          raft::device_span<const f_t>(current_saddle_point_state_.get_current_AtY().data(),
-                                       current_saddle_point_state_.get_current_AtY().size()),
-          raft::device_span<const f_t>(primal_step_size.data(), primal_step_size.size()),
-          raft::device_span<f_t>(potential_next_primal_solution_.data(),
-                                 potential_next_primal_solution_.size()),
-          raft::device_span<f_t>(dual_slack_.data(), dual_slack_.size()),
-          raft::device_span<f_t>(reflected_primal_.data(), reflected_primal_.size()));
+        cuopt_assert(new_bounds_idx_.size() == climber_strategies_.size(), "New bounds index size must be equal to climber strategies size");
+        cuopt_assert(new_bounds_lower_.size() == climber_strategies_.size(), "New bounds lower size must be equal to climber strategies size");
+        cuopt_assert(new_bounds_upper_.size() == climber_strategies_.size(), "New bounds upper size must be equal to climber strategies size");
+        cub::DeviceFor::Bulk(climber_strategies_.size(),
+                             refine_primal_projection_major_bulk_op<i_t, f_t>{
+                               make_span(new_bounds_idx_),
+                               make_span(new_bounds_lower_),
+                               make_span(new_bounds_upper_),
+                               make_span(current_saddle_point_state_.get_primal_solution()),
+                               make_span(problem_ptr->objective_coefficients),
+                               make_span(current_saddle_point_state_.get_current_AtY()),
+                               make_span(primal_step_size),
+                               make_span(potential_next_primal_solution_),
+                               make_span(dual_slack_),
+                               make_span(reflected_primal_),
+                               (int)climber_strategies_.size()},
+                             stream_view_.value());
       }
 #ifdef CUPDLP_DEBUG_MODE
       print("potential_next_primal_solution_", potential_next_primal_solution_);
@@ -926,22 +926,21 @@ void pdhg_solver_t<i_t, f_t>::compute_next_primal_dual_solution_reflected(
         print("new_bounds_lower_", new_bounds_lower_);
         print("new_bounds_upper_", new_bounds_upper_);
 #endif
-        const auto [grid_size, block_size] =
-          kernel_config_from_batch_size(climber_strategies_.size());
-        refine_primal_projection_batch_kernel<<<grid_size, block_size, 0, stream_view_>>>(
-          (i_t)climber_strategies_.size(),
-          problem_ptr->n_variables,
-          raft::device_span<const i_t>(new_bounds_idx_.data(), new_bounds_idx_.size()),
-          raft::device_span<const f_t>(new_bounds_lower_.data(), new_bounds_lower_.size()),
-          raft::device_span<const f_t>(new_bounds_upper_.data(), new_bounds_upper_.size()),
-          raft::device_span<const f_t>(current_saddle_point_state_.get_primal_solution().data(),
-                                       current_saddle_point_state_.get_primal_solution().size()),
-          raft::device_span<const f_t>(problem_ptr->objective_coefficients.data(),
-                                       problem_ptr->objective_coefficients.size()),
-          raft::device_span<const f_t>(current_saddle_point_state_.get_current_AtY().data(),
-                                       current_saddle_point_state_.get_current_AtY().size()),
-          raft::device_span<const f_t>(primal_step_size.data(), primal_step_size.size()),
-          raft::device_span<f_t>(reflected_primal_.data(), reflected_primal_.size()));
+        cuopt_assert(new_bounds_idx_.size() == climber_strategies_.size(), "New bounds index size must be equal to climber strategies size");
+        cuopt_assert(new_bounds_lower_.size() == climber_strategies_.size(), "New bounds lower size must be equal to climber strategies size");
+        cuopt_assert(new_bounds_upper_.size() == climber_strategies_.size(), "New bounds upper size must be equal to climber strategies size");
+        cub::DeviceFor::Bulk(climber_strategies_.size(),
+                             refine_primal_projection_bulk_op<i_t, f_t>{
+                               make_span(new_bounds_idx_),
+                               make_span(new_bounds_lower_),
+                               make_span(new_bounds_upper_),
+                               make_span(current_saddle_point_state_.get_primal_solution()),
+                               make_span(problem_ptr->objective_coefficients),
+                               make_span(current_saddle_point_state_.get_current_AtY()),
+                               make_span(primal_step_size),
+                               make_span(reflected_primal_),
+                               (int)climber_strategies_.size()},
+                             stream_view_.value());
       }
 #ifdef CUPDLP_DEBUG_MODE
       print("reflected_primal_", reflected_primal_);
