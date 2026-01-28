@@ -208,10 +208,11 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     context.branch_and_bound_ptr = branch_and_bound.get();
     // Pass the root LP method to branch_and_bound
     branch_and_bound->set_root_lp_method(static_cast<int>(context.settings.root_lp_method));
-    // Enable concurrent mode only if user specified Concurrent method (default)
-    // Otherwise, diversity_manager will use the specified method (PDLP, DualSimplex, or Barrier)
-    bool use_concurrent = (context.settings.root_lp_method == static_cast<method_t>(CUOPT_METHOD_CONCURRENT));
-    branch_and_bound->set_concurrent_lp_root_solve(use_concurrent);
+    // Enable solve_root_relaxation() path (which waits for diversity_manager) for all methods except pure DualSimplex
+    // When method is DualSimplex only, use the simple dual simplex path
+    // For PDLP/Barrier/Concurrent, use solve_root_relaxation() which will conditionally launch solvers
+    bool use_root_relaxation_path = (context.settings.root_lp_method != static_cast<method_t>(CUOPT_METHOD_DUAL_SIMPLEX));
+    branch_and_bound->set_concurrent_lp_root_solve(use_root_relaxation_path);
 
     // Set the primal heuristics -> branch and bound callback
     context.problem_ptr->branch_and_bound_callback =
