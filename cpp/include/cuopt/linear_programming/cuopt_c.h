@@ -688,10 +688,12 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
  * The allocated array for solution pointer must be at least the number of variables in the original
  * problem.
  * @param[in] objective_value - Pointer to incumbent objective value.
+ * @param[in] solution_bound - Pointer to current solution (dual/user) bound.
  * @param[in] user_data - Pointer to user data.
  */
 typedef void (*cuOptMIPGetSolutionCallback)(const cuopt_float_t* solution,
                                             const cuopt_float_t* objective_value,
+                                            const cuopt_float_t* solution_bound,
                                             void* user_data);
 
 /**
@@ -701,10 +703,12 @@ typedef void (*cuOptMIPGetSolutionCallback)(const cuopt_float_t* solution,
  * The allocated array for solution pointer must be at least the number of variables in the original
  * problem.
  * @param[out] objective_value - Pointer to objective value to set.
+ * @param[in] solution_bound - Pointer to current solution (dual/user) bound.
  * @param[in] user_data - Pointer to user data.
  */
 typedef void (*cuOptMIPSetSolutionCallback)(cuopt_float_t* solution,
                                             cuopt_float_t* objective_value,
+                                            const cuopt_float_t* solution_bound,
                                             void* user_data);
 
 /**

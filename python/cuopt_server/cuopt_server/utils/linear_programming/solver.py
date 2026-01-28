@@ -82,18 +82,24 @@ class CustomGetSolutionCallback(GetSolutionCallback):
         self.sender = sender
         self.solutions = []
 
-    def get_solution(self, solution, solution_cost, user_data):
+    def get_solution(self, solution, solution_cost, solution_bound, user_data):
         if user_data is not None:
             assert user_data == self.req_id
         solution_list = solution.tolist()
         solution_cost_val = float(solution_cost[0])
+        solution_bound_val = float(solution_bound[0])
         self.solutions.append(
-            {"solution": solution_list, "cost": solution_cost_val}
+            {
+                "solution": solution_list,
+                "cost": solution_cost_val,
+                "bound": solution_bound_val,
+            }
         )
         self.sender(
             self.req_id,
             solution_list,
             solution_cost_val,
+            solution_bound_val,
         )
 
 
@@ -104,7 +110,7 @@ class CustomSetSolutionCallback(SetSolutionCallback):
         self.get_callback = get_callback
         self.n_callbacks = 0
 
-    def set_solution(self, solution, solution_cost, user_data):
+    def set_solution(self, solution, solution_cost, solution_bound, user_data):
         if user_data is not None:
             assert user_data == self.req_id
         self.n_callbacks += 1

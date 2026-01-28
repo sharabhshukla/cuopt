@@ -330,16 +330,20 @@ def _run_incumbent_solutions(include_set_callback):
             self.solutions = []
             self.user_data = user_data
 
-        def get_solution(self, solution, solution_cost, user_data):
+        def get_solution(
+            self, solution, solution_cost, solution_bound, user_data
+        ):
             assert user_data is self.user_data
             self.n_callbacks += 1
             assert len(solution) > 0
             assert len(solution_cost) == 1
+            assert len(solution_bound) == 1
 
             self.solutions.append(
                 {
                     "solution": solution.tolist(),
                     "cost": float(solution_cost[0]),
+                    "bound": float(solution_bound[0]),
                 }
             )
 
@@ -350,9 +354,12 @@ def _run_incumbent_solutions(include_set_callback):
             self.get_callback = get_callback
             self.user_data = user_data
 
-        def set_solution(self, solution, solution_cost, user_data):
+        def set_solution(
+            self, solution, solution_cost, solution_bound, user_data
+        ):
             assert user_data is self.user_data
             self.n_callbacks += 1
+            assert len(solution_bound) == 1
             if self.get_callback.solutions:
                 solution[:] = self.get_callback.solutions[-1]["solution"]
                 solution_cost[0] = float(

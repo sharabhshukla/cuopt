@@ -65,7 +65,7 @@ class IncumbentCallback(GetSolutionCallback):
         self.n_callbacks = 0
         self.user_data = user_data
 
-    def get_solution(self, solution, solution_cost, user_data):
+    def get_solution(self, solution, solution_cost, solution_bound, user_data):
         assert user_data is self.user_data
         """
         Called whenever the solver finds a new incumbent solution.
@@ -76,6 +76,8 @@ class IncumbentCallback(GetSolutionCallback):
             The variable values of the incumbent solution
         solution_cost : array-like
             The objective value of the incumbent solution
+        solution_bound : array-like
+            The current best bound in user objective space
         """
         self.n_callbacks += 1
 
@@ -83,6 +85,7 @@ class IncumbentCallback(GetSolutionCallback):
         incumbent = {
             "solution": solution.tolist(),
             "cost": float(solution_cost[0]),
+            "bound": float(solution_bound[0]),
             "iteration": self.n_callbacks,
             "user_data": user_data,
         }

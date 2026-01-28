@@ -44,7 +44,10 @@ class base_solution_callback_t : public Callback {
 
 class get_solution_callback_t : public base_solution_callback_t {
  public:
-  virtual void get_solution(void* data, void* objective_value, void* user_data) = 0;
+  virtual void get_solution(void* data,
+                            void* objective_value,
+                            void* solution_bound,
+                            void* user_data) = 0;
   base_solution_callback_type get_type() const override
   {
     return base_solution_callback_type::GET_SOLUTION;
@@ -53,7 +56,10 @@ class get_solution_callback_t : public base_solution_callback_t {
 
 class set_solution_callback_t : public base_solution_callback_t {
  public:
-  virtual void set_solution(void* data, void* objective_value, void* user_data) = 0;
+  virtual void set_solution(void* data,
+                            void* objective_value,
+                            void* solution_bound,
+                            void* user_data) = 0;
   base_solution_callback_type get_type() const override
   {
     return base_solution_callback_type::SET_SOLUTION;

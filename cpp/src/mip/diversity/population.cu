@@ -276,6 +276,7 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
       if (callback->get_type() == internals::base_solution_callback_type::GET_SOLUTION) {
         auto get_sol_callback = static_cast<internals::get_solution_callback_t*>(callback);
         f_t user_objective    = sol.get_user_objective();
+        f_t user_bound        = context.stats.get_solution_bound();
         solution_t<i_t, f_t> temp_sol(sol);
         problem_ptr->post_process_assignment(temp_sol.assignment);
         if (context.settings.mip_scaling) {
@@ -300,15 +301,19 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
         }
 
         std::vector<f_t> user_objective_vec(1);
+        std::vector<f_t> user_bound_vec(1);
         std::vector<f_t> user_assignment_vec(temp_sol.assignment.size());
         user_objective_vec[0] = user_objective;
+        user_bound_vec[0]     = user_bound;
         raft::copy(user_assignment_vec.data(),
                    temp_sol.assignment.data(),
                    temp_sol.assignment.size(),
                    temp_sol.handle_ptr->get_stream());
         temp_sol.handle_ptr->sync_stream();
-        get_sol_callback->get_solution(
-          user_assignment_vec.data(), user_objective_vec.data(), get_sol_callback->get_user_data());
+        get_sol_callback->get_solution(user_assignment_vec.data(),
+                                       user_objective_vec.data(),
+                                       user_bound_vec.data(),
+                                       get_sol_callback->get_user_data());
       }
     }
     // save the best objective here, because we might not have been able to return the solution to
@@ -321,6 +326,7 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
   for (auto callback : user_callbacks) {
     if (callback->get_type() == internals::base_solution_callback_type::SET_SOLUTION) {
       auto set_sol_callback       = static_cast<internals::set_solution_callback_t*>(callback);
+      f_t user_bound              = context.stats.get_solution_bound();
       auto callback_num_variables = problem_ptr->original_problem_ptr->get_n_variables();
       if (problem_ptr->has_papilo_presolve_data()) {
         callback_num_variables = problem_ptr->get_papilo_original_num_variables();
@@ -334,8 +340,10 @@ void population_t<i_t, f_t>::run_solution_callbacks(solution_t<i_t, f_t>& sol)
       sol.handle_ptr->sync_stream();
       std::vector<f_t> h_incumbent_assignment(incumbent_assignment.size());
       std::vector<f_t> h_outside_sol_objective(1, inf);
+      std::vector<f_t> h_user_bound(1, user_bound);
       set_sol_callback->set_solution(h_incumbent_assignment.data(),
                                      h_outside_sol_objective.data(),
+                                     h_user_bound.data(),
                                      set_sol_callback->get_user_data());
       f_t outside_sol_objective = h_outside_sol_objective[0];
       // The callback might be called without setting any valid solution or objective which triggers

@@ -139,11 +139,13 @@ typedef struct mip_callback_context_t {
   int set_calls;
   int error;
   cuopt_float_t last_objective;
+  cuopt_float_t last_solution_bound;
   cuopt_float_t* last_solution;
 } mip_callback_context_t;
 
 static void mip_get_solution_callback(const cuopt_float_t* solution,
                                       const cuopt_float_t* objective_value,
+                                      const cuopt_float_t* solution_bound,
                                       void* user_data)
 {
   mip_callback_context_t* context = (mip_callback_context_t*)user_data;
@@ -161,15 +163,18 @@ static void mip_get_solution_callback(const cuopt_float_t* solution,
          solution,
          context->n_variables * sizeof(cuopt_float_t));
   memcpy(&context->last_objective, objective_value, sizeof(cuopt_float_t));
+  memcpy(&context->last_solution_bound, solution_bound, sizeof(cuopt_float_t));
 }
 
 static void mip_set_solution_callback(cuopt_float_t* solution,
                                       cuopt_float_t* objective_value,
+                                      const cuopt_float_t* solution_bound,
                                       void* user_data)
 {
   mip_callback_context_t* context = (mip_callback_context_t*)user_data;
   if (context == NULL) { return; }
   context->set_calls += 1;
+  memcpy(&context->last_solution_bound, solution_bound, sizeof(cuopt_float_t));
   if (context->last_solution == NULL) { return; }
   memcpy(solution,
          context->last_solution,
@@ -262,6 +267,12 @@ static cuopt_int_t test_mip_callbacks_internal(int include_set_callback)
 
   if (context.error != 0) {
     printf("Error in callback data transfer\n");
+    status = CUOPT_INVALID_ARGUMENT;
+    goto DONE;
+  }
+
+  if (context.last_solution_bound != context.last_solution_bound) {
+    printf("Error reading solution bound in callback\n");
     status = CUOPT_INVALID_ARGUMENT;
     goto DONE;
   }

@@ -62,9 +62,12 @@ def main():
     )
 
     # Incumbent callback - receives intermediate host solutions
-    def callback(solution, solution_cost):
+    def callback(solution, solution_cost, solution_bound):
         """Called when solver finds a new incumbent solution."""
-        print(f"Solution : {solution} cost : {solution_cost}\n")
+        print(
+            f"Solution : {solution} cost : {solution_cost} "
+            f"bound : {solution_bound}\n"
+        )
 
     # Logging callback - receives server log messages
     def log_callback(log):

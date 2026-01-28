@@ -20,12 +20,18 @@ cdef extern from "cuopt/linear_programming/utilities/callbacks_implems.hpp" name
 
     cdef cppclass default_get_solution_callback_t(Callback):
         void setup() except +
-        void get_solution(void* data, void* objective_value, void* user_data) except +
+        void get_solution(void* data,
+                          void* objective_value,
+                          void* solution_bound,
+                          void* user_data) except +
         PyObject* pyCallbackClass
 
     cdef cppclass default_set_solution_callback_t(Callback):
         void setup() except +
-        void set_solution(void* data, void* objective_value, void* user_data) except +
+        void set_solution(void* data,
+                          void* objective_value,
+                          void* solution_bound,
+                          void* user_data) except +
         PyObject* pyCallbackClass
 
 

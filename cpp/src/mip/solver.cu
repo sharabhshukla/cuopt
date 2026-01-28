@@ -205,6 +205,9 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
       branch_and_bound_problem, branch_and_bound_settings);
     context.branch_and_bound_ptr = branch_and_bound.get();
     branch_and_bound->set_concurrent_lp_root_solve(true);
+    auto* stats_ptr = &context.stats;
+    branch_and_bound->set_user_bound_callback(
+      [stats_ptr](f_t user_bound) { stats_ptr->set_solution_bound(user_bound); });
 
     // Set the primal heuristics -> branch and bound callback
     context.problem_ptr->branch_and_bound_callback =
@@ -237,8 +240,8 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     // Wait for the branch and bound to finish
     auto bb_status = branch_and_bound_status_future.get();
     if (branch_and_bound_solution.lower_bound > -std::numeric_limits<f_t>::infinity()) {
-      context.stats.solution_bound =
-        context.problem_ptr->get_user_obj_from_solver_obj(branch_and_bound_solution.lower_bound);
+      context.stats.set_solution_bound(
+        context.problem_ptr->get_user_obj_from_solver_obj(branch_and_bound_solution.lower_bound));
     }
     if (bb_status == dual_simplex::mip_status_t::INFEASIBLE) { sol.set_problem_fully_reduced(); }
     context.stats.num_nodes              = branch_and_bound_solution.nodes_explored;

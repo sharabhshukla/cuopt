@@ -1,6 +1,6 @@
 /* clang-format off */
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 /* clang-format on */
@@ -10,6 +10,8 @@
 #include <linear_programming/initial_scaling_strategy/initial_scaling.cuh>
 #include <mip/problem/problem.cuh>
 #include <mip/relaxed_lp/lp_state.cuh>
+
+#include <limits>
 
 #pragma once
 
@@ -32,8 +34,8 @@ struct mip_solver_context_t {
     : handle_ptr(handle_ptr_), problem_ptr(problem_ptr_), settings(settings_), scaling(scaling)
   {
     cuopt_assert(problem_ptr != nullptr, "problem_ptr is nullptr");
-    stats.solution_bound = problem_ptr->maximize ? std::numeric_limits<f_t>::infinity()
-                                                 : -std::numeric_limits<f_t>::infinity();
+    stats.set_solution_bound(problem_ptr->maximize ? std::numeric_limits<f_t>::infinity()
+                                                   : -std::numeric_limits<f_t>::infinity());
   }
 
   raft::handle_t const* const handle_ptr;

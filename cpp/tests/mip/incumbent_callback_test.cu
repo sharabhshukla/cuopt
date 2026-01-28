@@ -24,6 +24,7 @@
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/sequence.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -41,10 +42,12 @@ class test_set_solution_callback_t : public cuopt::internals::set_solution_callb
   {
   }
   // This will check that the we are able to recompute our own solution
-  void set_solution(void* data, void* cost, void* user_data) override
+  void set_solution(void* data, void* cost, void* solution_bound, void* user_data) override
   {
     EXPECT_EQ(user_data, expected_user_data);
     n_calls++;
+    auto bound_ptr = static_cast<double*>(solution_bound);
+    EXPECT_FALSE(std::isnan(bound_ptr[0]));
     auto assignment = static_cast<double*>(data);
     auto cost_ptr   = static_cast<double*>(cost);
     if (solutions.empty()) { return; }
@@ -69,10 +72,12 @@ class test_get_solution_callback_t : public cuopt::internals::get_solution_callb
       n_variables(n_variables_)
   {
   }
-  void get_solution(void* data, void* cost, void* user_data) override
+  void get_solution(void* data, void* cost, void* solution_bound, void* user_data) override
   {
     EXPECT_EQ(user_data, expected_user_data);
     n_calls++;
+    auto bound_ptr = static_cast<double*>(solution_bound);
+    EXPECT_FALSE(std::isnan(bound_ptr[0]));
     auto assignment_ptr = static_cast<double*>(data);
     auto cost_ptr       = static_cast<double*>(cost);
     std::vector<double> assignment(assignment_ptr, assignment_ptr + n_variables);

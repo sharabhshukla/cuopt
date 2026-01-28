@@ -338,10 +338,10 @@ def process_async_solve(
     solver_exit, solver_complete, job_queue, results_queue, abort_list, gpu_id
 ):
     # Send incumbent solutions
-    def send_solution(id, solution, cost):
+    def send_solution(id, solution, cost, bound):
         results_queue.put(
             SolverIntermediateResponse(
-                id, {"solution": solution, "cost": cost}
+                id, {"solution": solution, "cost": cost, "bound": bound}
             )
         )
 

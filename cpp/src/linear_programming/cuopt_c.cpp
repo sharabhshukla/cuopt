@@ -54,11 +54,15 @@ class c_get_solution_callback_t : public cuopt::internals::get_solution_callback
  public:
   explicit c_get_solution_callback_t(cuOptMIPGetSolutionCallback callback) : callback_(callback) {}
 
-  void get_solution(void* data, void* objective_value, void* user_data) override
+  void get_solution(void* data,
+                    void* objective_value,
+                    void* solution_bound,
+                    void* user_data) override
   {
     if (callback_ == nullptr) { return; }
     callback_(static_cast<const cuopt_float_t*>(data),
               static_cast<const cuopt_float_t*>(objective_value),
+              static_cast<const cuopt_float_t*>(solution_bound),
               user_data);
   }
 
@@ -70,11 +74,16 @@ class c_set_solution_callback_t : public cuopt::internals::set_solution_callback
  public:
   explicit c_set_solution_callback_t(cuOptMIPSetSolutionCallback callback) : callback_(callback) {}
 
-  void set_solution(void* data, void* objective_value, void* user_data) override
+  void set_solution(void* data,
+                    void* objective_value,
+                    void* solution_bound,
+                    void* user_data) override
   {
     if (callback_ == nullptr) { return; }
-    callback_(
-      static_cast<cuopt_float_t*>(data), static_cast<cuopt_float_t*>(objective_value), user_data);
+    callback_(static_cast<cuopt_float_t*>(data),
+              static_cast<cuopt_float_t*>(objective_value),
+              static_cast<const cuopt_float_t*>(solution_bound),
+              user_data);
   }
 
  private:

@@ -27,15 +27,25 @@ class default_get_solution_callback_t : public get_solution_callback_t {
     }
   }
 
-  void get_solution(void* data, void* objective_value, void* user_data) override
+  void get_solution(void* data,
+                    void* objective_value,
+                    void* solution_bound,
+                    void* user_data) override
   {
     PyObject* numpy_matrix = get_numpy_array(data, n_variables);
     PyObject* numpy_array  = get_numpy_array(objective_value, 1);
+    PyObject* numpy_bound  = get_numpy_array(solution_bound, 1);
     PyObject* py_user_data = user_data == nullptr ? Py_None : static_cast<PyObject*>(user_data);
-    PyObject* res          = PyObject_CallMethod(
-      this->pyCallbackClass, "get_solution", "(OOO)", numpy_matrix, numpy_array, py_user_data);
+    PyObject* res          = PyObject_CallMethod(this->pyCallbackClass,
+                                        "get_solution",
+                                        "(OOOO)",
+                                        numpy_matrix,
+                                        numpy_array,
+                                        numpy_bound,
+                                        py_user_data);
     Py_DECREF(numpy_matrix);
     Py_DECREF(numpy_array);
+    Py_DECREF(numpy_bound);
     if (res != nullptr) { Py_DECREF(res); }
   }
 
@@ -54,15 +64,25 @@ class default_set_solution_callback_t : public set_solution_callback_t {
     }
   }
 
-  void set_solution(void* data, void* objective_value, void* user_data) override
+  void set_solution(void* data,
+                    void* objective_value,
+                    void* solution_bound,
+                    void* user_data) override
   {
     PyObject* numpy_matrix = get_numpy_array(data, n_variables);
     PyObject* numpy_array  = get_numpy_array(objective_value, 1);
+    PyObject* numpy_bound  = get_numpy_array(solution_bound, 1);
     PyObject* py_user_data = user_data == nullptr ? Py_None : static_cast<PyObject*>(user_data);
-    PyObject* res          = PyObject_CallMethod(
-      this->pyCallbackClass, "set_solution", "(OOO)", numpy_matrix, numpy_array, py_user_data);
+    PyObject* res          = PyObject_CallMethod(this->pyCallbackClass,
+                                        "set_solution",
+                                        "(OOOO)",
+                                        numpy_matrix,
+                                        numpy_array,
+                                        numpy_bound,
+                                        py_user_data);
     Py_DECREF(numpy_matrix);
     Py_DECREF(numpy_array);
+    Py_DECREF(numpy_bound);
     if (res != nullptr) { Py_DECREF(res); }
   }
 

@@ -521,7 +521,7 @@ class BaseResult:
     def get_current_incumbents(self):
         if self.is_done() and self.incumbents == []:
             logging.debug("returning incumbent sentinel")
-            return [{"solution": [], "cost": None}]
+            return [{"solution": [], "cost": None, "bound": None}]
         res = self.incumbents
         self.incumbents = []
         return res
