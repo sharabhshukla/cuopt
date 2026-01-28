@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION &
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION &
 # SPDX-License-Identifier: Apache-2.0
 # AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
@@ -90,7 +90,7 @@ def main():
     print(f"Objective value = {problem.ObjValue}")
 
     # Get the warmstart data
-    warmstart_data = problem.get_pdlp_warm_start_data()
+    warmstart_data = problem.getWarmstartData()
     print(
         f"\nWarmstart data extracted (primal solution size: "
         f"{len(warmstart_data.current_primal_solution)})"

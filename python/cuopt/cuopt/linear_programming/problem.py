@@ -12,6 +12,7 @@ from scipy.sparse import coo_matrix
 import cuopt.linear_programming.data_model as data_model
 import cuopt.linear_programming.solver as solver
 import cuopt.linear_programming.solver_settings as solver_settings
+import warnings
 
 
 class VType(str, Enum):
@@ -1689,7 +1690,7 @@ class Problem:
         if sense:
             self.ObjSense = sense
 
-    def get_incumbent_values(self, solution, vars):
+    def getIncumbentValues(self, solution, vars):
         """
         Extract incumbent values of the vars from a problem solution.
         """
@@ -1698,7 +1699,15 @@ class Problem:
             values.append(solution[var.index])
         return values
 
-    def get_pdlp_warm_start_data(self):
+    def get_incumbent_values(self, solution, vars):
+        warnings.warn(
+            "This function is deprecated and will be removed."
+            "Please use getIncumbentValues instead.",
+            DeprecationWarning,
+        )
+        return self.getIncumbentValues(solution, vars)
+
+    def getWarmstartData(self):
         """
         Note: Applicable to only LP.
         Allows to retrieve the warm start data from the PDLP solver
@@ -1710,12 +1719,20 @@ class Problem:
         --------
         >>> problem = problem.Problem.readMPS("LP.mps")
         >>> problem.solve()
-        >>> warmstart_data = problem.get_pdlp_warm_start_data()
+        >>> warmstart_data = problem.getWarmstartData()
         >>> settings.set_pdlp_warm_start_data(warmstart_data)
         >>> updated_problem = problem.Problem.readMPS("updated_LP.mps")
         >>> updated_problem.solve(settings)
         """
         return self.warmstart_data
+
+    def get_pdlp_warm_start_data(self):
+        warnings.warn(
+            "This function is deprecated and will be removed."
+            "Please use getWarmstartData instead.",
+            DeprecationWarning,
+        )
+        return self.getWarmstartData()
 
     def getObjective(self):
         """
@@ -1841,12 +1858,24 @@ class Problem:
         return self.dict_to_object(csr_dict)
 
     def getQCSR(self):
+        """
+        Computes and returns the CSR matrix representation of the
+        quadratic objective.
+        """
         qcsr_matrix = {
             "row_pointers": self.objective_qmatrix.indptr,
             "column_indices": self.objective_qmatrix.indices,
             "values": self.objective_qmatrix.data,
         }
         return self.dict_to_object(qcsr_matrix)
+
+    def getQcsr(self):
+        warnings.warn(
+            "This function is deprecated and will be removed."
+            "Please use getQCSR instead.",
+            DeprecationWarning,
+        )
+        return self.getQCSR()
 
     def relax(self):
         """
