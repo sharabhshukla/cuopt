@@ -12,7 +12,8 @@ namespace cuopt::linear_programming {
 
 template <typename i_t, typename f_t>
 struct solver_stats_t {
-  solver_stats_t() : solution_bound(std::numeric_limits<f_t>::min()) {}
+  // Direction-neutral placeholder; solver_context initializes based on maximize/minimize.
+  solver_stats_t() : solution_bound(std::numeric_limits<f_t>::infinity()) {}
 
   solver_stats_t(const solver_stats_t& other) { *this = other; }
 

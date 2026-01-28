@@ -56,8 +56,8 @@ class problem_t {
   // copy constructor
   problem_t(const problem_t<i_t, f_t>& problem);
   problem_t(const problem_t<i_t, f_t>& problem, bool no_deep_copy);
-  problem_t(problem_t<i_t, f_t>&& problem) noexcept = default;
-  problem_t& operator=(problem_t&&) noexcept        = default;
+  problem_t(problem_t<i_t, f_t>&& problem) = default;
+  problem_t& operator=(problem_t&&)        = default;
   void op_problem_cstr_body(const optimization_problem_t<i_t, f_t>& problem_);
 
   problem_t<i_t, f_t> get_problem_after_fixing_vars(

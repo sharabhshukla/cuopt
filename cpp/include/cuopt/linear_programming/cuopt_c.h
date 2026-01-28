@@ -690,6 +690,9 @@ cuopt_int_t cuOptGetFloatParameter(cuOptSolverSettings settings,
  * @param[in] objective_value - Pointer to incumbent objective value.
  * @param[in] solution_bound - Pointer to current solution (dual/user) bound.
  * @param[in] user_data - Pointer to user data.
+ * @note All pointer arguments (solution, objective_value, solution_bound, user_data) refer to host
+ * memory and are only valid during the callback invocation. Do not pass device/GPU pointers.
+ * Copy any data you need to keep after the callback returns.
  */
 typedef void (*cuOptMIPGetSolutionCallback)(const cuopt_float_t* solution,
                                             const cuopt_float_t* objective_value,
@@ -705,6 +708,9 @@ typedef void (*cuOptMIPGetSolutionCallback)(const cuopt_float_t* solution,
  * @param[out] objective_value - Pointer to objective value to set.
  * @param[in] solution_bound - Pointer to current solution (dual/user) bound.
  * @param[in] user_data - Pointer to user data.
+ * @note All pointer arguments (solution, objective_value, solution_bound, user_data) refer to host
+ * memory and are only valid during the callback invocation. Do not pass device/GPU pointers.
+ * Copy any data you need to keep after the callback returns.
  */
 typedef void (*cuOptMIPSetSolutionCallback)(cuopt_float_t* solution,
                                             cuopt_float_t* objective_value,
@@ -718,6 +724,9 @@ typedef void (*cuOptMIPSetSolutionCallback)(cuopt_float_t* solution,
  * @param[in] callback - Callback function to receive incumbent solutions.
  * @param[in] user_data - User-defined pointer passed through to the callback.
  *  It will be forwarded to ``cuOptMIPGetSolutionCallback`` when invoked.
+ * @note The callback arguments refer to host memory and are only valid during the callback
+ * invocation. Do not pass device/GPU pointers. Copy any data you need to keep after the callback
+ * returns.
  *
  * @return A status code indicating success or failure.
  */
@@ -733,6 +742,9 @@ cuopt_int_t cuOptSetMIPGetSolutionCallback(cuOptSolverSettings settings,
  * @param[in] user_data - User-defined pointer passed through to the callback.
  *  It will be forwarded to ``cuOptMIPSetSolutionCallback`` when invoked.
  * @note Registering a set-solution callback disables presolve.
+ * @note The callback arguments refer to host memory and are only valid during the callback
+ * invocation. Do not pass device/GPU pointers. Copy any data you need to keep after the callback
+ * returns.
  *
  * @return A status code indicating success or failure.
  */
