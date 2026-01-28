@@ -313,7 +313,8 @@ class QuadraticExpression:
         Matrix containing quadratic coefficient matrix terms.
         Should be a square matrix with shape as (num_vars, num_vars).
     qvars : List[Variable]
-        List of variables denoting the rows and cols in qmatrix,
+        List of variables denoting the rows and cols in qmatrix. It is
+        a mandatory field when providing qmatrix.
         qvars should be in the order of variables added to the problem
         and can be obtained using problem.getVariables(). The length
         of qvars should be equal to length of row/col in qmatrix.
@@ -359,7 +360,7 @@ class QuadraticExpression:
     def __init__(
         self,
         qmatrix=None,
-        qvars=None,
+        qvars=[],
         qvars1=[],
         qvars2=[],
         qcoefficients=[],
@@ -370,8 +371,6 @@ class QuadraticExpression:
         self.qmatrix = None
         self.qvars = qvars
         if qmatrix is not None:
-            if qvars is None:
-                raise ValueError("Missing qvars. Please check docs")
             self.qmatrix = coo_matrix(qmatrix)
             mshape = self.qmatrix.shape
             if mshape[0] != mshape[1]:
@@ -731,7 +730,7 @@ class QuadraticExpression:
                 self.qcoefficients = [
                     qcoeff * float(other) for qcoeff in self.qcoefficients
                 ]
-                if self.qmatrix:
+                if self.qmatrix is not None:
                     self.qmatrix *= float(other)
                 return self
             case _:
@@ -750,7 +749,7 @@ class QuadraticExpression:
                 ]
                 constant = self.constant * float(other)
                 qmatrix = None
-                if self.qmatrix:
+                if self.qmatrix is not None:
                     qmatrix = self.qmatrix * float(other)
                 return QuadraticExpression(
                     qmatrix,
@@ -782,7 +781,7 @@ class QuadraticExpression:
                     coeff / float(other) for coeff in self.qcoefficients
                 ]
                 self.constant = self.constant / float(other)
-                if self.qmatrix:
+                if self.qmatrix is not None:
                     self.qmatrix = self.qmatrix / float(other)
                 return self
             case _:
@@ -801,7 +800,7 @@ class QuadraticExpression:
                 ]
                 constant = self.constant / float(other)
                 qmatrix = None
-                if self.qmatrix:
+                if self.qmatrix is not None:
                     qmatrix = self.qmatrix / float(other)
                 return QuadraticExpression(
                     qmatrix,
@@ -1862,6 +1861,8 @@ class Problem:
         Computes and returns the CSR matrix representation of the
         quadratic objective.
         """
+        if self.objective_qmatrix is None:
+            return None
         qcsr_matrix = {
             "row_pointers": self.objective_qmatrix.indptr,
             "column_indices": self.objective_qmatrix.indices,
