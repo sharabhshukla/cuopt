@@ -1347,20 +1347,20 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       for (i_t i = 0; i < original_lp_.num_cols; ++i) {
         f_t rc = root_crossover_soln_.z[i];
         f_t x  = root_crossover_soln_.x[i];
-        f_t lb = original_lp_.variable_lower_bounds[i];
-        f_t ub = original_lp_.variable_upper_bounds[i];
+        f_t lb = original_lp_.lower[i];
+        f_t ub = original_lp_.upper[i];
 
         // Determine status based on reduced cost and bound position
         if (std::abs(rc) < 1e-6) {
           root_vstatus_[i] = variable_status_t::BASIC;
         } else if (rc > 0 && std::abs(x - lb) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::LOWER;
+          root_vstatus_[i] = variable_status_t::NONBASIC_LOWER;
         } else if (rc < 0 && std::abs(x - ub) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::UPPER;
+          root_vstatus_[i] = variable_status_t::NONBASIC_UPPER;
         } else if (std::abs(x - lb) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::LOWER;
+          root_vstatus_[i] = variable_status_t::NONBASIC_LOWER;
         } else if (std::abs(x - ub) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::UPPER;
+          root_vstatus_[i] = variable_status_t::NONBASIC_UPPER;
         } else {
           root_vstatus_[i] = variable_status_t::BASIC;
         }
