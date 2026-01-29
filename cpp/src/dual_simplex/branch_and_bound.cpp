@@ -1321,77 +1321,13 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
 
   if (root_crossover_solution_set_.load(std::memory_order_acquire)) {
     // When using PDLP/Barrier (non-simplex methods), diversity_manager already performed
-    // crossover and sent us the final solution. We should use it directly without re-running crossover.
-    // Only run crossover here for Concurrent mode where we might need to process the solution further.
-    bool crossover_already_done = (root_lp_method_ == 1 || root_lp_method_ == 3);  // PDLP or Barrier
+    // PDLP + crossover. However, we still need to run crossover here on the crushed/transformed
+    // problem to compute proper basis status for B&B. The PDLP solution from diversity_manager
+    // is already very close to optimal vertex (especially with tight tolerances), so this second
+    // crossover should be relatively fast - much faster than the full PDLP+crossover in diversity_manager.
 
-    if (crossover_already_done) {
-      // Diversity manager already did PDLP/Barrier + crossover
-      // But we still need to "crush" the solution and extract basis status
-      // Crushing is fast and necessary to map the solution to the transformed problem
-      if (run_dual_simplex) {
-        set_root_concurrent_halt(1);  // Stop dual simplex if it was running
-        root_status = root_status_future.get();
-      } else {
-        root_status = lp_status_t::OPTIMAL;
-      }
-
-      // Crush the crossover solution (map to transformed problem)
-      std::vector<f_t> crushed_root_x;
-      crush_primal_solution(
-        original_problem_, original_lp_, root_crossover_soln_.x, new_slacks_, crushed_root_x);
-      std::vector<f_t> crushed_root_y;
-      std::vector<f_t> crushed_root_z;
-
-      f_t dual_res_inf = crush_dual_solution(original_problem_,
-                                             original_lp_,
-                                             new_slacks_,
-                                             root_crossover_soln_.y,
-                                             root_crossover_soln_.z,
-                                             crushed_root_y,
-                                             crushed_root_z);
-
-      // Update the solution with crushed values
-      root_crossover_soln_.x = crushed_root_x;
-      root_crossover_soln_.y = crushed_root_y;
-      root_crossover_soln_.z = crushed_root_z;
-
-      // Compute variable status from reduced costs and bounds
-      // This is faster than re-running full crossover
-      root_vstatus_.resize(original_lp_.num_cols);
-      for (i_t i = 0; i < original_lp_.num_cols; ++i) {
-        f_t rc = crushed_root_z[i];
-        f_t x  = crushed_root_x[i];
-        f_t lb = original_lp_.lower[i];
-        f_t ub = original_lp_.upper[i];
-
-        // Determine status based on variable position relative to bounds
-        if (std::abs(x - lb) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::NONBASIC_LOWER;
-        } else if (std::abs(x - ub) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::NONBASIC_UPPER;
-        } else {
-          root_vstatus_[i] = variable_status_t::BASIC;
-        }
-      }
-
-      // Use the solution
-      root_relax_soln_ = root_crossover_soln_;
-      root_status      = lp_status_t::OPTIMAL;
-      user_objective   = root_crossover_soln_.user_objective;
-      iter             = root_crossover_soln_.iterations;
-
-      // Crossover from diversity_manager may not be fully optimal, so skip strong branching
-      root_crossover_was_optimal_ = false;
-
-      // Set solver name based on which method was actually used
-      if (root_lp_method_ == 1) {  // PDLP
-        solver_name = "PDLP and Crossover";
-      } else if (root_lp_method_ == 3) {  // Barrier
-        solver_name = "Barrier and Crossover";
-      }
-    } else {
-      // Concurrent mode: need to crush and run crossover on the solution
+    // Crush and run crossover on the solution
+    {
       std::vector<f_t> crushed_root_x;
       crush_primal_solution(
         original_problem_, original_lp_, root_crossover_soln_.x, new_slacks_, crushed_root_x);
