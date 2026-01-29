@@ -1327,7 +1327,8 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
 
     if (crossover_already_done) {
       // Diversity manager already did PDLP/Barrier + crossover
-      // Use the solution directly without re-running crossover
+      // But we still need to "crush" the solution and extract basis status
+      // Crushing is fast and necessary to map the solution to the transformed problem
       if (run_dual_simplex) {
         set_root_concurrent_halt(1);  // Stop dual simplex if it was running
         root_status = root_status_future.get();
@@ -1335,29 +1336,37 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
         root_status = lp_status_t::OPTIMAL;
       }
 
-      // Use the crossover solution provided by diversity_manager
-      root_relax_soln_ = root_crossover_soln_;
-      root_status      = lp_status_t::OPTIMAL;
-      user_objective   = root_crossover_soln_.user_objective;
-      iter             = root_crossover_soln_.iterations;
+      // Crush the crossover solution (map to transformed problem)
+      std::vector<f_t> crushed_root_x;
+      crush_primal_solution(
+        original_problem_, original_lp_, root_crossover_soln_.x, new_slacks_, crushed_root_x);
+      std::vector<f_t> crushed_root_y;
+      std::vector<f_t> crushed_root_z;
+
+      f_t dual_res_inf = crush_dual_solution(original_problem_,
+                                             original_lp_,
+                                             new_slacks_,
+                                             root_crossover_soln_.y,
+                                             root_crossover_soln_.z,
+                                             crushed_root_y,
+                                             crushed_root_z);
+
+      // Update the solution with crushed values
+      root_crossover_soln_.x = crushed_root_x;
+      root_crossover_soln_.y = crushed_root_y;
+      root_crossover_soln_.z = crushed_root_z;
 
       // Compute variable status from reduced costs and bounds
-      // This is sufficient for branch-and-bound to proceed
+      // This is faster than re-running full crossover
       root_vstatus_.resize(original_lp_.num_cols);
       for (i_t i = 0; i < original_lp_.num_cols; ++i) {
-        f_t rc = root_crossover_soln_.z[i];
-        f_t x  = root_crossover_soln_.x[i];
+        f_t rc = crushed_root_z[i];
+        f_t x  = crushed_root_x[i];
         f_t lb = original_lp_.lower[i];
         f_t ub = original_lp_.upper[i];
 
-        // Determine status based on reduced cost and bound position
-        if (std::abs(rc) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::BASIC;
-        } else if (rc > 0 && std::abs(x - lb) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::NONBASIC_LOWER;
-        } else if (rc < 0 && std::abs(x - ub) < 1e-6) {
-          root_vstatus_[i] = variable_status_t::NONBASIC_UPPER;
-        } else if (std::abs(x - lb) < 1e-6) {
+        // Determine status based on variable position relative to bounds
+        if (std::abs(x - lb) < 1e-6) {
           root_vstatus_[i] = variable_status_t::NONBASIC_LOWER;
         } else if (std::abs(x - ub) < 1e-6) {
           root_vstatus_[i] = variable_status_t::NONBASIC_UPPER;
@@ -1365,6 +1374,12 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
           root_vstatus_[i] = variable_status_t::BASIC;
         }
       }
+
+      // Use the solution
+      root_relax_soln_ = root_crossover_soln_;
+      root_status      = lp_status_t::OPTIMAL;
+      user_objective   = root_crossover_soln_.user_objective;
+      iter             = root_crossover_soln_.iterations;
 
       // Crossover from diversity_manager may not be fully optimal, so skip strong branching
       root_crossover_was_optimal_ = false;
