@@ -208,16 +208,6 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
     context.branch_and_bound_ptr = branch_and_bound.get();
     // Pass the root LP method to branch_and_bound
     branch_and_bound->set_root_lp_method(static_cast<int>(context.settings.root_lp_method));
-
-    // Force crossover for non-simplex methods (PDLP/Barrier/Concurrent)
-    // Crossover is required to produce a valid simplex basis for branch-and-bound
-    if (context.settings.root_lp_method != static_cast<method_t>(CUOPT_METHOD_DUAL_SIMPLEX)) {
-      if (!context.settings.root_lp_crossover) {
-        context.settings.root_lp_crossover = true;
-        context.log.printf("Warning: Enabling crossover (required for non-simplex root LP methods in MIP)\n");
-      }
-    }
-
     // Enable solve_root_relaxation() path (which waits for diversity_manager) for all methods except pure DualSimplex
     // When method is DualSimplex only, use the simple dual simplex path
     // For PDLP/Barrier/Concurrent, use solve_root_relaxation() which will conditionally launch solvers

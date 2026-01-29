@@ -360,7 +360,17 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     pdlp_settings.inside_mip                           = (context.settings.root_lp_method == static_cast<method_t>(CUOPT_METHOD_CONCURRENT));
     pdlp_settings.pdlp_solver_mode                     = pdlp_solver_mode_t::Stable2;
     pdlp_settings.num_gpus                             = context.settings.num_gpus;
-    pdlp_settings.crossover                            = context.settings.root_lp_crossover;
+
+    // Force crossover for non-simplex methods (PDLP/Barrier/Concurrent)
+    // Crossover is required to produce a valid simplex basis for branch-and-bound
+    if (context.settings.root_lp_method != static_cast<method_t>(CUOPT_METHOD_DUAL_SIMPLEX)) {
+      pdlp_settings.crossover = true;
+      if (!context.settings.root_lp_crossover) {
+        CUOPT_LOG_INFO("Warning: Enabling crossover (required for non-simplex root LP methods in MIP)");
+      }
+    } else {
+      pdlp_settings.crossover = context.settings.root_lp_crossover;
+    }
 
     timer_t lp_timer(lp_time_limit);
     auto lp_result = solve_lp_with_method<i_t, f_t>(*problem_ptr, pdlp_settings, lp_timer);
