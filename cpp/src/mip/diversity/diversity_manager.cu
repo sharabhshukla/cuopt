@@ -349,8 +349,15 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     f_t absolute_tolerance = context.settings.tolerances.absolute_tolerance;
 
     pdlp_solver_settings_t<i_t, f_t> pdlp_settings{};
+    // Set all PDLP tolerances based on MIP tolerance settings
+    // This ensures that command-line tolerance flags (e.g., --absolute-primal-tolerance)
+    // actually affect PDLP behavior during MIP root node solve
+    pdlp_settings.tolerances.absolute_primal_tolerance = absolute_tolerance;
     pdlp_settings.tolerances.relative_primal_tolerance = absolute_tolerance / tolerance_divisor;
+    pdlp_settings.tolerances.absolute_dual_tolerance   = absolute_tolerance;
     pdlp_settings.tolerances.relative_dual_tolerance   = absolute_tolerance / tolerance_divisor;
+    pdlp_settings.tolerances.absolute_gap_tolerance    = absolute_tolerance;
+    pdlp_settings.tolerances.relative_gap_tolerance    = absolute_tolerance / tolerance_divisor;
     pdlp_settings.time_limit                           = lp_time_limit;
     pdlp_settings.first_primal_feasible                = false;
     pdlp_settings.concurrent_halt                      = &global_concurrent_halt;
