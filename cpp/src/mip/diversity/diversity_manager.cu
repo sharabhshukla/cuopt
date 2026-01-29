@@ -343,21 +343,19 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
   } else if (!fj_only_run) {
     convert_greater_to_less(*problem_ptr);
 
-    f_t tolerance_divisor =
-      problem_ptr->tolerances.absolute_tolerance / problem_ptr->tolerances.relative_tolerance;
-    if (tolerance_divisor == 0) { tolerance_divisor = 1; }
+    // Use MIP tolerance settings directly for PDLP
+    // This ensures that command-line tolerance flags actually affect PDLP behavior during MIP root node solve
     f_t absolute_tolerance = context.settings.tolerances.absolute_tolerance;
+    f_t relative_tolerance = context.settings.tolerances.relative_tolerance;
 
     pdlp_solver_settings_t<i_t, f_t> pdlp_settings{};
     // Set all PDLP tolerances based on MIP tolerance settings
-    // This ensures that command-line tolerance flags (e.g., --absolute-primal-tolerance)
-    // actually affect PDLP behavior during MIP root node solve
     pdlp_settings.tolerances.absolute_primal_tolerance = absolute_tolerance;
-    pdlp_settings.tolerances.relative_primal_tolerance = absolute_tolerance / tolerance_divisor;
+    pdlp_settings.tolerances.relative_primal_tolerance = relative_tolerance;
     pdlp_settings.tolerances.absolute_dual_tolerance   = absolute_tolerance;
-    pdlp_settings.tolerances.relative_dual_tolerance   = absolute_tolerance / tolerance_divisor;
+    pdlp_settings.tolerances.relative_dual_tolerance   = relative_tolerance;
     pdlp_settings.tolerances.absolute_gap_tolerance    = absolute_tolerance;
-    pdlp_settings.tolerances.relative_gap_tolerance    = absolute_tolerance / tolerance_divisor;
+    pdlp_settings.tolerances.relative_gap_tolerance    = relative_tolerance;
     pdlp_settings.time_limit                           = lp_time_limit;
     pdlp_settings.first_primal_feasible                = false;
     pdlp_settings.concurrent_halt                      = &global_concurrent_halt;
