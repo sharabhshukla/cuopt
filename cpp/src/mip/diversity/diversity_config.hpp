@@ -13,7 +13,7 @@ namespace cuopt::linear_programming::detail {
 
 struct diversity_config_t {
   double time_ratio_on_init_lp        = 0.1;
-  double max_time_on_lp               = 15.0;
+  double max_time_on_lp               = 3600.0;  // Increased from 15s to 120s for large problems
   double time_ratio_of_probing_cache  = 0.1;
   double max_time_on_probing          = 60.0;
   int max_var_diff                    = 256;

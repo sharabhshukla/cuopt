@@ -1539,39 +1539,6 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   assert(root_vstatus_.size() == original_lp_.num_cols);
-
-  // Initialize basis status from primal solution if using non-simplex root LP method
-  // and basis is not properly set (e.g., crossover was disabled/failed)
-  if (root_lp_method_ != 2) {  // Not DualSimplex
-    // Check if basis is uninitialized by looking for all NONBASIC status
-    bool basis_uninitialized = true;
-    for (const auto& status : root_vstatus_) {
-      if (status == variable_status_t::BASIC) {
-        basis_uninitialized = false;
-        break;
-      }
-    }
-
-    if (basis_uninitialized) {
-      settings_.log.printf("Initializing basis from primal solution (non-simplex root method)\n");
-      // Simple heuristic: set variables at bounds to nonbasic, others to basic
-      for (i_t j = 0; j < original_lp_.num_cols; j++) {
-        f_t val = root_relax_soln_.x[j];
-        f_t lb = original_lp_.lower[j];
-        f_t ub = original_lp_.upper[j];
-        const f_t tol = 1e-6;
-
-        if (val <= lb + tol) {
-          root_vstatus_[j] = variable_status_t::LOWER;
-        } else if (val >= ub - tol) {
-          root_vstatus_[j] = variable_status_t::UPPER;
-        } else {
-          root_vstatus_[j] = variable_status_t::BASIC;
-        }
-      }
-    }
-  }
-
   set_uninitialized_steepest_edge_norms<i_t, f_t>(edge_norms_);
 
   root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
@@ -1621,23 +1588,16 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   pc_.resize(original_lp_.num_cols);
-
-  // Skip strong branching for PDLP and other non-simplex methods
-  // Strong branching is expensive and less effective without a simplex basis
-  if (root_lp_method_ == 2) {  // Only do strong branching for DualSimplex
-    strong_branching<i_t, f_t>(original_lp_,
-                               settings_,
-                               exploration_stats_.start_time,
-                               var_types_,
-                               root_relax_soln_.x,
-                               fractional,
-                               root_objective_,
-                               root_vstatus_,
-                               edge_norms_,
-                               pc_);
-  } else {
-    settings_.log.printf("Skipping strong branching for non-simplex root LP method\n");
-  }
+  strong_branching<i_t, f_t>(original_lp_,
+                             settings_,
+                             exploration_stats_.start_time,
+                             var_types_,
+                             root_relax_soln_.x,
+                             fractional,
+                             root_objective_,
+                             root_vstatus_,
+                             edge_norms_,
+                             pc_);
 
   if (toc(exploration_stats_.start_time) > settings_.time_limit) {
     solver_status_ = mip_status_t::TIME_LIMIT;
