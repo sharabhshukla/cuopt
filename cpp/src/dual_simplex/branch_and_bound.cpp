@@ -1320,85 +1320,128 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
   }
 
   if (root_crossover_solution_set_.load(std::memory_order_acquire)) {
-    // Crush the root relaxation solution on converted user problem
-    std::vector<f_t> crushed_root_x;
-    crush_primal_solution(
-      original_problem_, original_lp_, root_crossover_soln_.x, new_slacks_, crushed_root_x);
-    std::vector<f_t> crushed_root_y;
-    std::vector<f_t> crushed_root_z;
+    // When using PDLP/Barrier (non-simplex methods), diversity_manager already performed
+    // crossover and sent us the final solution. We should use it directly without re-running crossover.
+    // Only run crossover here for Concurrent mode where we might need to process the solution further.
+    bool crossover_already_done = (root_lp_method_ == 1 || root_lp_method_ == 3);  // PDLP or Barrier
 
-    f_t dual_res_inf = crush_dual_solution(original_problem_,
-                                           original_lp_,
-                                           new_slacks_,
-                                           root_crossover_soln_.y,
-                                           root_crossover_soln_.z,
-                                           crushed_root_y,
-                                           crushed_root_z);
-
-    root_crossover_soln_.x = crushed_root_x;
-    root_crossover_soln_.y = crushed_root_y;
-    root_crossover_soln_.z = crushed_root_z;
-
-    // Call crossover on the crushed solution
-    auto root_crossover_settings            = settings_;
-    root_crossover_settings.log.log         = false;
-    root_crossover_settings.concurrent_halt = get_root_concurrent_halt();
-    crossover_status_t crossover_status     = crossover(original_lp_,
-                                                    root_crossover_settings,
-                                                    root_crossover_soln_,
-                                                    exploration_stats_.start_time,
-                                                    root_crossover_soln_,
-                                                    crossover_vstatus_);
-
-    // Check if crossover succeeded
-    // OPTIMAL: crossover fully completed, basis is optimal
-    // PRIMAL_FEASIBLE: crossover found a feasible basis but didn't fully optimize
-    bool crossover_optimal = (crossover_status == crossover_status_t::OPTIMAL);
-    bool crossover_feasible = (crossover_status == crossover_status_t::PRIMAL_FEASIBLE);
-    root_crossover_was_optimal_ = crossover_optimal;
-
-    if (crossover_optimal || crossover_feasible) {
+    if (crossover_already_done) {
+      // Diversity manager already did PDLP/Barrier + crossover
+      // Use the solution directly without re-running crossover
       if (run_dual_simplex) {
-        set_root_concurrent_halt(1);  // Stop dual simplex
+        set_root_concurrent_halt(1);  // Stop dual simplex if it was running
         root_status = root_status_future.get();
       } else {
         root_status = lp_status_t::OPTIMAL;
       }
 
-      // Override the root relaxation solution with the crossover solution
+      // Use the crossover solution provided by diversity_manager
       root_relax_soln_ = root_crossover_soln_;
-      root_vstatus_    = crossover_vstatus_;
       root_status      = lp_status_t::OPTIMAL;
       user_objective   = root_crossover_soln_.user_objective;
       iter             = root_crossover_soln_.iterations;
+
+      // Compute variable status from reduced costs and bounds
+      // This is sufficient for branch-and-bound to proceed
+      root_vstatus_.resize(original_lp_.num_cols);
+      for (i_t i = 0; i < original_lp_.num_cols; ++i) {
+        f_t rc = root_crossover_soln_.z[i];
+        f_t x  = root_crossover_soln_.x[i];
+        f_t lb = original_lp_.variable_lower_bounds[i];
+        f_t ub = original_lp_.variable_upper_bounds[i];
+
+        // Determine status based on reduced cost and bound position
+        if (std::abs(rc) < 1e-6) {
+          root_vstatus_[i] = variable_status_t::BASIC;
+        } else if (rc > 0 && std::abs(x - lb) < 1e-6) {
+          root_vstatus_[i] = variable_status_t::LOWER;
+        } else if (rc < 0 && std::abs(x - ub) < 1e-6) {
+          root_vstatus_[i] = variable_status_t::UPPER;
+        } else if (std::abs(x - lb) < 1e-6) {
+          root_vstatus_[i] = variable_status_t::LOWER;
+        } else if (std::abs(x - ub) < 1e-6) {
+          root_vstatus_[i] = variable_status_t::UPPER;
+        } else {
+          root_vstatus_[i] = variable_status_t::BASIC;
+        }
+      }
+
+      // Crossover from diversity_manager may not be fully optimal, so skip strong branching
+      root_crossover_was_optimal_ = false;
+
       // Set solver name based on which method was actually used
       if (root_lp_method_ == 1) {  // PDLP
         solver_name = "PDLP and Crossover";
       } else if (root_lp_method_ == 3) {  // Barrier
         solver_name = "Barrier and Crossover";
-      } else {  // Concurrent
-        solver_name = "Barrier/PDLP and Crossover";
       }
-
     } else {
-      if (run_dual_simplex) {
-        root_status    = root_status_future.get();
-        user_objective = root_relax_soln_.user_objective;
-        iter           = root_relax_soln_.iterations;
-        solver_name    = "Dual Simplex";
-      } else {
-        // PDLP/Barrier crossover failed, but we still have a solution
+      // Concurrent mode: need to crush and run crossover on the solution
+      std::vector<f_t> crushed_root_x;
+      crush_primal_solution(
+        original_problem_, original_lp_, root_crossover_soln_.x, new_slacks_, crushed_root_x);
+      std::vector<f_t> crushed_root_y;
+      std::vector<f_t> crushed_root_z;
+
+      f_t dual_res_inf = crush_dual_solution(original_problem_,
+                                             original_lp_,
+                                             new_slacks_,
+                                             root_crossover_soln_.y,
+                                             root_crossover_soln_.z,
+                                             crushed_root_y,
+                                             crushed_root_z);
+
+      root_crossover_soln_.x = crushed_root_x;
+      root_crossover_soln_.y = crushed_root_y;
+      root_crossover_soln_.z = crushed_root_z;
+
+      // Call crossover on the crushed solution
+      auto root_crossover_settings            = settings_;
+      root_crossover_settings.log.log         = false;
+      root_crossover_settings.concurrent_halt = get_root_concurrent_halt();
+      crossover_status_t crossover_status     = crossover(original_lp_,
+                                                      root_crossover_settings,
+                                                      root_crossover_soln_,
+                                                      exploration_stats_.start_time,
+                                                      root_crossover_soln_,
+                                                      crossover_vstatus_);
+
+      // Check if crossover succeeded
+      // OPTIMAL: crossover fully completed, basis is optimal
+      // PRIMAL_FEASIBLE: crossover found a feasible basis but didn't fully optimize
+      bool crossover_optimal = (crossover_status == crossover_status_t::OPTIMAL);
+      bool crossover_feasible = (crossover_status == crossover_status_t::PRIMAL_FEASIBLE);
+      root_crossover_was_optimal_ = crossover_optimal;
+
+      if (crossover_optimal || crossover_feasible) {
+        if (run_dual_simplex) {
+          set_root_concurrent_halt(1);  // Stop dual simplex
+          root_status = root_status_future.get();
+        } else {
+          root_status = lp_status_t::OPTIMAL;
+        }
+
+        // Override the root relaxation solution with the crossover solution
         root_relax_soln_ = root_crossover_soln_;
         root_vstatus_    = crossover_vstatus_;
         root_status      = lp_status_t::OPTIMAL;
         user_objective   = root_crossover_soln_.user_objective;
         iter             = root_crossover_soln_.iterations;
-        // Set solver name based on which method was actually used
-        if (root_lp_method_ == 1) {  // PDLP
-          solver_name = "PDLP (crossover incomplete)";
-        } else if (root_lp_method_ == 3) {  // Barrier
-          solver_name = "Barrier (crossover incomplete)";
-        } else {  // Concurrent
+        solver_name = "Barrier/PDLP and Crossover";
+
+      } else {
+        if (run_dual_simplex) {
+          root_status    = root_status_future.get();
+          user_objective = root_relax_soln_.user_objective;
+          iter           = root_relax_soln_.iterations;
+          solver_name    = "Dual Simplex";
+        } else {
+          // PDLP/Barrier crossover failed, but we still have a solution
+          root_relax_soln_ = root_crossover_soln_;
+          root_vstatus_    = crossover_vstatus_;
+          root_status      = lp_status_t::OPTIMAL;
+          user_objective   = root_crossover_soln_.user_objective;
+          iter             = root_crossover_soln_.iterations;
           solver_name = "Barrier/PDLP (crossover incomplete)";
         }
       }
