@@ -355,7 +355,9 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     pdlp_settings.first_primal_feasible                = false;
     pdlp_settings.concurrent_halt                      = &global_concurrent_halt;
     pdlp_settings.method                               = context.settings.root_lp_method;
-    pdlp_settings.inside_mip                           = true;
+    // Set inside_mip=true to enable concurrent halt, but we want logs when running PDLP only
+    // Only suppress logs when running Concurrent mode (where dual simplex also runs)
+    pdlp_settings.inside_mip                           = (context.settings.root_lp_method == static_cast<method_t>(CUOPT_METHOD_CONCURRENT));
     pdlp_settings.pdlp_solver_mode                     = pdlp_solver_mode_t::Stable2;
     pdlp_settings.num_gpus                             = context.settings.num_gpus;
     pdlp_settings.crossover                            = context.settings.root_lp_crossover;

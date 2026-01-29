@@ -1365,7 +1365,14 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
       root_status      = lp_status_t::OPTIMAL;
       user_objective   = root_crossover_soln_.user_objective;
       iter             = root_crossover_soln_.iterations;
-      solver_name      = "Barrier/PDLP and Crossover";
+      // Set solver name based on which method was actually used
+      if (root_lp_method_ == 1) {  // PDLP
+        solver_name = "PDLP and Crossover";
+      } else if (root_lp_method_ == 3) {  // Barrier
+        solver_name = "Barrier and Crossover";
+      } else {  // Concurrent
+        solver_name = "Barrier/PDLP and Crossover";
+      }
 
     } else {
       if (run_dual_simplex) {
@@ -1380,7 +1387,14 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
         root_status      = lp_status_t::OPTIMAL;
         user_objective   = root_crossover_soln_.user_objective;
         iter             = root_crossover_soln_.iterations;
-        solver_name      = "Barrier/PDLP (crossover incomplete)";
+        // Set solver name based on which method was actually used
+        if (root_lp_method_ == 1) {  // PDLP
+          solver_name = "PDLP (crossover incomplete)";
+        } else if (root_lp_method_ == 3) {  // Barrier
+          solver_name = "Barrier (crossover incomplete)";
+        } else {  // Concurrent
+          solver_name = "Barrier/PDLP (crossover incomplete)";
+        }
       }
     }
   } else {
@@ -1484,7 +1498,16 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
                                                 edge_norms_);
 
   } else {
-    settings_.log.printf("\nSolving LP root relaxation in concurrent mode\n");
+    // Print appropriate message based on which method is being used
+    if (root_lp_method_ == 0) {  // Concurrent
+      settings_.log.printf("\nSolving LP root relaxation in concurrent mode\n");
+    } else if (root_lp_method_ == 1) {  // PDLP
+      settings_.log.printf("\nSolving LP root relaxation with PDLP\n");
+    } else if (root_lp_method_ == 2) {  // DualSimplex (shouldn't reach here)
+      settings_.log.printf("\nSolving LP root relaxation with dual simplex\n");
+    } else if (root_lp_method_ == 3) {  // Barrier
+      settings_.log.printf("\nSolving LP root relaxation with Barrier\n");
+    }
     root_status = solve_root_relaxation(lp_settings);
   }
 
