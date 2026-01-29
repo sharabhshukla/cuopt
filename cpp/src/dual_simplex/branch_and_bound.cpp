@@ -1588,16 +1588,23 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   pc_.resize(original_lp_.num_cols);
-  strong_branching<i_t, f_t>(original_lp_,
-                             settings_,
-                             exploration_stats_.start_time,
-                             var_types_,
-                             root_relax_soln_.x,
-                             fractional,
-                             root_objective_,
-                             root_vstatus_,
-                             edge_norms_,
-                             pc_);
+
+  // Skip strong branching for PDLP and other non-simplex methods
+  // Strong branching is expensive and less effective without a simplex basis
+  if (root_lp_method_ == 2) {  // Only do strong branching for DualSimplex
+    strong_branching<i_t, f_t>(original_lp_,
+                               settings_,
+                               exploration_stats_.start_time,
+                               var_types_,
+                               root_relax_soln_.x,
+                               fractional,
+                               root_objective_,
+                               root_vstatus_,
+                               edge_norms_,
+                               pc_);
+  } else {
+    settings_.log.printf("Skipping strong branching for non-simplex root LP method\n");
+  }
 
   if (toc(exploration_stats_.start_time) > settings_.time_limit) {
     solver_status_ = mip_status_t::TIME_LIMIT;
