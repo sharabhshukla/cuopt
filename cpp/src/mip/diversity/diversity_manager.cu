@@ -375,6 +375,41 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
     timer_t lp_timer(lp_time_limit);
     auto lp_result = solve_lp_with_method<i_t, f_t>(*problem_ptr, pdlp_settings, lp_timer);
 
+    // Signal branch-and-bound IMMEDIATELY after PDLP+crossover completes
+    // This allows B&B to start tree exploration while heuristics run in parallel
+    if (problem_ptr->set_root_relaxation_solution_callback != nullptr) {
+      auto& d_primal_solution = lp_result.get_primal_solution();
+      auto& d_dual_solution   = lp_result.get_dual_solution();
+      auto& d_reduced_costs   = lp_result.get_reduced_cost();
+
+      std::vector<f_t> host_primal(d_primal_solution.size());
+      std::vector<f_t> host_dual(d_dual_solution.size());
+      std::vector<f_t> host_reduced_costs(d_reduced_costs.size());
+      raft::copy(host_primal.data(),
+                 d_primal_solution.data(),
+                 d_primal_solution.size(),
+                 problem_ptr->handle_ptr->get_stream());
+      raft::copy(host_dual.data(),
+                 d_dual_solution.data(),
+                 d_dual_solution.size(),
+                 problem_ptr->handle_ptr->get_stream());
+      raft::copy(host_reduced_costs.data(),
+                 d_reduced_costs.data(),
+                 d_reduced_costs.size(),
+                 problem_ptr->handle_ptr->get_stream());
+      problem_ptr->handle_ptr->sync_stream();
+
+      // PDLP returns user-space objective (it applies objective_scaling_factor internally)
+      auto user_obj   = lp_result.get_objective_value();
+      auto solver_obj = problem_ptr->get_solver_obj_from_user_obj(user_obj);
+      auto iterations = lp_result.get_additional_termination_information().number_of_steps_taken;
+      // Set for the B&B (param4 expects solver space, param5 expects user space)
+      problem_ptr->set_root_relaxation_solution_callback(
+        host_primal, host_dual, host_reduced_costs, solver_obj, user_obj, iterations);
+    }
+
+    // Now continue with diversity manager's own processing
+    // (storing LP solution for heuristics, etc.)
     {
       std::lock_guard<std::mutex> guard(relaxed_solution_mutex);
       if (!simplex_solution_exists.load()) {
@@ -422,38 +457,6 @@ solution_t<i_t, f_t> diversity_manager_t<i_t, f_t>::run_solver()
         "Initial LP run exceeded time limit, continuing solver with partial LP result!");
       // note to developer, in debug mode the LP run might be too slow and it might cause PDLP not
       // to bring variables within the bounds
-    }
-
-    // Send PDLP relaxed solution to branch and bound
-    if (problem_ptr->set_root_relaxation_solution_callback != nullptr) {
-      auto& d_primal_solution = lp_result.get_primal_solution();
-      auto& d_dual_solution   = lp_result.get_dual_solution();
-      auto& d_reduced_costs   = lp_result.get_reduced_cost();
-
-      std::vector<f_t> host_primal(d_primal_solution.size());
-      std::vector<f_t> host_dual(d_dual_solution.size());
-      std::vector<f_t> host_reduced_costs(d_reduced_costs.size());
-      raft::copy(host_primal.data(),
-                 d_primal_solution.data(),
-                 d_primal_solution.size(),
-                 problem_ptr->handle_ptr->get_stream());
-      raft::copy(host_dual.data(),
-                 d_dual_solution.data(),
-                 d_dual_solution.size(),
-                 problem_ptr->handle_ptr->get_stream());
-      raft::copy(host_reduced_costs.data(),
-                 d_reduced_costs.data(),
-                 d_reduced_costs.size(),
-                 problem_ptr->handle_ptr->get_stream());
-      problem_ptr->handle_ptr->sync_stream();
-
-      // PDLP returns user-space objective (it applies objective_scaling_factor internally)
-      auto user_obj   = lp_result.get_objective_value();
-      auto solver_obj = problem_ptr->get_solver_obj_from_user_obj(user_obj);
-      auto iterations = lp_result.get_additional_termination_information().number_of_steps_taken;
-      // Set for the B&B (param4 expects solver space, param5 expects user space)
-      problem_ptr->set_root_relaxation_solution_callback(
-        host_primal, host_dual, host_reduced_costs, solver_obj, user_obj, iterations);
     }
 
     // in case the pdlp returned var boudns that are out of bounds
