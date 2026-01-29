@@ -1350,9 +1350,14 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
                                                     root_crossover_soln_,
                                                     crossover_vstatus_);
 
-    // Check if crossover succeeded (OPTIMAL or PRIMAL_FEASIBLE are both valid)
-    if (crossover_status == crossover_status_t::OPTIMAL ||
-        crossover_status == crossover_status_t::PRIMAL_FEASIBLE) {
+    // Check if crossover succeeded
+    // OPTIMAL: crossover fully completed, basis is optimal
+    // PRIMAL_FEASIBLE: crossover found a feasible basis but didn't fully optimize
+    bool crossover_optimal = (crossover_status == crossover_status_t::OPTIMAL);
+    bool crossover_feasible = (crossover_status == crossover_status_t::PRIMAL_FEASIBLE);
+    root_crossover_was_optimal_ = crossover_optimal;
+
+    if (crossover_optimal || crossover_feasible) {
       if (run_dual_simplex) {
         set_root_concurrent_halt(1);  // Stop dual simplex
         root_status = root_status_future.get();
@@ -1589,16 +1594,25 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   }
 
   pc_.resize(original_lp_.num_cols);
-  strong_branching<i_t, f_t>(original_lp_,
-                             settings_,
-                             exploration_stats_.start_time,
-                             var_types_,
-                             root_relax_soln_.x,
-                             fractional,
-                             root_objective_,
-                             root_vstatus_,
-                             edge_norms_,
-                             pc_);
+
+  // Skip strong branching if crossover only returned PRIMAL_FEASIBLE (not OPTIMAL)
+  // This avoids expensive strong branching LPs when the basis quality is suboptimal
+  if (root_lp_method_ != 2 && !root_crossover_was_optimal_) {
+    // Non-simplex method with non-optimal crossover - skip strong branching
+    settings_.log.printf("Skipping strong branching (crossover basis not optimal)\n");
+  } else {
+    // Do strong branching for dual simplex, or when crossover returned OPTIMAL
+    strong_branching<i_t, f_t>(original_lp_,
+                               settings_,
+                               exploration_stats_.start_time,
+                               var_types_,
+                               root_relax_soln_.x,
+                               fractional,
+                               root_objective_,
+                               root_vstatus_,
+                               edge_norms_,
+                               pc_);
+  }
 
   if (toc(exploration_stats_.start_time) > settings_.time_limit) {
     solver_status_ = mip_status_t::TIME_LIMIT;

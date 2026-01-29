@@ -167,6 +167,7 @@ class branch_and_bound_t {
   std::atomic<int> root_concurrent_halt_{0};
   bool is_root_solution_set{false};
   int root_lp_method_{0};  // 0=Concurrent, 1=PDLP, 2=DualSimplex, 3=Barrier
+  bool root_crossover_was_optimal_{false};  // Track if crossover returned OPTIMAL vs PRIMAL_FEASIBLE
 
   // Pseudocosts
   pseudo_costs_t<i_t, f_t> pc_;
