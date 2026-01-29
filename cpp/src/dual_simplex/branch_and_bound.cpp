@@ -1350,8 +1350,9 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
                                                     root_crossover_soln_,
                                                     crossover_vstatus_);
 
-    // Check if crossover was stopped by dual simplex
-    if (crossover_status == crossover_status_t::OPTIMAL) {
+    // Check if crossover succeeded (OPTIMAL or PRIMAL_FEASIBLE are both valid)
+    if (crossover_status == crossover_status_t::OPTIMAL ||
+        crossover_status == crossover_status_t::PRIMAL_FEASIBLE) {
       if (run_dual_simplex) {
         set_root_concurrent_halt(1);  // Stop dual simplex
         root_status = root_status_future.get();
