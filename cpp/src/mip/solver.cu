@@ -12,6 +12,7 @@
 #include "local_search/local_search.cuh"
 #include "local_search/rounding/simple_rounding.cuh"
 #include "solver.cuh"
+#include "presolve/trivial_presolve.cuh"
 
 #include <linear_programming/pdlp.cuh>
 #include <linear_programming/solve.cuh>
@@ -267,6 +268,9 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
   return sol;
 }
 
+// This is the corrected sequential binary activation implementation
+// To be inserted at line 270 in solver.cu
+
 template <typename i_t, typename f_t>
 solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_activation()
 {
@@ -306,34 +310,22 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_a
   auto lp_timer = timer_t(lp_settings.time_limit);
   auto root_lp = solve_lp_with_method<i_t, f_t>(*context.problem_ptr, lp_settings, lp_timer);
 
-  CUOPT_LOG_INFO("Root LP objective: %f, status: %d",
-                 root_lp.get_objective(),
-                 static_cast<int>(root_lp.get_termination_status()));
+  CUOPT_LOG_INFO("Root LP status: %d", static_cast<int>(root_lp.get_termination_status()));
 
-  // Get root LP solution
-  std::vector<f_t> current_solution =
-    host_copy(root_lp.get_primal_solution(), context.problem_ptr->handle_ptr->get_stream());
+  // Get root LP solution as device vector
+  auto lp_solution_device = cuopt::device_copy(root_lp.get_primal_solution(),
+                                                context.problem_ptr->handle_ptr->get_stream());
 
-  // Store original variable types and bounds
-  std::vector<bool> original_is_integer(n_vars);
-  std::vector<f_t> original_lower_bounds(n_vars);
-  std::vector<f_t> original_upper_bounds(n_vars);
+  // Create initial solution from root LP
+  solution_t<i_t, f_t> current_sol(*context.problem_ptr);
+  current_sol.copy_new_assignment(lp_solution_device);
 
-  for (i_t i = 0; i < n_vars; ++i) {
-    original_is_integer[i] = context.problem_ptr->is_integer[i];
-    original_lower_bounds[i] = context.problem_ptr->lower_bound[i];
-    original_upper_bounds[i] = context.problem_ptr->upper_bound[i];
-  }
-
-  // Get integer variable indices
-  std::vector<i_t> integer_var_indices;
-  for (i_t i = 0; i < n_vars; ++i) {
-    if (original_is_integer[i]) {
-      integer_var_indices.push_back(i);
-    }
-  }
+  // Copy integer indices to host
+  auto h_integer_indices = host_copy(context.problem_ptr->integer_indices,
+                                      context.problem_ptr->handle_ptr->get_stream());
 
   f_t best_objective = std::numeric_limits<f_t>::infinity();
+  solution_t<i_t, f_t> best_sol(*context.problem_ptr);
   bool found_feasible = false;
 
   // Step 2: Sequential batch solving
@@ -349,74 +341,87 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_a
                    batch_idx + 1, n_batches, start_idx, end_idx);
     CUOPT_LOG_INFO("Time limit for this batch: %.1f seconds", batch_time_limit);
 
-    // Restore original problem state
-    for (i_t i = 0; i < n_vars; ++i) {
-      context.problem_ptr->is_integer[i] = original_is_integer[i];
-      context.problem_ptr->lower_bound[i] = original_lower_bounds[i];
-      context.problem_ptr->upper_bound[i] = original_upper_bounds[i];
-    }
+    // Identify variables to fix (all previous batches)
+    rmm::device_uvector<i_t> vars_to_fix(start_idx, context.problem_ptr->handle_ptr->get_stream());
+    auto h_vars_to_fix = std::vector<i_t>(h_integer_indices.begin(),
+                                           h_integer_indices.begin() + start_idx);
+    device_copy(h_vars_to_fix, vars_to_fix, context.problem_ptr->handle_ptr->get_stream());
 
-    // Fix previous batches to rounded values
-    i_t n_fixed = 0;
-    for (i_t j = 0; j < start_idx; ++j) {
-      i_t var_idx = integer_var_indices[j];
-      f_t fixed_val = std::round(current_solution[var_idx]);
-      context.problem_ptr->lower_bound[var_idx] = fixed_val;
-      context.problem_ptr->upper_bound[var_idx] = fixed_val;
-      n_fixed++;
-    }
+    // Fix those variables in current solution
+    auto [batch_problem, batch_assignment, variable_map] = current_sol.fix_variables(vars_to_fix);
 
-    // Current batch stays as integer (already set)
-    i_t n_binary_active = end_idx - start_idx;
+    CUOPT_LOG_INFO("Fixed problem: %d vars (original: %d), %d integer vars (original: %d)",
+                   batch_problem.n_variables, n_vars,
+                   batch_problem.n_integer_vars, n_integer_vars);
 
-    // Relax future batches to continuous
+    // Now relax future integer variables to continuous
+    // Get indices in the NEW problem space
+    auto h_batch_integer_indices = host_copy(batch_problem.integer_indices,
+                                              batch_problem.handle_ptr->get_stream());
+
+    // Calculate how many to keep as integer (active batch)
+    i_t n_active_integers = end_idx - start_idx;
+
+    // Relax the ones beyond active batch
+    std::vector<var_t> h_var_types = host_copy(batch_problem.variable_types,
+                                                batch_problem.handle_ptr->get_stream());
     i_t n_relaxed = 0;
-    for (i_t j = end_idx; j < n_integer_vars; ++j) {
-      i_t var_idx = integer_var_indices[j];
-      context.problem_ptr->is_integer[var_idx] = false;
+    for (i_t j = n_active_integers; j < batch_problem.n_integer_vars; ++j) {
+      i_t var_idx = h_batch_integer_indices[j];
+      h_var_types[var_idx] = var_t::CONTINUOUS;
       n_relaxed++;
     }
 
-    // Update integer variable count
-    context.problem_ptr->n_integer_vars = n_binary_active;
+    // Update variable types on device
+    device_copy(h_var_types, batch_problem.variable_types,
+                batch_problem.handle_ptr->get_stream());
+    batch_problem.compute_n_integer_vars();
 
-    CUOPT_LOG_INFO("Variables - Fixed: %d, Binary: %d, Relaxed: %d, Continuous: %d",
-                   n_fixed, n_binary_active, n_relaxed,
-                   n_vars - n_integer_vars);
+    CUOPT_LOG_INFO("Active batch: %d binary, %d relaxed to continuous",
+                   n_active_integers, n_relaxed);
+
+    // Presolve the batch problem
+    batch_problem.presolve_data.reset_additional_vars(batch_problem,
+                                                       batch_problem.handle_ptr);
+    batch_problem.presolve_data.initialize_var_mapping(batch_problem,
+                                                         batch_problem.handle_ptr);
+    trivial_presolve(batch_problem);
 
     // Setup batch solver settings
     mip_solver_settings_t<i_t, f_t> batch_settings = context.settings;
     batch_settings.time_limit = batch_time_limit;
     batch_settings.sequential_binary_activation = false;  // Disable recursion
 
-    // Add current solution as warm start
-    batch_settings.add_initial_solution(current_solution.data(), n_vars,
-                                        context.problem_ptr->handle_ptr->get_stream());
+    // Add batch solution as warm start
+    auto h_batch_assignment = host_copy(batch_assignment,
+                                         batch_problem.handle_ptr->get_stream());
+    batch_settings.add_initial_solution(h_batch_assignment.data(),
+                                         h_batch_assignment.size(),
+                                         batch_problem.handle_ptr->get_stream());
 
-    // Create batch solver with modified problem
-    pdlp_initial_scaling_strategy_t<i_t, f_t> batch_scaling;
-    mip_solver_t<i_t, f_t> batch_solver(*context.problem_ptr,
-                                         batch_settings,
-                                         batch_scaling,
-                                         timer_t(batch_time_limit));
-
-    // Solve batch
+    // Solve batch MIP
+    auto batch_timer = timer_t(batch_time_limit);
+    mip_solver_t<i_t, f_t> batch_solver(batch_problem,
+                                          batch_settings,
+                                          context.scaling,
+                                          batch_timer);
     auto batch_sol = batch_solver.run_solver();
 
     if (batch_sol.get_feasible()) {
-      auto batch_assignment = batch_sol.get_assignment();
-      current_solution = batch_assignment;
-
       f_t batch_obj = batch_sol.get_user_objective();
       CUOPT_LOG_INFO("Batch %d found feasible solution with objective: %f",
                      batch_idx + 1, batch_obj);
 
+      // Unfix variables to get solution in original space
+      current_sol.unfix_variables(batch_sol.assignment, variable_map);
+
       if (batch_obj < best_objective) {
         best_objective = batch_obj;
+        best_sol.copy_from(current_sol);
         found_feasible = true;
       }
     } else {
-      CUOPT_LOG_WARN("Batch %d failed to find feasible solution - continuing with best solution so far",
+      CUOPT_LOG_WARN("Batch %d failed to find feasible solution - continuing with current solution",
                      batch_idx + 1);
     }
 
@@ -427,26 +432,15 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_a
     }
   }
 
-  // Restore original problem state
-  for (i_t i = 0; i < n_vars; ++i) {
-    context.problem_ptr->is_integer[i] = original_is_integer[i];
-    context.problem_ptr->lower_bound[i] = original_lower_bounds[i];
-    context.problem_ptr->upper_bound[i] = original_upper_bounds[i];
-  }
-  context.problem_ptr->n_integer_vars = n_integer_vars;
-
-  // Create final solution
-  solution_t<i_t, f_t> final_sol(*context.problem_ptr);
-  final_sol.copy_new_assignment(current_solution);
-
   if (found_feasible) {
     CUOPT_LOG_INFO("Sequential binary activation completed - best objective: %f", best_objective);
+    context.problem_ptr->post_process_solution(best_sol);
+    return best_sol;
   } else {
     CUOPT_LOG_WARN("Sequential binary activation failed to find feasible solution");
+    context.problem_ptr->post_process_solution(current_sol);
+    return current_sol;
   }
-
-  context.problem_ptr->post_process_solution(final_sol);
-  return final_sol;
 }
 
 // Original feasibility jump has only double
