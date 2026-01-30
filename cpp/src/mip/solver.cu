@@ -345,7 +345,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_a
     rmm::device_uvector<i_t> vars_to_fix(start_idx, context.problem_ptr->handle_ptr->get_stream());
     auto h_vars_to_fix = std::vector<i_t>(h_integer_indices.begin(),
                                            h_integer_indices.begin() + start_idx);
-    device_copy(h_vars_to_fix, vars_to_fix, context.problem_ptr->handle_ptr->get_stream());
+    device_copy(vars_to_fix, h_vars_to_fix, context.problem_ptr->handle_ptr->get_stream());
 
     // Fix those variables in current solution
     auto [batch_problem, batch_assignment, variable_map] = current_sol.fix_variables(vars_to_fix);
@@ -373,7 +373,7 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_a
     }
 
     // Update variable types on device
-    device_copy(h_var_types, batch_problem.variable_types,
+    device_copy(batch_problem.variable_types, h_var_types,
                 batch_problem.handle_ptr->get_stream());
     batch_problem.compute_n_integer_vars();
 
