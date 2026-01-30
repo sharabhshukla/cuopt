@@ -89,7 +89,8 @@ solver_settings_t<i_t, f_t>::solver_settings_t() : pdlp_settings(), mip_settings
     {CUOPT_ORDERING, &pdlp_settings.ordering, -1, 1, -1},
     {CUOPT_BARRIER_DUAL_INITIAL_POINT, &pdlp_settings.barrier_dual_initial_point, -1, 1, -1},
     {CUOPT_NUM_GPUS, &pdlp_settings.num_gpus, 1, 2, 1},
-    {CUOPT_NUM_GPUS, &mip_settings.num_gpus, 1, 2, 1}
+    {CUOPT_NUM_GPUS, &mip_settings.num_gpus, 1, 2, 1},
+    {CUOPT_SEQUENTIAL_BINARY_BATCH_RATIO, &mip_settings.sequential_binary_batch_ratio, 0.01, 1.0, 0.25}
   };
 
     // Bool parameters
@@ -101,6 +102,7 @@ solver_settings_t<i_t, f_t>::solver_settings_t() : pdlp_settings(), mip_settings
     {CUOPT_FIRST_PRIMAL_FEASIBLE, &pdlp_settings.first_primal_feasible, false},
     {CUOPT_MIP_SCALING, &mip_settings.mip_scaling, true},
     {CUOPT_MIP_HEURISTICS_ONLY, &mip_settings.heuristics_only, false},
+    {CUOPT_SEQUENTIAL_BINARY_ACTIVATION, &mip_settings.sequential_binary_activation, false},
     {CUOPT_LOG_TO_CONSOLE, &pdlp_settings.log_to_console, true},
     {CUOPT_LOG_TO_CONSOLE, &mip_settings.log_to_console, true},
     {CUOPT_CROSSOVER, &pdlp_settings.crossover, false},

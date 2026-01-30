@@ -267,6 +267,188 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
   return sol;
 }
 
+template <typename i_t, typename f_t>
+solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver_with_sequential_binary_activation()
+{
+  CUOPT_LOG_INFO("Starting sequential binary activation decomposition");
+
+  cuopt_expects(context.problem_ptr->preprocess_called,
+                error_type_t::RuntimeError,
+                "preprocess_problem should be called before running the solver");
+
+  if (context.problem_ptr->empty) {
+    CUOPT_LOG_INFO("Problem fully reduced in presolve");
+    solution_t<i_t, f_t> sol(*context.problem_ptr);
+    sol.set_problem_fully_reduced();
+    context.problem_ptr->post_process_solution(sol);
+    return sol;
+  }
+
+  const i_t n_vars = context.problem_ptr->n_variables;
+  const i_t n_integer_vars = context.problem_ptr->n_integer_vars;
+  const f_t batch_ratio = context.settings.sequential_binary_batch_ratio;
+  const i_t batch_size = std::max(static_cast<i_t>(1),
+                                   static_cast<i_t>(n_integer_vars * batch_ratio));
+  const i_t n_batches = (n_integer_vars + batch_size - 1) / batch_size;
+
+  CUOPT_LOG_INFO("Total variables: %d, Integer variables: %d", n_vars, n_integer_vars);
+  CUOPT_LOG_INFO("Batch size: %d (%.1f%%), Number of batches: %d",
+                 batch_size, batch_ratio * 100, n_batches);
+
+  // Step 1: Solve root LP relaxation to get initial continuous solution
+  CUOPT_LOG_INFO("Solving root LP relaxation for warm start");
+  pdlp_solver_settings_t<i_t, f_t> lp_settings{};
+  lp_settings.time_limit = std::min(timer_.remaining_time() * 0.15, 600.0);
+  lp_settings.method = context.settings.root_lp_method;
+  lp_settings.inside_mip = true;
+  lp_settings.crossover = context.settings.root_lp_crossover;
+
+  auto lp_timer = timer_t(lp_settings.time_limit);
+  auto root_lp = solve_lp_with_method<i_t, f_t>(*context.problem_ptr, lp_settings, lp_timer);
+
+  CUOPT_LOG_INFO("Root LP objective: %f, status: %d",
+                 root_lp.get_objective(),
+                 static_cast<int>(root_lp.get_termination_status()));
+
+  // Get root LP solution
+  std::vector<f_t> current_solution =
+    host_copy(root_lp.get_primal_solution(), context.problem_ptr->handle_ptr->get_stream());
+
+  // Store original variable types and bounds
+  std::vector<bool> original_is_integer(n_vars);
+  std::vector<f_t> original_lower_bounds(n_vars);
+  std::vector<f_t> original_upper_bounds(n_vars);
+
+  for (i_t i = 0; i < n_vars; ++i) {
+    original_is_integer[i] = context.problem_ptr->is_integer[i];
+    original_lower_bounds[i] = context.problem_ptr->lower_bound[i];
+    original_upper_bounds[i] = context.problem_ptr->upper_bound[i];
+  }
+
+  // Get integer variable indices
+  std::vector<i_t> integer_var_indices;
+  for (i_t i = 0; i < n_vars; ++i) {
+    if (original_is_integer[i]) {
+      integer_var_indices.push_back(i);
+    }
+  }
+
+  f_t best_objective = std::numeric_limits<f_t>::infinity();
+  bool found_feasible = false;
+
+  // Step 2: Sequential batch solving
+  for (i_t batch_idx = 0; batch_idx < n_batches; ++batch_idx) {
+    const i_t start_idx = batch_idx * batch_size;
+    const i_t end_idx = std::min((batch_idx + 1) * batch_size, n_integer_vars);
+    const f_t batch_time_limit = std::min(
+      timer_.remaining_time() / (n_batches - batch_idx),
+      600.0  // Max 10 minutes per batch
+    );
+
+    CUOPT_LOG_INFO("\n=== Batch %d/%d: integer vars [%d, %d) ===",
+                   batch_idx + 1, n_batches, start_idx, end_idx);
+    CUOPT_LOG_INFO("Time limit for this batch: %.1f seconds", batch_time_limit);
+
+    // Restore original problem state
+    for (i_t i = 0; i < n_vars; ++i) {
+      context.problem_ptr->is_integer[i] = original_is_integer[i];
+      context.problem_ptr->lower_bound[i] = original_lower_bounds[i];
+      context.problem_ptr->upper_bound[i] = original_upper_bounds[i];
+    }
+
+    // Fix previous batches to rounded values
+    i_t n_fixed = 0;
+    for (i_t j = 0; j < start_idx; ++j) {
+      i_t var_idx = integer_var_indices[j];
+      f_t fixed_val = std::round(current_solution[var_idx]);
+      context.problem_ptr->lower_bound[var_idx] = fixed_val;
+      context.problem_ptr->upper_bound[var_idx] = fixed_val;
+      n_fixed++;
+    }
+
+    // Current batch stays as integer (already set)
+    i_t n_binary_active = end_idx - start_idx;
+
+    // Relax future batches to continuous
+    i_t n_relaxed = 0;
+    for (i_t j = end_idx; j < n_integer_vars; ++j) {
+      i_t var_idx = integer_var_indices[j];
+      context.problem_ptr->is_integer[var_idx] = false;
+      n_relaxed++;
+    }
+
+    // Update integer variable count
+    context.problem_ptr->n_integer_vars = n_binary_active;
+
+    CUOPT_LOG_INFO("Variables - Fixed: %d, Binary: %d, Relaxed: %d, Continuous: %d",
+                   n_fixed, n_binary_active, n_relaxed,
+                   n_vars - n_integer_vars);
+
+    // Setup batch solver settings
+    mip_solver_settings_t<i_t, f_t> batch_settings = context.settings;
+    batch_settings.time_limit = batch_time_limit;
+    batch_settings.sequential_binary_activation = false;  // Disable recursion
+
+    // Add current solution as warm start
+    batch_settings.add_initial_solution(current_solution.data(), n_vars,
+                                        context.problem_ptr->handle_ptr->get_stream());
+
+    // Create batch solver with modified problem
+    pdlp_initial_scaling_strategy_t<i_t, f_t> batch_scaling;
+    mip_solver_t<i_t, f_t> batch_solver(*context.problem_ptr,
+                                         batch_settings,
+                                         batch_scaling,
+                                         timer_t(batch_time_limit));
+
+    // Solve batch
+    auto batch_sol = batch_solver.run_solver();
+
+    if (batch_sol.get_feasible()) {
+      auto batch_assignment = batch_sol.get_assignment();
+      current_solution = batch_assignment;
+
+      f_t batch_obj = batch_sol.get_user_objective();
+      CUOPT_LOG_INFO("Batch %d found feasible solution with objective: %f",
+                     batch_idx + 1, batch_obj);
+
+      if (batch_obj < best_objective) {
+        best_objective = batch_obj;
+        found_feasible = true;
+      }
+    } else {
+      CUOPT_LOG_WARN("Batch %d failed to find feasible solution - continuing with best solution so far",
+                     batch_idx + 1);
+    }
+
+    if (timer_.remaining_time() < 10.0) {
+      CUOPT_LOG_WARN("Running out of time, stopping after batch %d/%d",
+                     batch_idx + 1, n_batches);
+      break;
+    }
+  }
+
+  // Restore original problem state
+  for (i_t i = 0; i < n_vars; ++i) {
+    context.problem_ptr->is_integer[i] = original_is_integer[i];
+    context.problem_ptr->lower_bound[i] = original_lower_bounds[i];
+    context.problem_ptr->upper_bound[i] = original_upper_bounds[i];
+  }
+  context.problem_ptr->n_integer_vars = n_integer_vars;
+
+  // Create final solution
+  solution_t<i_t, f_t> final_sol(*context.problem_ptr);
+  final_sol.copy_new_assignment(current_solution);
+
+  if (found_feasible) {
+    CUOPT_LOG_INFO("Sequential binary activation completed - best objective: %f", best_objective);
+  } else {
+    CUOPT_LOG_WARN("Sequential binary activation failed to find feasible solution");
+  }
+
+  context.problem_ptr->post_process_solution(final_sol);
+  return final_sol;
+}
+
 // Original feasibility jump has only double
 #if MIP_INSTANTIATE_FLOAT
 template class mip_solver_t<int, float>;

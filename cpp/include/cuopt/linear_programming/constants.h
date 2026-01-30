@@ -54,13 +54,15 @@
 #define CUOPT_MIP_INTEGRALITY_TOLERANCE   "mip_integrality_tolerance"
 #define CUOPT_MIP_ABSOLUTE_GAP            "mip_absolute_gap"
 #define CUOPT_MIP_RELATIVE_GAP            "mip_relative_gap"
-#define CUOPT_MIP_HEURISTICS_ONLY         "mip_heuristics_only"
-#define CUOPT_MIP_SCALING                 "mip_scaling"
-#define CUOPT_MIP_PRESOLVE                "mip_presolve"
-#define CUOPT_SOLUTION_FILE               "solution_file"
-#define CUOPT_NUM_CPU_THREADS             "num_cpu_threads"
-#define CUOPT_NUM_GPUS                    "num_gpus"
-#define CUOPT_USER_PROBLEM_FILE           "user_problem_file"
+#define CUOPT_MIP_HEURISTICS_ONLY                "mip_heuristics_only"
+#define CUOPT_MIP_SCALING                        "mip_scaling"
+#define CUOPT_MIP_PRESOLVE                       "mip_presolve"
+#define CUOPT_SOLUTION_FILE                      "solution_file"
+#define CUOPT_NUM_CPU_THREADS                    "num_cpu_threads"
+#define CUOPT_NUM_GPUS                           "num_gpus"
+#define CUOPT_USER_PROBLEM_FILE                  "user_problem_file"
+#define CUOPT_SEQUENTIAL_BINARY_ACTIVATION       "sequential_binary_activation"
+#define CUOPT_SEQUENTIAL_BINARY_BATCH_RATIO      "sequential_binary_batch_ratio"
 
 /* @brief LP/MIP termination status constants */
 #define CUOPT_TERIMINATION_STATUS_NO_TERMINATION   0

@@ -147,7 +147,9 @@ int run_single_file(std::string file_path,
                     int num_cpu_threads,
                     bool write_log_file,
                     bool log_to_console,
-                    double time_limit)
+                    double time_limit,
+                    bool sequential_binary_activation = false,
+                    double sequential_binary_batch_ratio = 0.25)
 {
   const raft::handle_t handle_{};
   cuopt::linear_programming::mip_solver_settings_t<int, double> settings;
@@ -197,13 +199,15 @@ int run_single_file(std::string file_path,
     }
   }
 
-  settings.time_limit                    = time_limit;
-  settings.heuristics_only               = heuristics_only;
-  settings.num_cpu_threads               = num_cpu_threads;
-  settings.log_to_console                = log_to_console;
-  settings.tolerances.relative_tolerance = 1e-12;
-  settings.tolerances.absolute_tolerance = 1e-6;
-  settings.presolve                      = true;
+  settings.time_limit                      = time_limit;
+  settings.heuristics_only                 = heuristics_only;
+  settings.num_cpu_threads                 = num_cpu_threads;
+  settings.log_to_console                  = log_to_console;
+  settings.tolerances.relative_tolerance   = 1e-12;
+  settings.tolerances.absolute_tolerance   = 1e-6;
+  settings.presolve                        = true;
+  settings.sequential_binary_activation    = sequential_binary_activation;
+  settings.sequential_binary_batch_ratio   = sequential_binary_batch_ratio;
   cuopt::linear_programming::benchmark_info_t benchmark_info;
   settings.benchmark_info_ptr = &benchmark_info;
   auto start_run_solver       = std::chrono::high_resolution_clock::now();
@@ -271,7 +275,9 @@ void run_single_file_mp(std::string file_path,
                                   num_cpu_threads,
                                   write_log_file,
                                   log_to_console,
-                                  time_limit);
+                                  time_limit,
+                                  false,  // sequential_binary_activation - not used in multi-GPU mode
+                                  0.25);  // sequential_binary_batch_ratio
   // this is a bad design to communicate the result but better than adding complexity of IPC or
   // pipes
   exit(sol_found);
@@ -354,6 +360,15 @@ int main(int argc, char* argv[])
     .help("track allocations (t/f)")
     .default_value(std::string("f"));
 
+  program.add_argument("--sequential-binary-activation")
+    .help("enable sequential binary activation decomposition (t/f)")
+    .default_value(std::string("f"));
+
+  program.add_argument("--sequential-binary-batch-ratio")
+    .help("batch size ratio for sequential binary activation (0.0-1.0)")
+    .scan<'g', double>()
+    .default_value(0.25);
+
   // Parse arguments
   try {
     program.parse_args(argc, argv);
@@ -382,6 +397,8 @@ int main(int argc, char* argv[])
   bool log_to_console    = program.get<std::string>("--log-to-console")[0] == 't';
   double memory_limit    = program.get<double>("--memory-limit");
   bool track_allocations = program.get<std::string>("--track-allocations")[0] == 't';
+  bool sequential_binary_activation = program.get<std::string>("--sequential-binary-activation")[0] == 't';
+  double sequential_binary_batch_ratio = program.get<double>("--sequential-binary-batch-ratio");
 
   if (num_cpu_threads < 0) { num_cpu_threads = omp_get_max_threads() / n_gpus; }
 
@@ -509,7 +526,9 @@ int main(int argc, char* argv[])
                     num_cpu_threads,
                     write_log_file,
                     log_to_console,
-                    time_limit);
+                    time_limit,
+                    sequential_binary_activation,
+                    sequential_binary_batch_ratio);
   }
 
   return 0;

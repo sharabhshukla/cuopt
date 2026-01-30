@@ -124,7 +124,9 @@ mip_solution_t<i_t, f_t> run_mip(detail::problem_t<i_t, f_t>& problem,
   detail::trivial_presolve(scaled_problem);
 
   detail::mip_solver_t<i_t, f_t> solver(scaled_problem, settings, scaling, timer);
-  auto scaled_sol                 = solver.run_solver();
+  auto scaled_sol = settings.sequential_binary_activation
+                    ? solver.run_solver_with_sequential_binary_activation()
+                    : solver.run_solver();
   bool is_feasible_before_scaling = scaled_sol.get_feasible();
   scaled_sol.problem_ptr          = &problem;
   if (settings.mip_scaling) { scaling.unscale_solutions(scaled_sol); }
