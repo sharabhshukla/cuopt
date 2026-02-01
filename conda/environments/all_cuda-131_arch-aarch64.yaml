@@ -54,13 +54,14 @@ dependencies:
 - pyrsistent
 - pytest-cov
 - pytest<9.0
-- python>=3.10,<3.14
+- python>=3.11,<3.14
 - pyyaml>=6.0.0
 - rapids-build-backend>=0.4.0,<0.5.0
 - rapids-logger==0.2.*,>=0.0.0a0
 - requests
 - rmm==26.4.*,>=0.0.0a0
 - scikit-build-core>=0.11.0
+- scipy>=1.14.1
 - sphinx
 - sphinx-copybutton
 - sphinx-design
