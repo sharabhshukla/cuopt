@@ -43,6 +43,7 @@ from cuopt.linear_programming.solver.solver_parameters import (
     CUOPT_SOLUTION_FILE,
     CUOPT_STRICT_INFEASIBILITY,
     CUOPT_TIME_LIMIT,
+    CUOPT_PRESOLVE_TIME_LIMIT,
     CUOPT_USER_PROBLEM_FILE,
     get_solver_setting,
 )
@@ -323,6 +324,8 @@ class SolverSettings:
         if time_limit == float("inf"):
             time_limit = None
 
+        presolve_time_limit = self.get_parameter(CUOPT_PRESOLVE_TIME_LIMIT)
+
         solver_config = {
             "tolerances": {
                 "absolute_dual_tolerance": self.get_parameter(
@@ -369,6 +372,7 @@ class SolverSettings:
             "pdlp_solver_mode": self.get_parameter(CUOPT_PDLP_SOLVER_MODE),
             "method": self.get_parameter(CUOPT_METHOD),
             "presolve": self.get_parameter(CUOPT_PRESOLVE),
+            "presolve_time_limit": presolve_time_limit,
             "dual_postsolve": self.get_parameter(CUOPT_DUAL_POSTSOLVE),
             "mip_scaling": self.get_parameter(CUOPT_MIP_SCALING),
             "mip_heuristics_only": self.get_parameter(

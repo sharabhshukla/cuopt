@@ -26,6 +26,11 @@ the first limit (iteration or time) is hit.
 .. note:: by default there is no time limit. So cuOpt will run until it finds an optimal solution,
    or proves the problem is infeasible or unbounded.
 
+Presolve Time Limit
+^^^^^^^^^^^^^^^^^^^
+``CUOPT_PRESOLVE_TIME_LIMIT`` controls the maximum time (in seconds) allocated to the presolve phase.
+Default value is -1, which uses min(10% of total time limit, 60 seconds).
+Set to a positive value to explicitly specify the presolve time limit in seconds.
 
 
 Log to Console

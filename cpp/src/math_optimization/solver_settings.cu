@@ -60,6 +60,8 @@ solver_settings_t<i_t, f_t>::solver_settings_t() : pdlp_settings(), mip_settings
   float_parameters = {
     {CUOPT_TIME_LIMIT, &mip_settings.time_limit, 0.0, std::numeric_limits<f_t>::infinity(), std::numeric_limits<f_t>::infinity()},
     {CUOPT_TIME_LIMIT, &pdlp_settings.time_limit, 0.0, std::numeric_limits<f_t>::infinity(), std::numeric_limits<f_t>::infinity()},
+    {CUOPT_PRESOLVE_TIME_LIMIT, &mip_settings.presolve_time_limit, -1.0, std::numeric_limits<f_t>::infinity(), -1.0},
+    {CUOPT_PRESOLVE_TIME_LIMIT, &pdlp_settings.presolve_time_limit, -1.0, std::numeric_limits<f_t>::infinity(), -1.0},
     {CUOPT_ABSOLUTE_DUAL_TOLERANCE, &pdlp_settings.tolerances.absolute_dual_tolerance, 0.0, 1e-1, 1e-4},
     {CUOPT_RELATIVE_DUAL_TOLERANCE, &pdlp_settings.tolerances.relative_dual_tolerance, 0.0, 1e-1, 1e-4},
     {CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, &pdlp_settings.tolerances.absolute_primal_tolerance, 0.0, 1e-1, 1e-4},

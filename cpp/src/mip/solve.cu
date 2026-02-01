@@ -200,7 +200,8 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
       detail::sort_csr(op_problem);
       // allocate not more than 10% of the time limit to presolve.
       // Note that this is not the presolve time, but the time limit for presolve.
-      const double presolve_time_limit = std::min(0.1 * time_limit, 60.0);
+      const double presolve_time_limit = (settings.presolve_time_limit < 0)
+      ? std::min(0.1 * time_limit, 60.0) : settings.presolve_time_limit;
       presolver   = std::make_unique<detail::third_party_presolve_t<i_t, f_t>>();
       auto result = presolver->apply(op_problem,
                                      cuopt::linear_programming::problem_category_t::MIP,

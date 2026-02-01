@@ -893,8 +893,9 @@ optimization_problem_solution_t<i_t, f_t> solve_lp(
       // allocate no more than 10% of the time limit to presolve.
       // Note that this is not the presolve time, but the time limit for presolve.
       // But no less than 1 second, to avoid early timeout triggering known crashes
-      const double presolve_time_limit =
-        std::max(1.0, std::min(0.1 * lp_timer.remaining_time(), 60.0));
+      const double presolve_time_limit = (settings.presolve_time_limit < 0) ?
+        std::max(1.0, std::min(0.1 * lp_timer.remaining_time(), 60.0))
+        : settings.presolve_time_limit;
       presolver   = std::make_unique<detail::third_party_presolve_t<i_t, f_t>>();
       auto result = presolver->apply(op_problem,
                                      cuopt::linear_programming::problem_category_t::LP,

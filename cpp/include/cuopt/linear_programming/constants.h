@@ -32,6 +32,7 @@
 #define CUOPT_DUAL_INFEASIBLE_TOLERANCE   "dual_infeasible_tolerance"
 #define CUOPT_ITERATION_LIMIT             "iteration_limit"
 #define CUOPT_TIME_LIMIT                  "time_limit"
+#define CUOPT_PRESOLVE_TIME_LIMIT         "presolve_time_limit"
 #define CUOPT_PDLP_SOLVER_MODE            "pdlp_solver_mode"
 #define CUOPT_METHOD                      "method"
 #define CUOPT_PER_CONSTRAINT_RESIDUAL     "per_constraint_residual"
