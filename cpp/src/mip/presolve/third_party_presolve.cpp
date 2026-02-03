@@ -389,6 +389,7 @@ void set_presolve_parameters(papilo::Presolve<f_t>& presolver,
     params.setParameter("probing.minbadgesize", min_badgesize);
     params.setParameter("cliquemerging.enabled", true);
     params.setParameter("cliquemerging.maxcalls", 50);
+    params.setParameter("threads", num_cpu_threads);
   }
 }
 
