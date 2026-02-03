@@ -264,8 +264,13 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
 
         // FIXME:: reduced_solution.get_stats() is not correct, we need to compute the stats for the
         // full problem
+        full_sol.compute_objective();
+        full_stats.objective_value = full_sol.get_user_objective();
+        if(!full_sol.get_feasible()) {
+            CUOPT_LOG_WARN("The Solution is not feasible after post solve");
+        }
         full_sol.post_process_completed = true;  // hack
-        sol                             = full_sol.get_solution(true, full_stats);
+        sol                             = full_sol.get_solution(full_sol.get_feasible(), full_stats);
       }
     }
 
