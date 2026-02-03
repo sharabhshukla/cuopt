@@ -385,11 +385,31 @@ void set_presolve_parameters(papilo::Presolve<f_t>& presolver,
     // produce any reductions, the algorithm stops. To avoid stopping the algorithm, we set a
     // minimum badge size to a huge value. The time limit makes sure that we exit if it takes too
     // long
-    int min_badgesize = std::max(ncols / 2, 32);
+//    int min_badgesize = std::max(ncols / 2, 32);
+//    params.setParameter("probing.minbadgesize", min_badgesize);
+//    params.setParameter("cliquemerging.enabled", true);
+//    params.setParameter("cliquemerging.maxcalls", 50);
+
+    bool is_large_problem = ncols > 100000;
+
+    int min_badgesize;
+    int max_clique_calls;
+
+    if (is_large_problem) {
+      // Conservative for large problems
+      min_badgesize = std::min(5000, std::max(ncols / 100, 32));
+      max_clique_calls = 5;
+      params.setParameter("probing.maxinitialbadgesize", 2000);
+    } else {
+      // Aggressive for small problems
+      min_badgesize = std::max(ncols / 10, 32);
+      max_clique_calls = 20;
+    }
+
     params.setParameter("probing.minbadgesize", min_badgesize);
     params.setParameter("cliquemerging.enabled", true);
-    params.setParameter("cliquemerging.maxcalls", 50);
-    params.setParameter("threads", num_cpu_threads);
+    params.setParameter("cliquemerging.maxcalls", max_clique_calls);
+    params.setParameter("maxrounds", is_large_problem ? 50 : 100);
   }
 }
 
