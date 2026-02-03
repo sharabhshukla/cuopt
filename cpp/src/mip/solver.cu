@@ -109,7 +109,10 @@ solution_t<i_t, f_t> mip_solver_t<i_t, f_t>::run_solver()
 
   diversity_manager_t<i_t, f_t> dm(context);
   dm.timer              = timer_;
-  bool presolve_success = dm.run_presolve(timer_.remaining_time());
+  const double internal_presolve_time_limit = (context.settings.presolve_time_limit < 0)
+                                               ? std::min(0.1 * timer_.remaining_time(), 60.0)
+                                               : context.settings.presolve_time_limit * 0.25;
+  bool presolve_success = dm.run_presolve(internal_presolve_time_limit);
   if (!presolve_success) {
     CUOPT_LOG_INFO("Problem proven infeasible in presolve");
     solution_t<i_t, f_t> sol(*context.problem_ptr);
