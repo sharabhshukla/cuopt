@@ -270,21 +270,17 @@ class BILPReducedCostSolver:
         # ====================================================================
         self._log("Stage 1: Solving LP relaxation with PDLP (no crossover)")
 
-        # Create LP relaxation by removing integer constraints
-        original_integer_indices = data_model.get_integer_indices()
-
-        # Create a copy and make all variables continuous
+        # Parse MPS file again for LP relaxation (we'll solve as LP by not treating as MIP)
         lp_data_model = cuopt_mps_parser.ParseMps(mps_file_path)
-        lp_data_model.set_integer_indices([])  # Clear integer indices
 
-        # Configure PDLP settings for root node
+        # Configure PDLP settings for root node - treat as LP (no MIP)
         lp_settings = SolverSettings()
         lp_settings.set_parameter("method", SolverMethod.PDLP)  # PDLP only
         lp_settings.set_parameter("crossover", False)  # NO crossover
         lp_settings.set_parameter("time_limit", mip_settings.get_parameter("time_limit"))
         lp_settings.set_parameter("log_to_console", self.verbose)
 
-        # Solve LP relaxation
+        # Solve LP relaxation (Solve function will treat it as LP if we don't request MIP)
         lp_solution = Solve(lp_data_model, lp_settings)
 
         # Check if LP solved successfully
