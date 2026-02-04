@@ -213,6 +213,8 @@ mip_solution_t<i_t, f_t> solve_mip(optimization_problem_t<i_t, f_t>& op_problem,
       problem = detail::problem_t<i_t, f_t>(result->reduced_problem);
       problem.set_implied_integers(result->implied_integer_indices);
       presolve_time = timer.elapsed_time();
+      CUOPT_LOG_INFO("Writing Papilo reduced problem to papilo_reduced.mps for debugging")
+      result->reduced_problem.write_to_mps("papilo_reduced.mps")
       if (result->implied_integer_indices.size() > 0) {
         CUOPT_LOG_INFO("%d implied integers", result->implied_integer_indices.size());
       }
