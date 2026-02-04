@@ -398,26 +398,31 @@ void set_presolve_methods(papilo::Presolve<f_t>& presolver,
     // cuOpt custom GF2 presolver
     presolver.addPresolveMethod(uptr(new cuopt::linear_programming::detail::GF2Presolve<f_t>()));
   }
-  // fast presolvers
+  // fast presolvers (safe)
   presolver.addPresolveMethod(uptr(new papilo::SingletonCols<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::CoefficientStrengthening<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::ConstraintPropagation<f_t>()));
 
   // medium presolvers
   presolver.addPresolveMethod(uptr(new papilo::FixContinuous<f_t>()));
-  presolver.addPresolveMethod(uptr(new papilo::SimpleProbing<f_t>()));
+  // NOTE: Disabling SimpleProbing and Probing - can create invalid reductions
+  // presolver.addPresolveMethod(uptr(new papilo::SimpleProbing<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::ParallelRowDetection<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::ParallelColDetection<f_t>()));
 
   presolver.addPresolveMethod(uptr(new papilo::SingletonStuffing<f_t>()));
-  presolver.addPresolveMethod(uptr(new papilo::DualFix<f_t>()));
+  // NOTE: Disabling DualFix - can create invalid reductions for tight tolerances
+  // presolver.addPresolveMethod(uptr(new papilo::DualFix<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::SimplifyInequalities<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::CliqueMerging<f_t>()));
 
   // exhaustive presolvers
   presolver.addPresolveMethod(uptr(new papilo::ImplIntDetection<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::DominatedCols<f_t>()));
-  presolver.addPresolveMethod(uptr(new papilo::Probing<f_t>()));
+  // NOTE: Probing is very aggressive - disabled
+  // presolver.addPresolveMethod(uptr(new papilo::Probing<f_t>()));
+
+  CUOPT_LOG_INFO("[CONFIG] Disabled aggressive presolvers: SimpleProbing, Probing, DualFix");
 
   if (!dual_postsolve) {
     presolver.addPresolveMethod(uptr(new papilo::DualInfer<f_t>()));
