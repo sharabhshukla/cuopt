@@ -197,7 +197,7 @@ optimization_problem_t<i_t, f_t> build_optimization_problem(
   optimization_problem_t<i_t, f_t> op_problem(handle_ptr);
 
   auto obj = papilo_problem.getObjective();
-  op_problem.set_objective_offset(maximize_ ? -obj.offset : obj.offset);
+  op_problem.set_objective_offset(maximize_ ? obj.offset : obj.offset);
   op_problem.set_maximize(maximize_);
   op_problem.set_problem_category(category);
 
@@ -365,7 +365,7 @@ void set_presolve_options(papilo::Presolve<f_t>& presolver,
 {
   presolver.getPresolveOptions().tlim    = time_limit;
   presolver.getPresolveOptions().threads = num_cpu_threads;  //  user setting or  0 (automatic)
-  presolver.getPresolveOptions().feastol = 1e-3; //absolute_tolerance; // From function parameter
+  presolver.getPresolveOptions().feastol = absolute_tolerance; // From function parameter
   if (dual_postsolve) {
     presolver.getPresolveOptions().componentsmaxint = -1;
     presolver.getPresolveOptions().detectlindep     = 0;
