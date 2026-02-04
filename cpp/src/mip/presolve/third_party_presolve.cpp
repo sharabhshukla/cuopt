@@ -388,7 +388,7 @@ void set_presolve_parameters(papilo::Presolve<f_t>& presolver,
     bool is_large = ncols > 100000;
     int min_badgesize = is_large ? std::min(5000, ncols / 100) : std::max(ncols / 10, 32);
     int max_clique = is_large ? 5 : 20;
-    int min_badgesize = std::max(ncols / 2, 32);
+    min_badgesize = std::max(ncols / 2, 32);
     params.setParameter("probing.minbadgesize", min_badgesize);
     params.setParameter("cliquemerging.enabled", true);
     params.setParameter("cliquemerging.maxcalls", 50);
