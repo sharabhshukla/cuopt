@@ -109,8 +109,9 @@ papilo::Problem<f_t> build_papilo_problem(const optimization_problem_t<i_t, f_t>
   builder.setNumRows(num_rows);
 
   builder.setObjAll(h_obj_coeffs);
-  builder.setObjOffset(maximize_ ? -op_problem.get_objective_offset()
-                                 : op_problem.get_objective_offset());
+  // Don't flip offset here - we already flipped coefficients
+  // Papilo will work in minimization space and adjust offset accordingly
+  builder.setObjOffset(op_problem.get_objective_offset());
 
   if (!h_var_lb.empty() && !h_var_ub.empty()) {
     builder.setColLbAll(h_var_lb);
