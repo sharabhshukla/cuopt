@@ -42,6 +42,12 @@ papilo::Problem<f_t> build_papilo_problem(const optimization_problem_t<i_t, f_t>
   const i_t num_rows = op_problem.get_n_constraints();
   const i_t nnz      = op_problem.get_nnz();
 
+  CUOPT_LOG_INFO("========== BUILD_PAPILO_PROBLEM START ==========");
+  CUOPT_LOG_INFO("[INPUT] num_cols (variables): " << num_cols);
+  CUOPT_LOG_INFO("[INPUT] num_rows (constraints): " << num_rows);
+  CUOPT_LOG_INFO("[INPUT] nnz (non-zeros): " << nnz);
+  CUOPT_LOG_INFO("[INPUT] category: " << (category == problem_category_t::MIP ? "MIP" : "LP"));
+
   builder.reserve(nnz, num_rows, num_cols);
 
   // Get problem data from optimization problem
@@ -83,34 +89,54 @@ papilo::Problem<f_t> build_papilo_problem(const optimization_problem_t<i_t, f_t>
   raft::copy(h_var_types.data(), var_types.data(), var_types.size(), stream_view);
 
   maximize_ = op_problem.get_sense();
+  CUOPT_LOG_INFO("[OBJECTIVE] maximize: " << (maximize_ ? "true" : "false"));
+  CUOPT_LOG_INFO("[OBJECTIVE] original offset: " << op_problem.get_objective_offset());
+
   if (maximize_) {
+    CUOPT_LOG_INFO("[OBJECTIVE] Flipping objective coefficients for maximization");
+    f_t orig_sum = 0, flipped_sum = 0;
     for (size_t i = 0; i < h_obj_coeffs.size(); ++i) {
+      orig_sum += h_obj_coeffs[i];
       h_obj_coeffs[i] = -h_obj_coeffs[i];
+      flipped_sum += h_obj_coeffs[i];
     }
+    CUOPT_LOG_INFO("[OBJECTIVE] Sum before flip: " << orig_sum << ", after flip: " << flipped_sum);
   }
 
   auto constr_bounds_empty = h_constr_lb.empty() && h_constr_ub.empty();
+  CUOPT_LOG_INFO("[CONSTRAINTS] bounds_empty: " << (constr_bounds_empty ? "true" : "false"));
+
   if (constr_bounds_empty) {
+    CUOPT_LOG_INFO("[CONSTRAINTS] Building bounds from row types");
+    int count_L = 0, count_G = 0, count_E = 0;
     for (size_t i = 0; i < h_row_types.size(); ++i) {
       if (h_row_types[i] == 'L') {
         h_constr_lb.push_back(-std::numeric_limits<f_t>::infinity());
         h_constr_ub.push_back(h_bounds[i]);
+        count_L++;
       } else if (h_row_types[i] == 'G') {
         h_constr_lb.push_back(h_bounds[i]);
         h_constr_ub.push_back(std::numeric_limits<f_t>::infinity());
+        count_G++;
       } else if (h_row_types[i] == 'E') {
         h_constr_lb.push_back(h_bounds[i]);
         h_constr_ub.push_back(h_bounds[i]);
+        count_E++;
       }
     }
+    CUOPT_LOG_INFO("[CONSTRAINTS] Row types: L=" << count_L << ", G=" << count_G << ", E=" << count_E);
+  } else {
+    CUOPT_LOG_INFO("[CONSTRAINTS] Using existing bounds: " << h_constr_lb.size() << " lower, " << h_constr_ub.size() << " upper");
   }
 
   builder.setNumCols(num_cols);
   builder.setNumRows(num_rows);
 
   builder.setObjAll(h_obj_coeffs);
-  builder.setObjOffset(maximize_ ? -op_problem.get_objective_offset()
-                                 : op_problem.get_objective_offset());
+  f_t papilo_offset = maximize_ ? -op_problem.get_objective_offset()
+                                : op_problem.get_objective_offset();
+  builder.setObjOffset(papilo_offset);
+  CUOPT_LOG_INFO("[OBJECTIVE] Offset sent to Papilo: " << papilo_offset << " (flipped: " << (maximize_ ? "yes" : "no") << ")");
 
   if (!h_var_lb.empty() && !h_var_ub.empty()) {
     builder.setColLbAll(h_var_lb);
@@ -118,25 +144,54 @@ papilo::Problem<f_t> build_papilo_problem(const optimization_problem_t<i_t, f_t>
     if (op_problem.get_variable_names().size() == h_var_lb.size()) {
       builder.setColNameAll(op_problem.get_variable_names());
     }
+    CUOPT_LOG_INFO("[VARIABLES] Set " << h_var_lb.size() << " variable bounds");
+
+    // Log first few variable bounds for verification
+    int log_count = std::min(5, (int)h_var_lb.size());
+    for (int i = 0; i < log_count; ++i) {
+      CUOPT_LOG_INFO("[VARIABLES] Var " << i << ": [" << h_var_lb[i] << ", " << h_var_ub[i] << "]");
+    }
   }
 
+  int int_count = 0, cont_count = 0;
   for (size_t i = 0; i < h_var_types.size(); ++i) {
-    builder.setColIntegral(i, h_var_types[i] == var_t::INTEGER);
+    bool is_int = h_var_types[i] == var_t::INTEGER;
+    builder.setColIntegral(i, is_int);
+    if (is_int) int_count++; else cont_count++;
   }
+  CUOPT_LOG_INFO("[VARIABLES] Types: " << int_count << " integer, " << cont_count << " continuous");
 
   if (!h_constr_lb.empty() && !h_constr_ub.empty()) {
     builder.setRowLhsAll(h_constr_lb);
     builder.setRowRhsAll(h_constr_ub);
+    CUOPT_LOG_INFO("[CONSTRAINTS] Set " << h_constr_lb.size() << " constraint bounds");
+
+    // Log first few constraint bounds for verification
+    int log_count = std::min(5, (int)h_constr_lb.size());
+    for (int i = 0; i < log_count; ++i) {
+      CUOPT_LOG_INFO("[CONSTRAINTS] Row " << i << ": [" << h_constr_lb[i] << ", " << h_constr_ub[i] << "]");
+    }
   }
 
   std::vector<papilo::RowFlags> h_row_flags(h_constr_lb.size());
   std::vector<std::tuple<i_t, i_t, f_t>> h_entries;
   // Add constraints row by row
+  CUOPT_LOG_INFO("[CSR_MATRIX] Building entries from CSR format");
+
+  int lhs_inf_count = 0, rhs_inf_count = 0;
   for (size_t i = 0; i < h_constr_lb.size(); ++i) {
     // Get row entries
     i_t row_start   = h_offsets[i];
     i_t row_end     = h_offsets[i + 1];
     i_t num_entries = row_end - row_start;
+
+    if (i < 3) {  // Log first 3 rows in detail
+      CUOPT_LOG_INFO("[CSR_MATRIX] Row " << i << " has " << num_entries << " entries (offset [" << row_start << ", " << row_end << "])");
+      for (size_t j = 0; j < num_entries && j < 10; ++j) {
+        CUOPT_LOG_INFO("[CSR_MATRIX]   Entry: var=" << h_variables[row_start + j] << ", coeff=" << h_coefficients[row_start + j]);
+      }
+    }
+
     for (size_t j = 0; j < num_entries; ++j) {
       h_entries.push_back(
         std::make_tuple(i, h_variables[row_start + j], h_coefficients[row_start + j]));
@@ -144,11 +199,13 @@ papilo::Problem<f_t> build_papilo_problem(const optimization_problem_t<i_t, f_t>
 
     if (h_constr_lb[i] == -std::numeric_limits<f_t>::infinity()) {
       h_row_flags[i].set(papilo::RowFlag::kLhsInf);
+      lhs_inf_count++;
     } else {
       h_row_flags[i].unset(papilo::RowFlag::kLhsInf);
     }
     if (h_constr_ub[i] == std::numeric_limits<f_t>::infinity()) {
       h_row_flags[i].set(papilo::RowFlag::kRhsInf);
+      rhs_inf_count++;
     } else {
       h_row_flags[i].unset(papilo::RowFlag::kRhsInf);
     }
@@ -156,34 +213,50 @@ papilo::Problem<f_t> build_papilo_problem(const optimization_problem_t<i_t, f_t>
     if (h_constr_lb[i] == -std::numeric_limits<f_t>::infinity()) { h_constr_lb[i] = 0; }
     if (h_constr_ub[i] == std::numeric_limits<f_t>::infinity()) { h_constr_ub[i] = 0; }
   }
+  CUOPT_LOG_INFO("[CSR_MATRIX] Total entries: " << h_entries.size());
+  CUOPT_LOG_INFO("[CSR_MATRIX] Infinity flags: LHS=" << lhs_inf_count << ", RHS=" << rhs_inf_count);
 
+  int var_lb_inf_count = 0, var_ub_inf_count = 0;
   for (size_t i = 0; i < h_var_lb.size(); ++i) {
-    builder.setColLbInf(i, h_var_lb[i] == -std::numeric_limits<f_t>::infinity());
-    builder.setColUbInf(i, h_var_ub[i] == std::numeric_limits<f_t>::infinity());
-    if (h_var_lb[i] == -std::numeric_limits<f_t>::infinity()) { builder.setColLb(i, 0); }
-    if (h_var_ub[i] == std::numeric_limits<f_t>::infinity()) { builder.setColUb(i, 0); }
+    bool lb_inf = h_var_lb[i] == -std::numeric_limits<f_t>::infinity();
+    bool ub_inf = h_var_ub[i] == std::numeric_limits<f_t>::infinity();
+    builder.setColLbInf(i, lb_inf);
+    builder.setColUbInf(i, ub_inf);
+    if (lb_inf) { builder.setColLb(i, 0); var_lb_inf_count++; }
+    if (ub_inf) { builder.setColUb(i, 0); var_ub_inf_count++; }
   }
+  CUOPT_LOG_INFO("[VARIABLES] Infinity bounds: LB=" << var_lb_inf_count << ", UB=" << var_ub_inf_count);
 
+  CUOPT_LOG_INFO("[BUILD] Calling builder.build()...");
   auto problem = builder.build();
+  CUOPT_LOG_INFO("[BUILD] Papilo problem built successfully");
 
   if (h_entries.size()) {
     auto constexpr const sorted_entries = true;
     // MIP reductions like clique merging and substituition require more fillin
     const double spare_ratio      = category == problem_category_t::MIP ? 4.0 : 2.0;
     const int min_inter_row_space = category == problem_category_t::MIP ? 30 : 4;
-    auto csr_storage              = papilo::SparseStorage<f_t>(
+    CUOPT_LOG_INFO("[CSR_MATRIX] Creating sparse storage: spare_ratio=" << spare_ratio << ", min_inter_row_space=" << min_inter_row_space);
+
+    auto csr_storage = papilo::SparseStorage<f_t>(
       h_entries, num_rows, num_cols, sorted_entries, spare_ratio, min_inter_row_space);
     problem.setConstraintMatrix(csr_storage, h_constr_lb, h_constr_ub, h_row_flags);
+    CUOPT_LOG_INFO("[CSR_MATRIX] Constraint matrix set in Papilo problem");
 
     papilo::ConstraintMatrix<f_t>& matrix = problem.getConstraintMatrix();
+    int equation_count = 0;
     for (int i = 0; i < problem.getNRows(); ++i) {
       papilo::RowFlags rowFlag = matrix.getRowFlags()[i];
       if (!rowFlag.test(papilo::RowFlag::kRhsInf) && !rowFlag.test(papilo::RowFlag::kLhsInf) &&
-          matrix.getLeftHandSides()[i] == matrix.getRightHandSides()[i])
+          matrix.getLeftHandSides()[i] == matrix.getRightHandSides()[i]) {
         matrix.getRowFlags()[i].set(papilo::RowFlag::kEquation);
+        equation_count++;
+      }
     }
+    CUOPT_LOG_INFO("[CSR_MATRIX] Marked " << equation_count << " rows as equations");
   }
 
+  CUOPT_LOG_INFO("========== BUILD_PAPILO_PROBLEM END ==========");
   return problem;
 }
 
@@ -196,12 +269,20 @@ optimization_problem_t<i_t, f_t> build_optimization_problem(
   raft::common::nvtx::range fun_scope("Build optimization problem");
   optimization_problem_t<i_t, f_t> op_problem(handle_ptr);
 
+  CUOPT_LOG_INFO("========== BUILD_OPTIMIZATION_PROBLEM START ==========");
+  CUOPT_LOG_INFO("[INPUT] Papilo problem size: " << papilo_problem.getNCols() << " vars, " << papilo_problem.getNRows() << " rows");
+  CUOPT_LOG_INFO("[INPUT] maximize_ (static): " << (maximize_ ? "true" : "false"));
+
   auto obj = papilo_problem.getObjective();
+  CUOPT_LOG_INFO("[OBJECTIVE] Offset from Papilo: " << obj.offset);
+  CUOPT_LOG_INFO("[OBJECTIVE] WARNING: Both branches of ternary are same! Setting: " << obj.offset);
+
   op_problem.set_objective_offset(maximize_ ? obj.offset : obj.offset);
   op_problem.set_maximize(maximize_);
   op_problem.set_problem_category(category);
 
   if (papilo_problem.getNRows() == 0 && papilo_problem.getNCols() == 0) {
+    CUOPT_LOG_INFO("[EMPTY] Problem is empty after presolve - returning minimal problem");
     // FIXME: Shouldn't need to set offsets
     std::vector<i_t> h_offsets{0};
     std::vector<i_t> h_indices{};
@@ -213,14 +294,22 @@ optimization_problem_t<i_t, f_t> build_optimization_problem(
                                          h_offsets.data(),
                                          h_offsets.size());
 
+    CUOPT_LOG_INFO("========== BUILD_OPTIMIZATION_PROBLEM END (EMPTY) ==========");
     return op_problem;
   }
+
   if (maximize_) {
+    CUOPT_LOG_INFO("[OBJECTIVE] Flipping objective coefficients back (was flipped for Papilo)");
+    f_t papilo_sum = 0, flipped_sum = 0;
     for (size_t i = 0; i < obj.coefficients.size(); ++i) {
+      papilo_sum += obj.coefficients[i];
       obj.coefficients[i] = -obj.coefficients[i];
+      flipped_sum += obj.coefficients[i];
     }
+    CUOPT_LOG_INFO("[OBJECTIVE] Sum from Papilo: " << papilo_sum << ", after flip back: " << flipped_sum);
   }
   op_problem.set_objective_coefficients(obj.coefficients.data(), obj.coefficients.size());
+  CUOPT_LOG_INFO("[OBJECTIVE] Set " << obj.coefficients.size() << " objective coefficients");
 
   auto& constraint_matrix = papilo_problem.getConstraintMatrix();
   auto row_lower          = constraint_matrix.getLeftHandSides();
@@ -228,54 +317,131 @@ optimization_problem_t<i_t, f_t> build_optimization_problem(
   auto col_lower          = papilo_problem.getLowerBounds();
   auto col_upper          = papilo_problem.getUpperBounds();
 
+  CUOPT_LOG_INFO("[CONSTRAINTS] Restoring infinity flags in bounds");
   auto row_flags = constraint_matrix.getRowFlags();
+  int lhs_inf_restored = 0, rhs_inf_restored = 0;
   for (size_t i = 0; i < row_flags.size(); i++) {
     if (row_flags[i].test(papilo::RowFlag::kLhsInf)) {
       row_lower[i] = -std::numeric_limits<f_t>::infinity();
+      lhs_inf_restored++;
     }
     if (row_flags[i].test(papilo::RowFlag::kRhsInf)) {
       row_upper[i] = std::numeric_limits<f_t>::infinity();
+      rhs_inf_restored++;
     }
   }
+  CUOPT_LOG_INFO("[CONSTRAINTS] Restored infinity: LHS=" << lhs_inf_restored << ", RHS=" << rhs_inf_restored);
 
   op_problem.set_constraint_lower_bounds(row_lower.data(), row_lower.size());
   op_problem.set_constraint_upper_bounds(row_upper.data(), row_upper.size());
+  CUOPT_LOG_INFO("[CONSTRAINTS] Set " << row_lower.size() << " constraint bounds");
+
+  // Log first few for verification
+  int log_count = std::min(5, (int)row_lower.size());
+  for (int i = 0; i < log_count; ++i) {
+    CUOPT_LOG_INFO("[CONSTRAINTS] Row " << i << ": [" << row_lower[i] << ", " << row_upper[i] << "]");
+  }
 
   auto [index_range, nrows] = constraint_matrix.getRangeInfo();
 
-  std::vector<i_t> offsets(nrows + 1);
+  CUOPT_LOG_INFO("[CSR_MATRIX] ========== CRITICAL SECTION ==========");
+  CUOPT_LOG_INFO("[CSR_MATRIX] nrows: " << nrows);
+  CUOPT_LOG_INFO("[CSR_MATRIX] NNZ from Papilo: " << constraint_matrix.getNnz());
+
   // papilo indices do not start from 0 after presolve
   size_t start = index_range[0].start;
+  size_t end = index_range[nrows - 1].end;
+  CUOPT_LOG_INFO("[CSR_MATRIX] Index range: start=" << start << ", end=" << end);
+  CUOPT_LOG_INFO("[CSR_MATRIX] WARNING: Assuming contiguous range from start to end!");
+
+  std::vector<i_t> offsets(nrows + 1);
   for (i_t i = 0; i < nrows; i++) {
     offsets[i] = index_range[i].start - start;
   }
   offsets[nrows] = index_range[nrows - 1].end - start;
 
+  // Log first few offsets
+  int offset_log_count = std::min(5, (int)nrows + 1);
+  CUOPT_LOG_INFO("[CSR_MATRIX] First " << offset_log_count << " offsets:");
+  for (int i = 0; i < offset_log_count; ++i) {
+    CUOPT_LOG_INFO("[CSR_MATRIX]   offsets[" << i << "] = " << offsets[i]);
+  }
+
   i_t nnz = constraint_matrix.getNnz();
+  CUOPT_LOG_INFO("[CSR_MATRIX] Computed offsets[nrows] = " << offsets[nrows] << ", expected NNZ = " << nnz);
+
+  // CRITICAL CHECK: Verify contiguity assumption
+  size_t expected_nnz_from_range = end - start;
+  if (expected_nnz_from_range != nnz) {
+    CUOPT_LOG_WARN("[CSR_MATRIX] **BUG DETECTED**: NON-CONTIGUOUS CSR MATRIX!");
+    CUOPT_LOG_WARN("[CSR_MATRIX] Expected NNZ from range: " << expected_nnz_from_range);
+    CUOPT_LOG_WARN("[CSR_MATRIX] Actual NNZ: " << nnz);
+    CUOPT_LOG_WARN("[CSR_MATRIX] This means the coefficient/column arrays have gaps!");
+  }
+
+  // Check for gaps in index_range
+  for (i_t i = 0; i < nrows - 1; i++) {
+    size_t current_end = index_range[i].end;
+    size_t next_start = index_range[i + 1].start;
+    if (current_end != next_start && i < 5) {
+      CUOPT_LOG_WARN("[CSR_MATRIX] GAP DETECTED: Row " << i << " ends at " << current_end << ", Row " << (i+1) << " starts at " << next_start);
+    }
+  }
+
   assert(offsets[nrows] == nnz);
 
   const int* cols   = constraint_matrix.getConstraintMatrix().getColumns();
   const f_t* coeffs = constraint_matrix.getConstraintMatrix().getValues();
+
+  CUOPT_LOG_INFO("[CSR_MATRIX] Extracting coefficients/columns starting at index " << start);
+  CUOPT_LOG_INFO("[CSR_MATRIX] First 3 rows from Papilo:");
+  for (int i = 0; i < std::min(3, (int)nrows); ++i) {
+    size_t row_start = index_range[i].start;
+    size_t row_end = index_range[i].end;
+    CUOPT_LOG_INFO("[CSR_MATRIX]   Row " << i << " range [" << row_start << ", " << row_end << ")");
+    for (size_t j = row_start; j < row_end && j < row_start + 10; ++j) {
+      CUOPT_LOG_INFO("[CSR_MATRIX]     Entry: col=" << cols[j] << ", coeff=" << coeffs[j]);
+    }
+  }
+
   op_problem.set_csr_constraint_matrix(
     &(coeffs[start]), nnz, &(cols[start]), nnz, offsets.data(), nrows + 1);
+  CUOPT_LOG_INFO("[CSR_MATRIX] CSR matrix set in optimization problem");
 
   auto col_flags = papilo_problem.getColFlags();
   std::vector<var_t> var_types(col_flags.size());
+  int int_vars = 0, cont_vars = 0, lb_inf = 0, ub_inf = 0;
   for (size_t i = 0; i < col_flags.size(); i++) {
-    var_types[i] =
-      col_flags[i].test(papilo::ColFlag::kIntegral) ? var_t::INTEGER : var_t::CONTINUOUS;
+    bool is_int = col_flags[i].test(papilo::ColFlag::kIntegral);
+    var_types[i] = is_int ? var_t::INTEGER : var_t::CONTINUOUS;
+    if (is_int) int_vars++; else cont_vars++;
+
     if (col_flags[i].test(papilo::ColFlag::kLbInf)) {
       col_lower[i] = -std::numeric_limits<f_t>::infinity();
+      lb_inf++;
     }
     if (col_flags[i].test(papilo::ColFlag::kUbInf)) {
       col_upper[i] = std::numeric_limits<f_t>::infinity();
+      ub_inf++;
     }
   }
+
+  CUOPT_LOG_INFO("[VARIABLES] Types: " << int_vars << " integer, " << cont_vars << " continuous");
+  CUOPT_LOG_INFO("[VARIABLES] Infinity bounds: LB=" << lb_inf << ", UB=" << ub_inf);
 
   op_problem.set_variable_lower_bounds(col_lower.data(), col_lower.size());
   op_problem.set_variable_upper_bounds(col_upper.data(), col_upper.size());
   op_problem.set_variable_types(var_types.data(), var_types.size());
 
+  CUOPT_LOG_INFO("[VARIABLES] Set " << col_lower.size() << " variable bounds and types");
+
+  // Log first few variable bounds
+  int var_log_count = std::min(5, (int)col_lower.size());
+  for (int i = 0; i < var_log_count; ++i) {
+    CUOPT_LOG_INFO("[VARIABLES] Var " << i << ": [" << col_lower[i] << ", " << col_upper[i] << "] " << (var_types[i] == var_t::INTEGER ? "INT" : "CONT"));
+  }
+
+  CUOPT_LOG_INFO("========== BUILD_OPTIMIZATION_PROBLEM END ==========");
   return op_problem;
 }
 
