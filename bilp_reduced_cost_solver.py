@@ -26,6 +26,13 @@ import cuopt_mps_parser
 from cuopt.linear_programming import Problem
 from cuopt.linear_programming.solver_settings import SolverSettings, SolverMethod
 from cuopt.linear_programming.solver import Solve
+from cuopt.linear_programming.solver.solver_parameters import (
+    CUOPT_METHOD,
+    CUOPT_CROSSOVER,
+    CUOPT_PRESOLVE,
+    CUOPT_TIME_LIMIT,
+    CUOPT_LOG_TO_CONSOLE
+)
 
 
 class BILPReducedCostSolver:
@@ -121,10 +128,11 @@ class BILPReducedCostSolver:
 
         # Configure PDLP settings for root node
         lp_settings = SolverSettings()
-        lp_settings.set_parameter("method", SolverMethod.PDLP)  # PDLP only
-        lp_settings.set_parameter("crossover", False)  # NO crossover
-        lp_settings.set_parameter("time_limit", mip_settings.get_parameter("time_limit"))
-        lp_settings.set_parameter("log_to_console", self.verbose)
+        lp_settings.set_parameter(CUOPT_METHOD, SolverMethod.PDLP)  # PDLP only
+        lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
+        lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve to avoid issues
+        lp_settings.set_parameter(CUOPT_TIME_LIMIT, mip_settings.get_parameter(CUOPT_TIME_LIMIT))
+        lp_settings.set_parameter(CUOPT_LOG_TO_CONSOLE, self.verbose)
 
         # Solve LP relaxation
         lp_solution = Solve(data_model, lp_settings)
@@ -275,10 +283,11 @@ class BILPReducedCostSolver:
 
         # Configure PDLP settings for root node - treat as LP (no MIP)
         lp_settings = SolverSettings()
-        lp_settings.set_parameter("method", SolverMethod.PDLP)  # PDLP only
-        lp_settings.set_parameter("crossover", False)  # NO crossover
-        lp_settings.set_parameter("time_limit", mip_settings.get_parameter("time_limit"))
-        lp_settings.set_parameter("log_to_console", self.verbose)
+        lp_settings.set_parameter(CUOPT_METHOD, SolverMethod.PDLP)  # PDLP only
+        lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
+        lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve to avoid issues
+        lp_settings.set_parameter(CUOPT_TIME_LIMIT, mip_settings.get_parameter(CUOPT_TIME_LIMIT))
+        lp_settings.set_parameter(CUOPT_LOG_TO_CONSOLE, self.verbose)
 
         # Solve LP relaxation (Solve function will treat it as LP if we don't request MIP)
         lp_solution = Solve(lp_data_model, lp_settings)
