@@ -405,24 +405,19 @@ void set_presolve_methods(papilo::Presolve<f_t>& presolver,
 
   // medium presolvers
   presolver.addPresolveMethod(uptr(new papilo::FixContinuous<f_t>()));
-  // NOTE: Disabling SimpleProbing and Probing - can create invalid reductions
-  // presolver.addPresolveMethod(uptr(new papilo::SimpleProbing<f_t>()));
+  presolver.addPresolveMethod(uptr(new papilo::SimpleProbing<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::ParallelRowDetection<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::ParallelColDetection<f_t>()));
 
   presolver.addPresolveMethod(uptr(new papilo::SingletonStuffing<f_t>()));
-  // NOTE: Disabling DualFix - can create invalid reductions for tight tolerances
-  // presolver.addPresolveMethod(uptr(new papilo::DualFix<f_t>()));
+  presolver.addPresolveMethod(uptr(new papilo::DualFix<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::SimplifyInequalities<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::CliqueMerging<f_t>()));
 
   // exhaustive presolvers
   presolver.addPresolveMethod(uptr(new papilo::ImplIntDetection<f_t>()));
   presolver.addPresolveMethod(uptr(new papilo::DominatedCols<f_t>()));
-  // NOTE: Probing is very aggressive - disabled
-  // presolver.addPresolveMethod(uptr(new papilo::Probing<f_t>()));
-
-  CUOPT_LOG_INFO("[CONFIG] Disabled aggressive presolvers: SimpleProbing, Probing, DualFix");
+  presolver.addPresolveMethod(uptr(new papilo::Probing<f_t>()));
 
   if (!dual_postsolve) {
     presolver.addPresolveMethod(uptr(new papilo::DualInfer<f_t>()));
@@ -462,18 +457,22 @@ void set_presolve_parameters(papilo::Presolve<f_t>& presolver,
   // It looks like a copy. But this copy has the pointers to relevant variables in papilo
   auto params = presolver.getParameters();
   if (category == problem_category_t::MIP) {
-    // Papilo has work unit measurements for probing. Because of this when the first batch fails to
-    // produce any reductions, the algorithm stops. To avoid stopping the algorithm, we set a
-    // minimum badge size to a huge value. The time limit makes sure that we exit if it takes too
-    // long
+    // FIXED: Conservative parameters to avoid hangs and invalid reductions
+    // Use SCIP's default conservative settings
     bool is_large = ncols > 100000;
-    int min_badgesize = is_large ? std::min(5000, ncols / 100) : std::max(ncols / 10, 32);
-    int max_clique = is_large ? 5 : 20;
-    min_badgesize = std::max(ncols / 2, 32);
+
+    // Conservative badge size - was causing hangs with ncols/2
+    int min_badgesize = is_large ? std::min(1000, ncols / 200) : std::max(ncols / 20, 32);
+
+    // Limit clique merging calls to avoid hangs
+    int max_clique_calls = is_large ? 2 : 10;
+
     params.setParameter("probing.minbadgesize", min_badgesize);
     params.setParameter("cliquemerging.enabled", true);
-    params.setParameter("cliquemerging.maxcalls", 50);
+    params.setParameter("cliquemerging.maxcalls", max_clique_calls);
 
+    CUOPT_LOG_INFO("[CONFIG] Papilo MIP params: minbadgesize=%d, clique_maxcalls=%d",
+                   min_badgesize, max_clique_calls);
   }
 }
 
