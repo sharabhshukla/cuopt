@@ -440,8 +440,11 @@ void set_presolve_options(papilo::Presolve<f_t>& presolver,
 {
   presolver.getPresolveOptions().tlim    = time_limit;
   presolver.getPresolveOptions().threads = num_cpu_threads;  //  user setting or  0 (automatic)
-  presolver.getPresolveOptions().feastol = absolute_tolerance;  // FIXED: Use actual tolerance!
-  CUOPT_LOG_INFO("[CONFIG] Papilo feastol=%e (was hardcoded to 1e-3)", absolute_tolerance);
+
+  // Use Papilo defaults for feastol - don't override
+  // Papilo's default tolerance is well-tested with SCIP
+  CUOPT_LOG_INFO("[CONFIG] Using Papilo default settings (not overriding feastol)");
+
   if (dual_postsolve) {
     presolver.getPresolveOptions().componentsmaxint = -1;
     presolver.getPresolveOptions().detectlindep     = 0;
@@ -454,26 +457,9 @@ void set_presolve_parameters(papilo::Presolve<f_t>& presolver,
                              int nrows,
                              int ncols)
 {
-  // It looks like a copy. But this copy has the pointers to relevant variables in papilo
-  auto params = presolver.getParameters();
-  if (category == problem_category_t::MIP) {
-    // FIXED: Conservative parameters to avoid hangs and invalid reductions
-    // Use SCIP's default conservative settings
-    bool is_large = ncols > 100000;
-
-    // Conservative badge size - was causing hangs with ncols/2
-    int min_badgesize = is_large ? std::min(1000, ncols / 200) : std::max(ncols / 20, 32);
-
-    // Limit clique merging calls to avoid hangs
-    int max_clique_calls = is_large ? 2 : 10;
-
-    params.setParameter("probing.minbadgesize", min_badgesize);
-    params.setParameter("cliquemerging.enabled", true);
-    params.setParameter("cliquemerging.maxcalls", max_clique_calls);
-
-    CUOPT_LOG_INFO("[CONFIG] Papilo MIP params: minbadgesize=%d, clique_maxcalls=%d",
-                   min_badgesize, max_clique_calls);
-  }
+  // Use Papilo's default parameters - they are well-tuned for SCIP
+  // Don't override unless absolutely necessary
+  CUOPT_LOG_INFO("[CONFIG] Using Papilo default parameters (not overriding)");
 }
 
 template <typename i_t, typename f_t>
