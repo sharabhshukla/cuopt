@@ -258,8 +258,9 @@ class BILPReducedCostSolver:
         # Parse MPS file
         data_model = cuopt_mps_parser.ParseMps(mps_file_path)
 
-        n_vars = data_model.get_n_variables()
-        n_cons = data_model.get_n_constraints()
+        # Get problem dimensions from data model
+        n_vars = len(data_model.get_objective_coefficients())
+        n_cons = len(data_model.get_constraint_matrix_offsets()) - 1
 
         self._log(f"Problem size: {n_vars} variables, {n_cons} constraints")
         self._log(f"Fixing tolerance: {self.fixing_tolerance:.2e}\n")
