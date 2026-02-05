@@ -31,7 +31,8 @@ from cuopt.linear_programming.solver.solver_parameters import (
     CUOPT_CROSSOVER,
     CUOPT_PRESOLVE,
     CUOPT_TIME_LIMIT,
-    CUOPT_LOG_TO_CONSOLE
+    CUOPT_LOG_TO_CONSOLE,
+    CUOPT_DUAL_POSTSOLVE
 )
 
 
@@ -291,6 +292,15 @@ class BILPReducedCostSolver:
         lp_settings.set_parameter(CUOPT_METHOD, 1)  # 1 = PDLP
         lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
         lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve
+
+        # CRITICAL: Enable dual postsolve to compute reduced costs from PDLP solution
+        lp_settings.set_parameter(CUOPT_DUAL_POSTSOLVE, True)
+
+        self._log(f"PDLP settings: METHOD={lp_settings.get_parameter(CUOPT_METHOD)}, "
+                  f"CROSSOVER={lp_settings.get_parameter(CUOPT_CROSSOVER)}, "
+                  f"PRESOLVE={lp_settings.get_parameter(CUOPT_PRESOLVE)}, "
+                  f"DUAL_POSTSOLVE={lp_settings.get_parameter(CUOPT_DUAL_POSTSOLVE)}")
+
         lp_settings.set_parameter(CUOPT_TIME_LIMIT, mip_settings.get_parameter(CUOPT_TIME_LIMIT))
         lp_settings.set_parameter(CUOPT_LOG_TO_CONSOLE, self.verbose)
 
