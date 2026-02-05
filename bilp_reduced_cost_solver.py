@@ -32,7 +32,11 @@ from cuopt.linear_programming.solver.solver_parameters import (
     CUOPT_PRESOLVE,
     CUOPT_TIME_LIMIT,
     CUOPT_LOG_TO_CONSOLE,
-    CUOPT_DUAL_POSTSOLVE
+    CUOPT_DUAL_POSTSOLVE,
+    CUOPT_ABSOLUTE_PRIMAL_TOLERANCE,
+    CUOPT_ABSOLUTE_DUAL_TOLERANCE,
+    CUOPT_RELATIVE_PRIMAL_TOLERANCE,
+    CUOPT_RELATIVE_DUAL_TOLERANCE
 )
 
 
@@ -290,16 +294,26 @@ class BILPReducedCostSolver:
         # Configure PDLP settings for LP
         lp_settings = SolverSettings()
         lp_settings.set_parameter(CUOPT_METHOD, 1)  # 1 = PDLP
-        lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
         lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve
 
-        # CRITICAL: Enable dual postsolve to compute reduced costs from PDLP solution
+        # CRITICAL: PDLP without crossover does NOT produce reduced costs (they are all zero)
+        # We MUST enable crossover to get valid reduced costs for variable fixing
+        # Crossover converts the PDLP solution to a basic solution with dual values
+        lp_settings.set_parameter(CUOPT_CROSSOVER, True)  # ENABLE crossover for reduced costs
         lp_settings.set_parameter(CUOPT_DUAL_POSTSOLVE, True)
 
+        # Set tight primal-dual gap tolerances (< 1e-7)
+        lp_settings.set_parameter(CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, 1e-8)
+        lp_settings.set_parameter(CUOPT_ABSOLUTE_DUAL_TOLERANCE, 1e-8)
+        lp_settings.set_parameter(CUOPT_RELATIVE_PRIMAL_TOLERANCE, 1e-8)
+        lp_settings.set_parameter(CUOPT_RELATIVE_DUAL_TOLERANCE, 1e-8)
+
         self._log(f"PDLP settings: METHOD={lp_settings.get_parameter(CUOPT_METHOD)}, "
-                  f"CROSSOVER={lp_settings.get_parameter(CUOPT_CROSSOVER)}, "
+                  f"CROSSOVER={lp_settings.get_parameter(CUOPT_CROSSOVER)} (required for reduced costs), "
                   f"PRESOLVE={lp_settings.get_parameter(CUOPT_PRESOLVE)}, "
                   f"DUAL_POSTSOLVE={lp_settings.get_parameter(CUOPT_DUAL_POSTSOLVE)}")
+        self._log(f"Tolerances: PRIMAL={lp_settings.get_parameter(CUOPT_ABSOLUTE_PRIMAL_TOLERANCE):.2e}, "
+                  f"DUAL={lp_settings.get_parameter(CUOPT_ABSOLUTE_DUAL_TOLERANCE):.2e}")
 
         lp_settings.set_parameter(CUOPT_TIME_LIMIT, mip_settings.get_parameter(CUOPT_TIME_LIMIT))
         lp_settings.set_parameter(CUOPT_LOG_TO_CONSOLE, self.verbose)
