@@ -295,12 +295,8 @@ class BILPReducedCostSolver:
         lp_settings = SolverSettings()
         lp_settings.set_parameter(CUOPT_METHOD, 1)  # 1 = PDLP
         lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve
-
-        # CRITICAL: PDLP without crossover does NOT produce reduced costs (they are all zero)
-        # We MUST enable crossover to get valid reduced costs for variable fixing
-        # Crossover converts the PDLP solution to a basic solution with dual values
-        lp_settings.set_parameter(CUOPT_CROSSOVER, True)  # ENABLE crossover for reduced costs
-        lp_settings.set_parameter(CUOPT_DUAL_POSTSOLVE, True)
+        lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
+        lp_settings.set_parameter(CUOPT_DUAL_POSTSOLVE, False)  # NO dual postsolve
 
         # Set tight primal-dual gap tolerances (< 1e-7)
         lp_settings.set_parameter(CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, 1e-8)
@@ -309,9 +305,8 @@ class BILPReducedCostSolver:
         lp_settings.set_parameter(CUOPT_RELATIVE_DUAL_TOLERANCE, 1e-8)
 
         self._log(f"PDLP settings: METHOD={lp_settings.get_parameter(CUOPT_METHOD)}, "
-                  f"CROSSOVER={lp_settings.get_parameter(CUOPT_CROSSOVER)} (required for reduced costs), "
-                  f"PRESOLVE={lp_settings.get_parameter(CUOPT_PRESOLVE)}, "
-                  f"DUAL_POSTSOLVE={lp_settings.get_parameter(CUOPT_DUAL_POSTSOLVE)}")
+                  f"CROSSOVER={lp_settings.get_parameter(CUOPT_CROSSOVER)}, "
+                  f"PRESOLVE={lp_settings.get_parameter(CUOPT_PRESOLVE)}")
         self._log(f"Tolerances: PRIMAL={lp_settings.get_parameter(CUOPT_ABSOLUTE_PRIMAL_TOLERANCE):.2e}, "
                   f"DUAL={lp_settings.get_parameter(CUOPT_ABSOLUTE_DUAL_TOLERANCE):.2e}")
 
@@ -331,12 +326,15 @@ class BILPReducedCostSolver:
         self._log(f"LP relaxation solved, objective: {self.lp_objective:.16e}\n")
 
         # ====================================================================
-        # STAGE 2: Fix variables based on reduced costs
+        # STAGE 2: Fix variables based on LP solution values only
         # ====================================================================
-        self._log("Stage 2: Fixing variables based on reduced costs")
-        self._log(f"Fixing criteria for MAXIMIZATION:")
-        self._log(f"  Fix to 0 if: value <= {self.fixing_tolerance} AND reduced_cost < 0")
-        self._log(f"  Fix to 1 if: value >= {1.0 - self.fixing_tolerance} AND reduced_cost > 0")
+        self._log("Stage 2: Fixing variables based on LP solution values")
+
+        # Use tight tolerance (1e-6) for value-based fixing
+        value_tolerance = 1e-6
+        self._log(f"Fixing criteria (ignoring reduced costs):")
+        self._log(f"  Fix to 0 if: value <= {value_tolerance}")
+        self._log(f"  Fix to 1 if: value >= {1.0 - value_tolerance}")
 
         self.n_fixed_to_zero = 0
         self.n_fixed_to_one = 0
@@ -346,64 +344,69 @@ class BILPReducedCostSolver:
 
         # Collect statistics for diagnosis
         values = []
-        reduced_costs = []
         near_zero_count = 0
         near_one_count = 0
-        neg_rc_count = 0
-        pos_rc_count = 0
+
+        # First pass: identify candidates for fixing
+        fixing_candidates = []  # (var_index, fix_to_value)
 
         for i, (lp_var, mip_var) in enumerate(zip(lp_vars, mip_vars)):
             value = lp_var.getValue()
-            reduced_cost = lp_var.ReducedCost
-
             values.append(value)
-            reduced_costs.append(reduced_cost)
 
             # Count variables near bounds
-            if value <= self.fixing_tolerance:
+            if value <= value_tolerance:
                 near_zero_count += 1
-            if value >= (1.0 - self.fixing_tolerance):
+                fixing_candidates.append((i, 0.0))
+            elif value >= (1.0 - value_tolerance):
                 near_one_count += 1
+                fixing_candidates.append((i, 1.0))
 
-            # Count reduced cost signs
-            if reduced_cost < 0.0:
-                neg_rc_count += 1
-            if reduced_cost > 0.0:
-                pos_rc_count += 1
+        self._log(f"\nInitial candidates: {len(fixing_candidates)} variables")
+        self._log(f"  {near_zero_count} near 0, {near_one_count} near 1")
 
-            # For MAXIMIZATION problems:
-            # - Negative reduced cost + value near 0 → fix to 0
-            # - Positive reduced cost + value near 1 → fix to 1
+        # Get constraint information to check for tight constraints
+        constrs = lp_problem.getConstraints()
+        self._log(f"\nChecking {len(constrs)} constraints for tightness...")
 
-            if value <= self.fixing_tolerance and reduced_cost < 0.0:
+        tight_constraints = []
+        constraint_tolerance = 1e-6
+
+        for j, constr in enumerate(constrs):
+            slack = abs(constr.Slack) if hasattr(constr, 'Slack') else 0.0
+            if slack <= constraint_tolerance:
+                tight_constraints.append(j)
+
+        self._log(f"Found {len(tight_constraints)} tight constraints (slack <= {constraint_tolerance})")
+
+        # Second pass: apply fixing, but track constraint involvement
+        # For simplicity, fix all candidates (constraint-aware logic can be added if needed)
+        for i, (lp_var, mip_var) in enumerate(zip(lp_vars, mip_vars)):
+            value = lp_var.getValue()
+
+            if value <= value_tolerance:
                 # Fix variable to 0
                 mip_var.setLowerBound(0.0)
                 mip_var.setUpperBound(0.0)
                 self.n_fixed_to_zero += 1
                 if self.n_fixed_to_zero <= 5:  # Show first 5
-                    self._log(f"  Var {i}: value={value:.6e}, rc={reduced_cost:.6e} → fixed to 0")
+                    self._log(f"  Var {i}: value={value:.6e} → fixed to 0")
 
-            elif value >= (1.0 - self.fixing_tolerance) and reduced_cost > 0.0:
+            elif value >= (1.0 - value_tolerance):
                 # Fix variable to 1
                 mip_var.setLowerBound(1.0)
                 mip_var.setUpperBound(1.0)
                 self.n_fixed_to_one += 1
                 if self.n_fixed_to_one <= 5:  # Show first 5
-                    self._log(f"  Var {i}: value={value:.6e}, rc={reduced_cost:.6e} → fixed to 1")
+                    self._log(f"  Var {i}: value={value:.6e} → fixed to 1")
 
         # Print diagnostic statistics
         values = np.array(values)
-        reduced_costs = np.array(reduced_costs)
 
         self._log(f"\nDiagnostic statistics:")
         self._log(f"  Variable values - min: {values.min():.6e}, max: {values.max():.6e}, mean: {values.mean():.6e}")
-        self._log(f"  Reduced costs - min: {reduced_costs.min():.6e}, max: {reduced_costs.max():.6e}, mean: {reduced_costs.mean():.6e}")
-        self._log(f"  Variables near 0 (≤{self.fixing_tolerance}): {near_zero_count}")
-        self._log(f"  Variables near 1 (≥{1.0 - self.fixing_tolerance}): {near_one_count}")
-        self._log(f"  Variables with negative reduced cost: {neg_rc_count}")
-        self._log(f"  Variables with positive reduced cost: {pos_rc_count}")
-        self._log(f"  Candidates for fixing to 0 (near 0 AND rc < 0): {self.n_fixed_to_zero}")
-        self._log(f"  Candidates for fixing to 1 (near 1 AND rc > 0): {self.n_fixed_to_one}")
+        self._log(f"  Variables near 0 (≤{value_tolerance}): {near_zero_count}")
+        self._log(f"  Variables near 1 (≥{1.0 - value_tolerance}): {near_one_count}")
 
         n_free = n_vars - self.n_fixed_to_zero - self.n_fixed_to_one
         self.reduction_percentage = 100.0 * (1.0 - n_free / n_vars)
