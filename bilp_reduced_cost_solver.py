@@ -310,6 +310,9 @@ class BILPReducedCostSolver:
         # STAGE 2: Fix variables based on reduced costs
         # ====================================================================
         self._log("Stage 2: Fixing variables based on reduced costs")
+        self._log(f"Fixing criteria for MAXIMIZATION:")
+        self._log(f"  Fix to 0 if: value <= {self.fixing_tolerance} AND reduced_cost < 0")
+        self._log(f"  Fix to 1 if: value >= {1.0 - self.fixing_tolerance} AND reduced_cost > 0")
 
         self.n_fixed_to_zero = 0
         self.n_fixed_to_one = 0
@@ -317,9 +320,32 @@ class BILPReducedCostSolver:
         lp_vars = lp_problem.getVariables()
         mip_vars = mip_problem.getVariables()
 
+        # Collect statistics for diagnosis
+        values = []
+        reduced_costs = []
+        near_zero_count = 0
+        near_one_count = 0
+        neg_rc_count = 0
+        pos_rc_count = 0
+
         for i, (lp_var, mip_var) in enumerate(zip(lp_vars, mip_vars)):
             value = lp_var.getValue()
             reduced_cost = lp_var.ReducedCost
+
+            values.append(value)
+            reduced_costs.append(reduced_cost)
+
+            # Count variables near bounds
+            if value <= self.fixing_tolerance:
+                near_zero_count += 1
+            if value >= (1.0 - self.fixing_tolerance):
+                near_one_count += 1
+
+            # Count reduced cost signs
+            if reduced_cost < 0.0:
+                neg_rc_count += 1
+            if reduced_cost > 0.0:
+                pos_rc_count += 1
 
             # For MAXIMIZATION problems:
             # - Negative reduced cost + value near 0 → fix to 0
@@ -330,17 +356,35 @@ class BILPReducedCostSolver:
                 mip_var.setLowerBound(0.0)
                 mip_var.setUpperBound(0.0)
                 self.n_fixed_to_zero += 1
+                if self.n_fixed_to_zero <= 5:  # Show first 5
+                    self._log(f"  Var {i}: value={value:.6e}, rc={reduced_cost:.6e} → fixed to 0")
 
             elif value >= (1.0 - self.fixing_tolerance) and reduced_cost > 0.0:
                 # Fix variable to 1
                 mip_var.setLowerBound(1.0)
                 mip_var.setUpperBound(1.0)
                 self.n_fixed_to_one += 1
+                if self.n_fixed_to_one <= 5:  # Show first 5
+                    self._log(f"  Var {i}: value={value:.6e}, rc={reduced_cost:.6e} → fixed to 1")
+
+        # Print diagnostic statistics
+        values = np.array(values)
+        reduced_costs = np.array(reduced_costs)
+
+        self._log(f"\nDiagnostic statistics:")
+        self._log(f"  Variable values - min: {values.min():.6e}, max: {values.max():.6e}, mean: {values.mean():.6e}")
+        self._log(f"  Reduced costs - min: {reduced_costs.min():.6e}, max: {reduced_costs.max():.6e}, mean: {reduced_costs.mean():.6e}")
+        self._log(f"  Variables near 0 (≤{self.fixing_tolerance}): {near_zero_count}")
+        self._log(f"  Variables near 1 (≥{1.0 - self.fixing_tolerance}): {near_one_count}")
+        self._log(f"  Variables with negative reduced cost: {neg_rc_count}")
+        self._log(f"  Variables with positive reduced cost: {pos_rc_count}")
+        self._log(f"  Candidates for fixing to 0 (near 0 AND rc < 0): {self.n_fixed_to_zero}")
+        self._log(f"  Candidates for fixing to 1 (near 1 AND rc > 0): {self.n_fixed_to_one}")
 
         n_free = n_vars - self.n_fixed_to_zero - self.n_fixed_to_one
         self.reduction_percentage = 100.0 * (1.0 - n_free / n_vars)
 
-        self._log(f"Variables fixed: {self.n_fixed_to_zero} to zero, {self.n_fixed_to_one} to one")
+        self._log(f"\nVariables fixed: {self.n_fixed_to_zero} to zero, {self.n_fixed_to_one} to one")
         self._log(f"Variables remaining free: {n_free}")
         self._log(f"Problem size reduction: {self.reduction_percentage:.1f}%\n")
 
