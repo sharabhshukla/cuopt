@@ -365,24 +365,61 @@ class BILPReducedCostSolver:
         self._log(f"\nInitial candidates: {len(fixing_candidates)} variables")
         self._log(f"  {near_zero_count} near 0, {near_one_count} near 1")
 
-        # Get constraint information to check for tight constraints
+        # Get constraint information to check for tight constraints and avoid infeasibility
         constrs = lp_problem.getConstraints()
-        self._log(f"\nChecking {len(constrs)} constraints for tightness...")
+        self._log(f"\nAnalyzing {len(constrs)} constraints for safe fixing...")
 
-        tight_constraints = []
-        constraint_tolerance = 1e-6
+        # Build variable-to-constraint mapping
+        var_to_constraints = {i: [] for i in range(len(lp_vars))}
+
+        for j, constr in enumerate(constrs):
+            # Get variables involved in this constraint
+            for var in constr.vars:
+                var_to_constraints[var.index].append(j)
+
+        # Identify tight constraints
+        tight_constraints = set()
+        constraint_tolerance = 1e-5  # More relaxed for constraint tightness
 
         for j, constr in enumerate(constrs):
             slack = abs(constr.Slack) if hasattr(constr, 'Slack') else 0.0
             if slack <= constraint_tolerance:
-                tight_constraints.append(j)
+                tight_constraints.add(j)
 
         self._log(f"Found {len(tight_constraints)} tight constraints (slack <= {constraint_tolerance})")
 
-        # Second pass: apply fixing, but track constraint involvement
-        # For simplicity, fix all candidates (constraint-aware logic can be added if needed)
+        # Second pass: apply fixing with constraint-aware protection
+        # Skip fixing variables that appear in tight constraints with small coefficients
+        protected_vars = set()
+
+        for j in tight_constraints:
+            constr = constrs[j]
+            # Check if this constraint has very few free variables
+            # If so, we should be careful about fixing variables in it
+            free_vars_in_constraint = []
+            for var in constr.vars:
+                idx = var.index
+                val = values[idx]
+                if val > value_tolerance and val < (1.0 - value_tolerance):
+                    free_vars_in_constraint.append(idx)
+
+            # If constraint has 5 or fewer free variables, protect all variables in it
+            if len(free_vars_in_constraint) <= 5:
+                for var in constr.vars:
+                    protected_vars.add(var.index)
+
+        self._log(f"Protecting {len(protected_vars)} variables involved in critically tight constraints")
+
+        # Apply fixing with protection
+        n_skipped = 0
         for i, (lp_var, mip_var) in enumerate(zip(lp_vars, mip_vars)):
             value = lp_var.getValue()
+
+            # Skip protected variables
+            if i in protected_vars:
+                if value <= value_tolerance or value >= (1.0 - value_tolerance):
+                    n_skipped += 1
+                continue
 
             if value <= value_tolerance:
                 # Fix variable to 0
@@ -399,6 +436,8 @@ class BILPReducedCostSolver:
                 self.n_fixed_to_one += 1
                 if self.n_fixed_to_one <= 5:  # Show first 5
                     self._log(f"  Var {i}: value={value:.6e} → fixed to 1")
+
+        self._log(f"Skipped fixing {n_skipped} variables to avoid infeasibility")
 
         # Print diagnostic statistics
         values = np.array(values)
