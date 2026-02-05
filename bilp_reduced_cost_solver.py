@@ -299,10 +299,10 @@ class BILPReducedCostSolver:
         lp_settings.set_parameter(CUOPT_DUAL_POSTSOLVE, False)  # NO dual postsolve
 
         # Set tight primal-dual gap tolerances (< 1e-7)
-        lp_settings.set_parameter(CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, 1e-8)
-        lp_settings.set_parameter(CUOPT_ABSOLUTE_DUAL_TOLERANCE, 1e-8)
-        lp_settings.set_parameter(CUOPT_RELATIVE_PRIMAL_TOLERANCE, 1e-8)
-        lp_settings.set_parameter(CUOPT_RELATIVE_DUAL_TOLERANCE, 1e-8)
+        # lp_settings.set_parameter(CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, 1e-8)
+        # lp_settings.set_parameter(CUOPT_ABSOLUTE_DUAL_TOLERANCE, 1e-8)
+        # lp_settings.set_parameter(CUOPT_RELATIVE_PRIMAL_TOLERANCE, 1e-8)
+        # lp_settings.set_parameter(CUOPT_RELATIVE_DUAL_TOLERANCE, 1e-8)
 
         self._log(f"PDLP settings: METHOD={lp_settings.get_parameter(CUOPT_METHOD)}, "
                   f"CROSSOVER={lp_settings.get_parameter(CUOPT_CROSSOVER)}, "
