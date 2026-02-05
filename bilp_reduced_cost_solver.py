@@ -300,9 +300,10 @@ class BILPReducedCostSolver:
         if lp_problem.Status.name != "Optimal":
             self._log(f"Warning: LP relaxation status = {lp_problem.Status.name}")
             self._log("Falling back to regular MIP solve without fixing\n")
-            return mip_problem.solve(mip_settings)
+            mip_problem.solve(mip_settings)
+            return mip_problem
 
-        self.lp_objective = lp_problem.ObjectiveValue
+        self.lp_objective = lp_problem.ObjValue
         self._log(f"LP relaxation solved, objective: {self.lp_objective:.16e}\n")
 
         # ====================================================================
@@ -353,11 +354,11 @@ class BILPReducedCostSolver:
 
         self._log("\n" + "=" * 70)
         self._log("Two-stage BILP solver completed")
-        self._log(f"Final objective: {mip_problem.ObjectiveValue:.16e}")
+        self._log(f"Final objective: {mip_problem.ObjValue:.16e}")
         self._log(f"LP relaxation bound: {self.lp_objective:.16e}")
 
-        if mip_problem.ObjectiveValue is not None and self.lp_objective is not None:
-            gap = abs(mip_problem.ObjectiveValue - self.lp_objective)
+        if mip_problem.ObjValue is not None and self.lp_objective is not None:
+            gap = abs(mip_problem.ObjValue - self.lp_objective)
             rel_gap = gap / (abs(self.lp_objective) + 1e-10) * 100
             self._log(f"Optimality gap: {gap:.6e} ({rel_gap:.4f}%)")
 
