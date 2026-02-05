@@ -128,9 +128,9 @@ class BILPReducedCostSolver:
 
         # Configure PDLP settings for root node
         lp_settings = SolverSettings()
-        lp_settings.set_parameter(CUOPT_METHOD, int(SolverMethod.PDLP))  # PDLP only (force int)
+        lp_settings.set_parameter(CUOPT_METHOD, 1)  # 1 = PDLP
         lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
-        lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve to avoid issues
+        lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve
         lp_settings.set_parameter(CUOPT_TIME_LIMIT, mip_settings.get_parameter(CUOPT_TIME_LIMIT))
         lp_settings.set_parameter(CUOPT_LOG_TO_CONSOLE, self.verbose)
 
@@ -269,49 +269,40 @@ class BILPReducedCostSolver:
         self._log("=" * 70)
         self._log(f"Loading MPS file: {mps_file_path}\n")
 
-        # Parse MPS file
-        data_model = cuopt_mps_parser.ParseMps(mps_file_path)
-
-        # Get problem dimensions from data model
-        n_vars = len(data_model.get_objective_coefficients())
-        n_cons = len(data_model.get_constraint_matrix_offsets()) - 1
+        # Load MIP problem
+        mip_problem = Problem.readMPS(mps_file_path)
+        n_vars = mip_problem.NumVariables
+        n_cons = mip_problem.NumConstraints
 
         self._log(f"Problem size: {n_vars} variables, {n_cons} constraints")
         self._log(f"Fixing tolerance: {self.fixing_tolerance:.2e}\n")
 
         # ====================================================================
-        # STAGE 1: Solve LP relaxation with PDLP only (no crossover)
+        # STAGE 1: Solve LP relaxation with PDLP using .relax()
         # ====================================================================
         self._log("Stage 1: Solving LP relaxation with PDLP (no crossover)")
 
-        # Parse MPS file again for LP relaxation (we'll solve as LP by not treating as MIP)
-        lp_data_model = cuopt_mps_parser.ParseMps(mps_file_path)
+        # Create LP relaxation using .relax() method
+        lp_problem = mip_problem.relax()
+        self._log("Created LP relaxation using .relax() method")
 
-        # Configure PDLP settings for root node - treat as LP (no MIP)
+        # Configure PDLP settings for LP
         lp_settings = SolverSettings()
-        lp_settings.set_parameter(CUOPT_METHOD, int(SolverMethod.PDLP))  # PDLP only (force int)
+        lp_settings.set_parameter(CUOPT_METHOD, 1)  # 1 = PDLP
         lp_settings.set_parameter(CUOPT_CROSSOVER, False)  # NO crossover
-        lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve to avoid issues
+        lp_settings.set_parameter(CUOPT_PRESOLVE, False)  # DISABLE presolve
         lp_settings.set_parameter(CUOPT_TIME_LIMIT, mip_settings.get_parameter(CUOPT_TIME_LIMIT))
         lp_settings.set_parameter(CUOPT_LOG_TO_CONSOLE, self.verbose)
 
-        # Debug: verify settings
-        if self.verbose:
-            self._log(f"LP Settings - Method: {lp_settings.get_parameter(CUOPT_METHOD)}")
-            self._log(f"LP Settings - Crossover: {lp_settings.get_parameter(CUOPT_CROSSOVER)}")
-            self._log(f"LP Settings - Presolve: {lp_settings.get_parameter(CUOPT_PRESOLVE)}")
+        # Solve LP relaxation
+        lp_problem.solve(lp_settings)
 
-        # Solve LP relaxation (Solve function will treat it as LP if we don't request MIP)
-        lp_solution = Solve(lp_data_model, lp_settings)
-
-        # Check if LP solved successfully
-        lp_status = lp_solution.get_termination_status()
-        if lp_status != "Optimal":
-            self._log(f"Warning: LP relaxation status = {lp_status}")
+        if lp_problem.Status.name != "Optimal":
+            self._log(f"Warning: LP relaxation status = {lp_problem.Status.name}")
             self._log("Falling back to regular MIP solve without fixing\n")
-            return Solve(data_model, mip_settings)
+            return mip_problem.solve(mip_settings)
 
-        self.lp_objective = lp_solution.get_objective_value()
+        self.lp_objective = lp_problem.ObjectiveValue
         self._log(f"LP relaxation solved, objective: {self.lp_objective:.16e}\n")
 
         # ====================================================================
@@ -319,24 +310,15 @@ class BILPReducedCostSolver:
         # ====================================================================
         self._log("Stage 2: Fixing variables based on reduced costs")
 
-        # Get primal solution and reduced costs from LP
-        primal_solution = lp_solution.get_primal_solution()
-        reduced_costs = lp_solution.get_reduced_cost()
-
-        if reduced_costs is None or len(reduced_costs) == 0:
-            self._log("Warning: No reduced costs available, skipping fixing")
-            return Solve(data_model, mip_settings)
-
-        # Get current variable bounds
-        var_lb = np.array(data_model.get_variable_lower_bounds())
-        var_ub = np.array(data_model.get_variable_upper_bounds())
-
         self.n_fixed_to_zero = 0
         self.n_fixed_to_one = 0
 
-        for i in range(n_vars):
-            value = primal_solution[i]
-            reduced_cost = reduced_costs[i]
+        lp_vars = lp_problem.getVariables()
+        mip_vars = mip_problem.getVariables()
+
+        for i, (lp_var, mip_var) in enumerate(zip(lp_vars, mip_vars)):
+            value = lp_var.getValue()
+            reduced_cost = lp_var.ReducedCost
 
             # For MAXIMIZATION problems:
             # - Negative reduced cost + value near 0 → fix to 0
@@ -344,14 +326,14 @@ class BILPReducedCostSolver:
 
             if value <= self.fixing_tolerance and reduced_cost < 0.0:
                 # Fix variable to 0
-                var_lb[i] = 0.0
-                var_ub[i] = 0.0
+                mip_var.setLowerBound(0.0)
+                mip_var.setUpperBound(0.0)
                 self.n_fixed_to_zero += 1
 
             elif value >= (1.0 - self.fixing_tolerance) and reduced_cost > 0.0:
                 # Fix variable to 1
-                var_lb[i] = 1.0
-                var_ub[i] = 1.0
+                mip_var.setLowerBound(1.0)
+                mip_var.setUpperBound(1.0)
                 self.n_fixed_to_one += 1
 
         n_free = n_vars - self.n_fixed_to_zero - self.n_fixed_to_one
@@ -361,31 +343,27 @@ class BILPReducedCostSolver:
         self._log(f"Variables remaining free: {n_free}")
         self._log(f"Problem size reduction: {self.reduction_percentage:.1f}%\n")
 
-        # Update problem bounds
-        data_model.set_variable_lower_bounds(var_lb.tolist())
-        data_model.set_variable_upper_bounds(var_ub.tolist())
-
         # ====================================================================
         # STAGE 3: Solve reduced BILP with MILP solver
         # ====================================================================
         self._log("Stage 3: Solving reduced BILP with MILP solver")
         self._log("=" * 70 + "\n")
 
-        mip_solution = Solve(data_model, mip_settings)
+        mip_problem.solve(mip_settings)
 
         self._log("\n" + "=" * 70)
         self._log("Two-stage BILP solver completed")
-        self._log(f"Final objective: {mip_solution.get_objective_value():.16e}")
+        self._log(f"Final objective: {mip_problem.ObjectiveValue:.16e}")
         self._log(f"LP relaxation bound: {self.lp_objective:.16e}")
 
-        if mip_solution.get_objective_value() is not None and self.lp_objective is not None:
-            gap = abs(mip_solution.get_objective_value() - self.lp_objective)
+        if mip_problem.ObjectiveValue is not None and self.lp_objective is not None:
+            gap = abs(mip_problem.ObjectiveValue - self.lp_objective)
             rel_gap = gap / (abs(self.lp_objective) + 1e-10) * 100
             self._log(f"Optimality gap: {gap:.6e} ({rel_gap:.4f}%)")
 
         self._log("=" * 70)
 
-        return mip_solution
+        return mip_problem
 
     def get_statistics(self):
         """
