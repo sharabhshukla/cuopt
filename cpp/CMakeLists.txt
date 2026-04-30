@@ -739,6 +739,7 @@ if (BUILD_MIP_BENCHMARKS AND NOT BUILD_LP_ONLY)
             cuopt
             OpenMP::OpenMP_CXX
             PRIVATE
+            argparse::argparse
     )
     if (NOT DEFINED INSTALL_TARGET OR "${INSTALL_TARGET}" STREQUAL "")
         target_link_options(solve_MIP PRIVATE -Wl,--enable-new-dtags)
@@ -773,6 +774,7 @@ if (BUILD_LP_BENCHMARKS)
             cuopt
             OpenMP::OpenMP_CXX
             PRIVATE
+            argparse::argparse
     )
     if (NOT DEFINED INSTALL_TARGET OR "${INSTALL_TARGET}" STREQUAL "")
         target_link_options(solve_LP PRIVATE -Wl,--enable-new-dtags)
