@@ -56,11 +56,13 @@ rapids_cython_init()
 
 add_subdirectory(cuopt_mps_parser)
 add_subdirectory(data_model)
-if(DEFINED cython_lib_dir)
+if(TARGET mps_parser AND DEFINED cython_lib_dir)
   rapids_cython_add_rpath_entries(TARGET mps_parser PATHS "${cython_lib_dir}")
 endif()
 set(rpaths
   "$ORIGIN/../lib64"
   "$ORIGIN/../../rapids_logger/lib64"
 )
-set_property(TARGET mps_parser PROPERTY INSTALL_RPATH ${rpaths} APPEND)
+if(TARGET mps_parser)
+  set_property(TARGET mps_parser PROPERTY INSTALL_RPATH ${rpaths} APPEND)
+endif()
