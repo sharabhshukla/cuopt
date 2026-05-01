@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
+enable_testing()
+
 function(ConfigureTest CMAKE_TEST_NAME)
     add_executable(${CMAKE_TEST_NAME} ${ARGN})
 
