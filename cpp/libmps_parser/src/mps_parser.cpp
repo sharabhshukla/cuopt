@@ -44,6 +44,13 @@ struct FcloseDeleter {
       fclose(fp) == 0, error_type_t::ValidationError, "Error closing MPS file!");
   }
 };
+
+std::vector<char> string_to_buffer(std::string_view input)
+{
+  std::vector<char> buf(input.begin(), input.end());
+  buf.push_back('\0');
+  return buf;
+}
 }  // end namespace
 
 #ifdef MPS_PARSER_WITH_BZIP2
@@ -243,14 +250,14 @@ BoundType convert(std::string_view str)
     return LowerBoundIntegerVariable;
   } else if (str == "UI") {
     return UpperBoundIntegerVariable;
-  } else if (str == "LC") {
-    return SemiContiniousVariable;
+  } else if (str == "SC" || str == "LC") {
+    return SemiContinuousVariable;
   } else {
     mps_parser_expects(false,
                        error_type_t::ValidationError,
                        "Invalid variable bound type found in BOUNDS section! Bound type=%s",
                        std::string(str).c_str());
-    return SemiContiniousVariable;
+    return SemiContinuousVariable;
   }
 }
 
@@ -302,12 +309,7 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
       h_offsets.push_back(static_cast<i_t>(h_indices.size()));
     }
 
-    problem.set_csr_constraint_matrix(h_values.data(),
-                                      h_values.size(),
-                                      h_indices.data(),
-                                      h_indices.size(),
-                                      h_offsets.data(),
-                                      h_offsets.size());
+    problem.set_csr_constraint_matrix(h_values, h_indices, h_offsets);
 
     mps_parser_expects(static_cast<size_t>(num_linear_rows) + 1 == h_offsets.size(),
                        error_type_t::ValidationError,
@@ -339,16 +341,16 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
   for (i_t i = 0; i < (i_t)b_values.size(); ++i) {
     if (!is_quadratic_row(i)) { b_compacted.push_back(b_values[i]); }
   }
-  problem.set_constraint_bounds(b_compacted.data(), static_cast<i_t>(b_compacted.size()));
-  problem.set_objective_coefficients(c_values.data(), c_values.size());
+  problem.set_constraint_bounds(b_compacted);
+  problem.set_objective_coefficients(c_values);
 
   // Set offset and scaling factor of objective function
   problem.set_objective_scaling_factor(objective_scaling_factor_value);
   problem.set_objective_offset(objective_offset_value);
 
   // Set lower and upper bounds
-  problem.set_variable_lower_bounds(variable_lower_bounds.data(), variable_lower_bounds.size());
-  problem.set_variable_upper_bounds(variable_upper_bounds.data(), variable_upper_bounds.size());
+  problem.set_variable_lower_bounds(variable_lower_bounds);
+  problem.set_variable_upper_bounds(variable_upper_bounds);
 
   mps_parser_expects(
     (problem.get_variable_lower_bounds().size() == problem.get_variable_upper_bounds().size()) &&
@@ -438,10 +440,8 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
         !std::isnan(h_constraint_upper_bounds[r]), error_type_t::ValidationError, "Cannot be nan");
     }
 
-    problem.set_constraint_lower_bounds(h_constraint_lower_bounds.data(),
-                                        h_constraint_lower_bounds.size());
-    problem.set_constraint_upper_bounds(h_constraint_upper_bounds.data(),
-                                        h_constraint_upper_bounds.size());
+    problem.set_constraint_lower_bounds(h_constraint_lower_bounds);
+    problem.set_constraint_upper_bounds(h_constraint_upper_bounds);
 
     mps_parser_expects(
       (problem.get_constraint_lower_bounds().size() ==
@@ -536,12 +536,8 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
       quadobj_entries, num_vars_for_quad, num_vars_for_quad, true, k_mps_quad_half_scale);
 
     // Use optimized double transpose method - O(m+n+nnz) instead of O(nnz*log(nnz))
-    problem.set_quadratic_objective_matrix(csr_result.values.data(),
-                                           csr_result.values.size(),
-                                           csr_result.indices.data(),
-                                           csr_result.indices.size(),
-                                           csr_result.offsets.data(),
-                                           csr_result.offsets.size());
+    problem.set_quadratic_objective_matrix(
+      csr_result.values, csr_result.indices, csr_result.offsets);
   } else if (!qmatrix_entries.empty()) {
     // Convert quadratic objective entries to CSR format using double transpose
     // QMATRIX stores full symmetric matrix
@@ -550,12 +546,8 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
       qmatrix_entries, num_vars_for_quad, num_vars_for_quad, false, k_mps_quad_half_scale);
 
     // Use optimized double transpose method - O(m+n+nnz) instead of O(nnz*log(nnz))
-    problem.set_quadratic_objective_matrix(csr_result.values.data(),
-                                           csr_result.values.size(),
-                                           csr_result.indices.data(),
-                                           csr_result.indices.size(),
-                                           csr_result.offsets.data(),
-                                           csr_result.offsets.size());
+    problem.set_quadratic_objective_matrix(
+      csr_result.values, csr_result.indices, csr_result.offsets);
   }
 
   // QCMATRIX: one symmetric Q per constraint row (no extra ½ factor vs file coeffs).
@@ -574,17 +566,12 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
     problem.append_quadratic_constraint(linear_row_count + quadratic_row_id,
                                         row_names[row_id],
                                         static_cast<char>(row_types[row_id]),
-                                        A_values[row_id].data(),
-                                        static_cast<i_t>(A_values[row_id].size()),
-                                        A_indices[row_id].data(),
-                                        static_cast<i_t>(A_indices[row_id].size()),
+                                        A_values[row_id],
+                                        A_indices[row_id],
                                         b_values[row_id],
-                                        csr_result.values.data(),
-                                        static_cast<i_t>(csr_result.values.size()),
-                                        csr_result.indices.data(),
-                                        static_cast<i_t>(csr_result.indices.size()),
-                                        csr_result.offsets.data(),
-                                        static_cast<i_t>(csr_result.offsets.size()));
+                                        csr_result.values,
+                                        csr_result.indices,
+                                        csr_result.offsets);
     ++quadratic_row_id;
   }
 
@@ -600,18 +587,14 @@ void mps_parser_t<i_t, f_t>::fill_problem(mps_data_model_t<i_t, f_t>& problem)
       }
     }
     problem.set_row_names(std::move(linear_row_names));
-    if (!row_types_linear.empty()) {
-      problem.set_row_types(row_types_linear.data(), static_cast<i_t>(row_types_linear.size()));
-    }
+    problem.set_row_types(row_types_linear);
   } else {
     std::vector<char> row_types_host(row_types.size());
     for (size_t i = 0; i < row_types.size(); ++i) {
       row_types_host[i] = static_cast<char>(row_types[i]);
     }
     problem.set_row_names(std::move(row_names));
-    if (!row_types_host.empty()) {
-      problem.set_row_types(row_types_host.data(), static_cast<i_t>(row_types_host.size()));
-    }
+    problem.set_row_types(row_types_host);
   }
 }
 
@@ -932,6 +915,19 @@ mps_parser_t<i_t, f_t>::mps_parser_t(mps_data_model_t<i_t, f_t>& problem,
   // raft::common::nvtx::range fun_scope("mps parser");
 
   std::vector<char> buf = file_to_string(file);
+
+  parse_string(buf.data());
+
+  fill_problem(problem);
+}
+
+template <typename i_t, typename f_t>
+mps_parser_t<i_t, f_t>::mps_parser_t(mps_data_model_t<i_t, f_t>& problem,
+                                     std::string_view input,
+                                     bool _fixed_mps_format)
+  : mps_file{"<mps string>"}, fixed_mps_format(_fixed_mps_format)
+{
+  std::vector<char> buf = string_to_buffer(input);
 
   parse_string(buf.data());
 
@@ -1617,6 +1613,7 @@ void mps_parser_t<i_t, f_t>::read_bound_and_value(std::string_view line,
   switch (bound_type) {
     case LowerBound: {
       variable_lower_bounds[var_id] = get_numerical_bound(line, start);
+      lower_bounds_defined_for_var_id.insert(var_id);
       break;
     }
     case UpperBound: {
@@ -1633,15 +1630,18 @@ void mps_parser_t<i_t, f_t>::read_bound_and_value(std::string_view line,
       const f_t val                 = get_numerical_bound(line, start);
       variable_lower_bounds[var_id] = val;
       variable_upper_bounds[var_id] = val;
+      lower_bounds_defined_for_var_id.insert(var_id);
       break;
     }
     case Free: {
       variable_lower_bounds[var_id] = -std::numeric_limits<f_t>::infinity();
       variable_upper_bounds[var_id] = +std::numeric_limits<f_t>::infinity();
+      lower_bounds_defined_for_var_id.insert(var_id);
       break;
     }
     case LowerBoundNegInf:
       variable_lower_bounds[var_id] = -std::numeric_limits<f_t>::infinity();
+      lower_bounds_defined_for_var_id.insert(var_id);
       break;
     case UpperBoundInf:
       variable_upper_bounds[var_id] = +std::numeric_limits<f_t>::infinity();
@@ -1650,6 +1650,7 @@ void mps_parser_t<i_t, f_t>::read_bound_and_value(std::string_view line,
       variable_lower_bounds[var_id] = 0;
       variable_upper_bounds[var_id] = 1;
       var_types[var_id]             = 'I';
+      lower_bounds_defined_for_var_id.insert(var_id);
       break;
     case LowerBoundIntegerVariable:
       // CPLEX MPS file references seems to imply that integer variables default to an upper bound
@@ -1659,6 +1660,7 @@ void mps_parser_t<i_t, f_t>::read_bound_and_value(std::string_view line,
       }
       variable_lower_bounds[var_id] = get_numerical_bound(line, start);
       var_types[var_id]             = 'I';
+      lower_bounds_defined_for_var_id.insert(var_id);
       break;
     case UpperBoundIntegerVariable:
       variable_upper_bounds[var_id] = get_numerical_bound(line, start);
@@ -1670,11 +1672,15 @@ void mps_parser_t<i_t, f_t>::read_bound_and_value(std::string_view line,
       }
       var_types[var_id] = 'I';
       break;
-    case SemiContiniousVariable:
-      mps_parser_expects(false,
+    case SemiContinuousVariable:
+      // SC bound type: value is the upper bound U.
+      mps_parser_expects(start >= 0 && static_cast<size_t>(start) < line.size() &&
+                           !trim(line.substr(static_cast<size_t>(start))).empty(),
                          error_type_t::ValidationError,
-                         "Unsupported semi continous bound type found! Line=%s",
+                         "SC bound requires an upper bound value! Line=%s",
                          std::string(line).c_str());
+      variable_upper_bounds[var_id] = get_numerical_bound(line, start);
+      var_types[var_id]             = 'S';
       break;
     default:
       mps_parser_expects(false,
