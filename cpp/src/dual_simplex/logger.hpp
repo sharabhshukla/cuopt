@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <format>
+#include <string_view>
 #include <utility>
 
 namespace cuopt::linear_programming::dual_simplex {
