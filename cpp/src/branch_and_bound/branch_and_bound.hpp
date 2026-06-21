@@ -98,7 +98,7 @@ class branch_and_bound_t {
                                     i_t iterations,
                                     method_t method)
   {
-    if (!is_root_solution_set) {
+    if (!is_root_solution_set.load(std::memory_order_acquire)) {
       root_crossover_soln_.x              = primal;
       root_crossover_soln_.y              = dual;
       root_crossover_soln_.z              = reduced_costs;
@@ -234,7 +234,7 @@ class branch_and_bound_t {
   bool enable_concurrent_lp_root_solve_{false};
   std::atomic<int> root_concurrent_halt_{0};
   std::atomic<int> node_concurrent_halt_{0};
-  bool is_root_solution_set{false};
+  std::atomic<bool> is_root_solution_set{false};
 
   // Pseudocosts
   pseudo_costs_t<i_t, f_t> pc_;

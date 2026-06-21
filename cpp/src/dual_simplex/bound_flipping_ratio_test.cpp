@@ -80,7 +80,7 @@ i_t bound_flipping_ratio_test_t<i_t, f_t>::single_pass(i_t start,
     } else if (ratios[k] < min_val + zero_tol) {
       // Use Harris to select variables with larger pivots
       const i_t j = nonbasic_list_[indicies[k]];
-      if (std::abs(delta_z_[j]) > std::abs(delta_z_[candidate])) {
+      if (std::abs(delta_z_[j]) > std::abs(delta_z_[nonbasic_list_[candidate]])) {
         min_val   = ratios[k];
         candidate = indicies[k];
         k_idx     = k;

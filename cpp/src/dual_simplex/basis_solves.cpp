@@ -7,6 +7,7 @@
 
 #include <dual_simplex/basis_solves.hpp>
 
+#include <cuopt/error.hpp>
 #include <dual_simplex/initial_basis.hpp>
 #include <dual_simplex/right_looking_lu.hpp>
 #include <dual_simplex/singletons.hpp>
@@ -172,7 +173,7 @@ i_t factorize_basis(const csc_matrix_t<i_t, f_t>& A,
 {
   raft::common::nvtx::range scope("LU::factorize_basis");
   const i_t m              = basic_list.size();
-  constexpr f_t medium_tol = 1e-12;
+  const f_t medium_tol     = settings.threshold_partial_pivoting_tol;
 
   const bool eliminate_singletons = settings.eliminate_singletons;
   constexpr bool verbose          = false;
@@ -747,7 +748,7 @@ i_t basis_repair(const csc_matrix_t<i_t, f_t>& A,
       } else if (upper[bad_j] < inf) {
         vstatus[bad_j] = variable_status_t::NONBASIC_UPPER;
       } else {
-        assert(1 == 0);
+        CUOPT_FAIL("Unhandled bound case in basis_repair for variable %d", bad_j);
       }
     } else if (superbasic_map[replace_j] != -1) {
       superbasic_list[superbasic_map[replace_j]] = bad_j;

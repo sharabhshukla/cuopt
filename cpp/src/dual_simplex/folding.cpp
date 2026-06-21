@@ -1145,7 +1145,7 @@ void folding(lp_problem_t<i_t, f_t>& problem,
   csc_matrix_t<i_t, f_t> error(reduced_rows, reduced_rows, 1);
   add(product, identity, 1.0, -1.0, error);
   printf("|| C^s Pi_P - I ||_1 = %f\n", error.norm1());
-  if (error.norm1() > 1e-6) { exit(1); }
+  if (error.norm1() > 1e-6) { assert(false && "Folding: C^s Pi_P != I"); }
 #endif
 
   // Construct that matrix D

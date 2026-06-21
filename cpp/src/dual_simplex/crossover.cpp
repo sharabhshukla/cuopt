@@ -7,6 +7,7 @@
 
 #include <dual_simplex/crossover.hpp>
 
+#include <cuopt/error.hpp>
 #include <dual_simplex/basis_solves.hpp>
 #include <dual_simplex/basis_updates.hpp>
 #include <dual_simplex/initial_basis.hpp>
@@ -1180,7 +1181,7 @@ void set_primal_variables_on_bounds(const lp_problem_t<i_t, f_t>& lp,
       vstatus[j] = variable_status_t::NONBASIC_FREE;
       settings.log.debug("Setting free variable %d as nonbasic at 0\n", j);
     } else {
-      assert(1 == 0);
+      CUOPT_FAIL("Unhandled variable status in set_primal_variables_on_bounds for variable %d", j);
     }
   }
 }

@@ -168,4 +168,12 @@ void execute_cuopt_fail(Args... args)
   throw cuopt::logic_error(msg, error_type_t::RuntimeError);
 }
 
+#ifndef CUOPT_EXPECTS
+#define CUOPT_EXPECTS(cond, ...) EXE_CUOPT_EXPECTS(cond, ##__VA_ARGS__)
+#endif
+
+#ifndef CUOPT_FAIL
+#define CUOPT_FAIL(...) EXE_CUOPT_FAIL(##__VA_ARGS__)
+#endif
+
 }  // namespace cuopt

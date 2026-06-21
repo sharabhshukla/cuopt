@@ -8,6 +8,7 @@
 #include <cuts/cuts.hpp>
 #include <cuts/rational.hpp>
 
+#include <cuopt/error.hpp>
 #include <dual_simplex/basis_solves.hpp>
 #include <dual_simplex/tic_toc.hpp>
 #include <mip_heuristics/presolve/conflict_graph/clique_table.cuh>
@@ -1285,6 +1286,21 @@ bool flow_cover_generation_t<i_t, f_t>::build_single_node_flow_relaxation(
   if (scratch.arcs.empty()) { return false; }
   single_node_flow_b = b - b_shift;
 
+  // Guard cancellation in b_shift accumulation (cMIR site 1).
+  // b_shift is the sum of per-arc b_shift_i; single_node_flow_b = b - b_shift
+  // can lose precision when b and b_shift are large with a small difference.
+  {
+    const f_t b_shift_scale = std::max<f_t>(
+      static_cast<f_t>(1.0), std::max(std::abs(b), std::abs(b_shift)));
+    const f_t b_shift_cancel_ratio = std::abs(single_node_flow_b) / b_shift_scale;
+    constexpr f_t large_flow_b_scale       = static_cast<f_t>(1e5);
+    constexpr f_t unstable_flow_b_residual = static_cast<f_t>(1e-5);
+    if (b_shift_scale >= large_flow_b_scale &&
+        b_shift_cancel_ratio <= unstable_flow_b_residual) {
+      return false;
+    }
+  }
+
   cuopt_assert(
     [&]() {
       f_t single_node_flow_activity = 0.0;
@@ -1522,7 +1538,8 @@ bool flow_cover_generation_t<i_t, f_t>::emit_flow_cover_cut(
   const f_t output_drop_tol = static_cast<f_t>(1e-9);
   const bool use_c_mir_inequality =
     c_mir_inequality.violation >= simple_generalized_inequality.violation;
-  f_t lhs_constant = 0.0;
+  f_t lhs_constant         = 0.0;
+  f_t lhs_constant_abs_sum = 0.0;
 
   scratch.lhs_indices.reserve(scratch.arcs.size() * 2);
   auto add_lhs_coeff = [&](i_t j, f_t value) {
@@ -1537,11 +1554,13 @@ bool flow_cover_generation_t<i_t, f_t>::emit_flow_cover_cut(
 
   auto add_y = [&](const single_node_flow_arc_t<i_t, f_t>& arc, f_t multiplier) {
     lhs_constant += multiplier * arc.y_const;
+    lhs_constant_abs_sum += std::abs(multiplier * arc.y_const);
     if (arc.y_col >= 0) { add_lhs_coeff(arc.y_col, multiplier * arc.y_coeff); }
     if (arc.x_col >= 0) {
       add_lhs_coeff(arc.x_col, multiplier * arc.y_x_coeff);
     } else {
       lhs_constant += multiplier * arc.y_x_coeff * arc.x_value;
+      lhs_constant_abs_sum += std::abs(multiplier * arc.y_x_coeff * arc.x_value);
     }
   };
 
@@ -1550,11 +1569,13 @@ bool flow_cover_generation_t<i_t, f_t>::emit_flow_cover_cut(
       add_lhs_coeff(arc.x_col, multiplier);
     } else {
       lhs_constant += multiplier * arc.x_value;
+      lhs_constant_abs_sum += std::abs(multiplier * arc.x_value);
     }
   };
 
   auto add_one_minus_x = [&](const single_node_flow_arc_t<i_t, f_t>& arc, f_t multiplier) {
     lhs_constant += multiplier;
+    lhs_constant_abs_sum += std::abs(multiplier);
     add_x(arc, -multiplier);
   };
 
@@ -1574,6 +1595,7 @@ bool flow_cover_generation_t<i_t, f_t>::emit_flow_cover_cut(
         }
       } else if (scratch.in_c2[k]) {
         lhs_constant -= arc.u;
+        lhs_constant_abs_sum += std::abs(arc.u);
         add_one_minus_x(arc, lambda * f_pos);
       } else if (scratch.best_in_l2[k]) {
         add_x(arc, lambda * f_neg);
@@ -1591,11 +1613,25 @@ bool flow_cover_generation_t<i_t, f_t>::emit_flow_cover_cut(
         continue;
       } else if (scratch.in_c2[k]) {
         lhs_constant -= arc.u;
+        lhs_constant_abs_sum += std::abs(arc.u);
       } else if (scratch.simple_generalized_flow_cover_in_l2[k]) {
         add_x(arc, -std::min(arc.u, lambda));
       } else {
         add_y(arc, -1.0);
       }
+    }
+  }
+
+  // Guard cancellation in lhs_constant accumulation (cMIR site 2).
+  // lhs_constant is the sum of per-arc contributions; large contributions
+  // that cancel to a small residual lose precision.
+  {
+    const f_t lhs_scale = std::max<f_t>(static_cast<f_t>(1.0), lhs_constant_abs_sum);
+    const f_t lhs_cancel_ratio = std::abs(lhs_constant) / lhs_scale;
+    constexpr f_t large_lhs_scale       = static_cast<f_t>(1e5);
+    constexpr f_t unstable_lhs_residual = static_cast<f_t>(1e-5);
+    if (lhs_scale >= large_lhs_scale && lhs_cancel_ratio <= unstable_lhs_residual) {
+      return false;
     }
   }
 
@@ -3401,13 +3437,13 @@ i_t tableau_equality_t<i_t, f_t>::generate_base_equality(
       settings.log.printf("BTu_bar %d error %e\n", k, std::abs(BTu_bar[k] - 1.0));
       if (std::abs(BTu_bar[k] - 1.0) > 1e-10) {
         settings.log.printf("BTu_bar[%d] = %e i %d\n", k, BTu_bar[k], i);
-        assert(false);
+        CUOPT_FAIL("B^T u_bar diagonal verification failed at index %d", k);
       }
     } else {
       settings.log.printf("BTu_bar %d error %e\n", k, std::abs(BTu_bar[k]));
       if (std::abs(BTu_bar[k]) > 1e-10) {
         settings.log.printf("BTu_bar[%d] = %e i %d\n", k, BTu_bar[k], i);
-        assert(false);
+        CUOPT_FAIL("B^T u_bar off-diagonal verification failed at index %d", k);
       }
     }
   }
@@ -4584,15 +4620,7 @@ bool complemented_mixed_integer_rounding_cut_t<i_t, f_t>::
       cut.vector.x[k] = h(aj);
     }
     if (cut.vector.x[k] != cut.vector.x[k]) {
-      printf("cut.x[%d] %e != cut.x[%d] %e. aj %e beta %e var type %d\n",
-             k,
-             cut.vector.x[k],
-             k,
-             cut.vector.x[k],
-             aj,
-             beta,
-             static_cast<int>(var_types[j]));
-      exit(1);
+      return false;
     }
   }
 

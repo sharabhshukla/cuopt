@@ -11,6 +11,7 @@
 #include <branch_and_bound/pseudo_costs.hpp>
 #include <branch_and_bound/symmetry.hpp>
 
+#include <cuopt/error.hpp>
 #include <cuopt/linear_programming/mip/solver_settings.hpp>  // benchmark_info_t
 
 #include <cuts/cuts.hpp>
@@ -2145,7 +2146,7 @@ lp_status_t branch_and_bound_t<i_t, f_t>::solve_root_relaxation(
   }
 
   settings_.log.printf("\n");
-  is_root_solution_set = true;
+  is_root_solution_set.store(true, std::memory_order_release);
 
   return root_status;
 }
@@ -2336,8 +2337,9 @@ auto branch_and_bound_t<i_t, f_t>::do_cut_pass(
   if (dual_phase2_time > 1.0) {
     settings_.log.debug("Dual phase2 time %.2f seconds\n", dual_phase2_time);
   }
-  if (cut_status == dual::status_t::TIME_LIMIT) {
-    solver_status_ = mip_status_t::TIME_LIMIT;
+  if (cut_status == dual::status_t::TIME_LIMIT || cut_status == dual::status_t::WORK_LIMIT) {
+    solver_status_ = cut_status == dual::status_t::TIME_LIMIT ? mip_status_t::TIME_LIMIT
+                                                              : mip_status_t::WORK_LIMIT;
     set_final_solution(solution, root_objective_);
     return {cut_pass_action_t::RETURN, solver_status_};
   }
@@ -2364,7 +2366,19 @@ auto branch_and_bound_t<i_t, f_t>::do_cut_pass(
 #ifdef WRITE_CUT_INFEASIBLE_MPS
       original_lp_.write_mps("cut_infeasible.mps");
 #endif
-      return {cut_pass_action_t::RETURN, mip_status_t::NUMERICAL};
+      if (scratch_status == lp_status_t::TIME_LIMIT) {
+        solver_status_ = mip_status_t::TIME_LIMIT;
+      } else if (scratch_status == lp_status_t::WORK_LIMIT) {
+        solver_status_ = mip_status_t::WORK_LIMIT;
+      } else if (scratch_status == lp_status_t::INFEASIBLE) {
+        solver_status_ = mip_status_t::INFEASIBLE;
+      } else if (scratch_status == lp_status_t::UNBOUNDED) {
+        solver_status_ = mip_status_t::UNBOUNDED;
+      } else {
+        solver_status_ = mip_status_t::NUMERICAL;
+      }
+      set_final_solution(solution, root_objective_);
+      return {cut_pass_action_t::RETURN, solver_status_};
     }
   }
   root_objective_ = compute_objective(original_lp_, root_relax_soln_.x);
@@ -2376,23 +2390,33 @@ auto branch_and_bound_t<i_t, f_t>::do_cut_pass(
 
   f_t remove_cuts_start_time = tic();
   mutex_original_lp_.lock();
-  remove_cuts(original_lp_,
-              settings_,
-              exploration_stats_.start_time,
-              Arow_,
-              new_slacks_,
-              original_rows,
-              var_types_,
-              root_vstatus_,
-              edge_norms_,
-              root_relax_soln_.x,
-              root_relax_soln_.y,
-              root_relax_soln_.z,
-              basic_list,
-              nonbasic_list,
-              basis_update);
+  i_t remove_cuts_status = remove_cuts(original_lp_,
+                                       settings_,
+                                       exploration_stats_.start_time,
+                                       Arow_,
+                                       new_slacks_,
+                                       original_rows,
+                                       var_types_,
+                                       root_vstatus_,
+                                       edge_norms_,
+                                       root_relax_soln_.x,
+                                       root_relax_soln_.y,
+                                       root_relax_soln_.z,
+                                       basic_list,
+                                       nonbasic_list,
+                                       basis_update);
   variable_bounds.resize(original_lp_.num_cols);
   mutex_original_lp_.unlock();
+  if (remove_cuts_status == CONCURRENT_HALT_RETURN) {
+    solver_status_ = mip_status_t::NUMERICAL;
+    set_final_solution(solution, root_objective_);
+    return {cut_pass_action_t::RETURN, solver_status_};
+  }
+  if (remove_cuts_status == TIME_LIMIT_RETURN) {
+    solver_status_ = mip_status_t::TIME_LIMIT;
+    set_final_solution(solution, root_objective_);
+    return {cut_pass_action_t::RETURN, solver_status_};
+  }
   f_t remove_cuts_time = toc(remove_cuts_start_time);
   if (remove_cuts_time > 1.0) {
     settings_.log.debug("Remove cuts time %.2f seconds\n", remove_cuts_time);
@@ -2401,8 +2425,8 @@ auto branch_and_bound_t<i_t, f_t>::do_cut_pass(
   num_fractional = fractional_variables(settings_, root_relax_soln_.x, var_types_, fractional);
 
   if (num_fractional == 0) {
-    upper_bound_ = root_objective_;
     mutex_upper_.lock();
+    upper_bound_ = root_objective_;
     incumbent_.set_incumbent_solution(root_objective_, root_relax_soln_.x);
     mutex_upper_.unlock();
   }
@@ -2829,6 +2853,8 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
   if (toc(exploration_stats_.start_time) > settings_.time_limit) {
     solver_status_ = mip_status_t::TIME_LIMIT;
     set_final_solution(solution, root_objective_);
+    signal_extend_cliques_.store(true, std::memory_order_release);
+#pragma omp taskwait depend(in : *clique_signal)
     return solver_status_;
   }
 
@@ -2850,8 +2876,12 @@ mip_status_t branch_and_bound_t<i_t, f_t>::solve(mip_solution_t<i_t, f_t>& solut
       mutex_original_lp_.unlock();
       if (!feasible) {
         settings_.log.printf("Bound strengthening failed\n");
-        return mip_status_t::NUMERICAL;  // We had a feasible integer solution, but bound
-                                         // strengthening thinks we are infeasible.
+        solver_status_ = mip_status_t::NUMERICAL;
+        set_final_solution(solution, root_objective_);
+        signal_extend_cliques_.store(true, std::memory_order_release);
+#pragma omp taskwait depend(in : *clique_signal)
+        return solver_status_;  // We had a feasible integer solution, but bound
+                                // strengthening thinks we are infeasible.
       }
       // Go through and check the fractional variables and remove any that are now fixed to their
       // bounds
