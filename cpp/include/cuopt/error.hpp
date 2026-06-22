@@ -173,7 +173,7 @@ void execute_cuopt_fail(Args... args)
 #endif
 
 #ifndef CUOPT_FAIL
-#define CUOPT_FAIL(...) EXE_CUOPT_FAIL(##__VA_ARGS__)
+#define CUOPT_FAIL(fmt, ...) EXE_CUOPT_FAIL(fmt, ##__VA_ARGS__)
 #endif
 
 }  // namespace cuopt
