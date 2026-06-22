@@ -21,11 +21,13 @@ i_t scaling(const lp_problem_t<i_t, f_t>& unscaled,
             const simplex_solver_settings_t<i_t, f_t>& settings,
             lp_problem_t<i_t, f_t>& scaled,
             std::vector<f_t>& column_scaling,
-            std::vector<f_t>& row_scaling);
+            std::vector<f_t>& row_scaling,
+            f_t& objective_scaling);
 
 template <typename i_t, typename f_t>
 void unscale_solution(const std::vector<f_t>& column_scaling,
                       const std::vector<f_t>& row_scaling,
+                      f_t objective_scaling,
                       const std::vector<f_t>& scaled_x,
                       const std::vector<f_t>& scaled_y,
                       const std::vector<f_t>& scaled_z,

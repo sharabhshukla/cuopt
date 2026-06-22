@@ -12,16 +12,89 @@
 
 namespace cuopt::linear_programming::dual_simplex {
 
+// Compute a single positive scalar theta that brings the geometric mean of the
+// nonzero objective coefficients close to 1, then apply it to the objective row
+// (and the quadratic term Q, which scales linearly with the objective). This
+// compresses the dynamic range of the reduced costs so that the dual ratio test
+// and perturbation tolerances - which are absolute - remain meaningful when the
+// raw objective spans many orders of magnitude (e.g. [1e4, 6e8]).
+//
+// theta is a positive scalar on the objective only: A, rhs, and bounds are
+// untouched, so the LP is mathematically identical. The optimal objective and
+// duals scale by theta and are undone in unscale_solution.
+template <typename i_t, typename f_t>
+f_t apply_objective_scaling(const simplex_solver_settings_t<i_t, f_t>& settings,
+                            lp_problem_t<i_t, f_t>& scaled)
+{
+  const i_t n = scaled.num_cols;
+
+  f_t sum_log     = 0.0;
+  i_t num_nonzero = 0;
+  f_t min_abs     = std::numeric_limits<f_t>::max();
+  f_t max_abs     = 0.0;
+  for (i_t j = 0; j < n; ++j) {
+    const f_t c = std::abs(scaled.objective[j]);
+    if (c > 0.0) {
+      sum_log += std::log(c);
+      num_nonzero++;
+      min_abs = std::min(min_abs, c);
+      max_abs = std::max(max_abs, c);
+    }
+  }
+
+  if (num_nonzero == 0) { return 1.0; }
+
+  // If the objective is already well scaled, do nothing. A modest spread does
+  // not benefit from rescaling and avoids perturbing an otherwise clean model.
+  const f_t spread = max_abs / min_abs;
+  if (spread < 1e4) { return 1.0; }
+
+  const f_t geomean = std::exp(sum_log / static_cast<f_t>(num_nonzero));
+  if (!(geomean > 0.0) || !std::isfinite(geomean)) { return 1.0; }
+
+  f_t theta = f_t(1) / geomean;
+
+  // Clamp to a safe band so a pathological objective cannot push coefficients
+  // into denormal/overflow territory.
+  constexpr f_t min_theta = 1e-12;
+  constexpr f_t max_theta = 1e12;
+  theta                   = std::min(std::max(theta, min_theta), max_theta);
+
+  for (i_t j = 0; j < n; ++j) {
+    scaled.objective[j] *= theta;
+  }
+  // Q scales linearly with the objective (same objective row, x'Qx term).
+  if (scaled.Q.m > 0) {
+    for (i_t p = 0; p < scaled.Q.row_start[scaled.Q.m]; ++p) {
+      scaled.Q.x[p] *= theta;
+    }
+  }
+  scaled.max_abs_obj_coeff *= theta;
+  scaled.min_abs_obj_coeff *= theta;
+
+  settings.log.printf(
+    "Objective scaling: geomean %e, spread %e, applied theta %e (coeff range now [%e, %e])\n",
+    geomean,
+    spread,
+    theta,
+    min_abs * theta,
+    max_abs * theta);
+
+  return theta;
+}
+
 template <typename i_t, typename f_t>
 i_t scaling(const lp_problem_t<i_t, f_t>& unscaled,
             const simplex_solver_settings_t<i_t, f_t>& settings,
             lp_problem_t<i_t, f_t>& scaled,
             std::vector<f_t>& column_scaling,
-            std::vector<f_t>& row_scaling)
+            std::vector<f_t>& row_scaling,
+            f_t& objective_scaling)
 {
-  scaled = unscaled;
-  i_t m  = scaled.num_rows;
-  i_t n  = scaled.num_cols;
+  scaled            = unscaled;
+  i_t m             = scaled.num_rows;
+  i_t n             = scaled.num_cols;
+  objective_scaling = 1.0;
 
   row_scaling.assign(m, 1.0);
 
@@ -189,6 +262,7 @@ i_t scaling(const lp_problem_t<i_t, f_t>& unscaled,
   if (!settings.scale_columns) {
     settings.log.printf("Skipping column scaling\n");
     column_scaling.resize(n, 1.0);
+    objective_scaling = apply_objective_scaling(settings, scaled);
     return 0;
   }
 
@@ -238,12 +312,14 @@ i_t scaling(const lp_problem_t<i_t, f_t>& unscaled,
       scaled.Q.x[p] = unscaled.Q.x[p] / (column_scaling[row] * column_scaling[col]);
     }
   }
+  objective_scaling = apply_objective_scaling(settings, scaled);
   return 0;
 }
 
 template <typename i_t, typename f_t>
 void unscale_solution(const std::vector<f_t>& column_scaling,
                       const std::vector<f_t>& row_scaling,
+                      f_t objective_scaling,
                       const std::vector<f_t>& scaled_x,
                       const std::vector<f_t>& scaled_y,
                       const std::vector<f_t>& scaled_z,
@@ -251,19 +327,23 @@ void unscale_solution(const std::vector<f_t>& column_scaling,
                       std::vector<f_t>& unscaled_y,
                       std::vector<f_t>& unscaled_z)
 {
-  const i_t n = scaled_x.size();
+  // The objective was scaled by theta = objective_scaling (a positive scalar on
+  // the objective only). The primal x is unaffected, but the optimal duals and
+  // reduced costs scale by theta, so divide them out here.
+  const f_t inv_theta = f_t(1) / objective_scaling;
+  const i_t n         = scaled_x.size();
   unscaled_x.resize(n);
   unscaled_z.resize(n);
   for (i_t j = 0; j < n; ++j) {
     unscaled_x[j] = scaled_x[j] / column_scaling[j];
-    unscaled_z[j] = scaled_z[j] * column_scaling[j];
+    unscaled_z[j] = scaled_z[j] * column_scaling[j] * inv_theta;
   }
 
   const i_t m = scaled_y.size();
   unscaled_y.resize(m);
   // R(i,i) = 1/row_scaling[i], so y_orig = y_scaled / row_scaling
   for (i_t i = 0; i < m; ++i) {
-    unscaled_y[i] = scaled_y[i] / row_scaling[i];
+    unscaled_y[i] = scaled_y[i] / row_scaling[i] * inv_theta;
   }
 }
 
@@ -273,10 +353,12 @@ template int scaling<int, double>(const lp_problem_t<int, double>& unscaled,
                                   const simplex_solver_settings_t<int, double>& settings,
                                   lp_problem_t<int, double>& scaled,
                                   std::vector<double>& column_scaling,
-                                  std::vector<double>& row_scaling);
+                                  std::vector<double>& row_scaling,
+                                  double& objective_scaling);
 
 template void unscale_solution<int, double>(const std::vector<double>& column_scaling,
                                             const std::vector<double>& row_scaling,
+                                            double objective_scaling,
                                             const std::vector<double>& scaled_x,
                                             const std::vector<double>& scaled_y,
                                             const std::vector<double>& scaled_z,

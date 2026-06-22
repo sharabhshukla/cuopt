@@ -171,9 +171,10 @@ lp_status_t solve_linear_program_with_advanced_basis(
                             presolved_lp.A.col_start[presolved_lp.num_cols]);
   std::vector<f_t> column_scales;
   std::vector<f_t> row_scales_simplex;
+  f_t objective_scale = 1.0;
   {
     raft::common::nvtx::range scope_scaling("DualSimplex::scaling");
-    scaling(presolved_lp, settings, lp, column_scales, row_scales_simplex);
+    scaling(presolved_lp, settings, lp, column_scales, row_scales_simplex, objective_scale);
   }
   assert(presolved_lp.num_cols == lp.num_cols);
   lp_problem_t<i_t, f_t> phase1_problem(original_lp.handle_ptr, 1, 1, 1);
@@ -298,6 +299,7 @@ lp_status_t solve_linear_program_with_advanced_basis(
       std::vector<f_t> unscaled_z(lp.num_cols);
       unscale_solution<i_t, f_t>(column_scales,
                                  row_scales_simplex,
+                                 objective_scale,
                                  solution.x,
                                  solution.y,
                                  solution.z,
@@ -313,10 +315,16 @@ lp_status_t solve_linear_program_with_advanced_basis(
                        original_solution.x,
                        original_solution.y,
                        original_solution.z);
-      original_solution.objective          = solution.objective;
-      original_solution.user_objective     = solution.user_objective;
+      // solution.objective / user_objective were computed against the
+      // theta-scaled objective; undo the objective scaling so the caller (and
+      // the MIP branch-and-bound that consumes the internal objective) sees the
+      // value in presolved-LP units.
+      original_solution.objective          = solution.objective / objective_scale;
+      original_solution.user_objective     = solution.user_objective / objective_scale;
       original_solution.l2_primal_residual = solution.l2_primal_residual;
-      original_solution.l2_dual_residual   = solution.l2_dual_residual;
+      // The dual residual ||A'y + z - c|| was formed in theta-scaled space and
+      // scales linearly with theta; report it in user units.
+      original_solution.l2_dual_residual   = solution.l2_dual_residual / objective_scale;
       lp_status                            = lp_status_t::OPTIMAL;
     }
     if (status == dual::status_t::DUAL_UNBOUNDED) { lp_status = lp_status_t::INFEASIBLE; }
@@ -382,7 +390,8 @@ lp_status_t solve_linear_program_with_barrier(const user_problem_t<i_t, f_t>& us
                                     presolved_lp.A.col_start[presolved_lp.num_cols]);
   std::vector<f_t> column_scales;
   std::vector<f_t> row_scales;
-  scaling(presolved_lp, barrier_settings, barrier_lp, column_scales, row_scales);
+  f_t objective_scale = 1.0;
+  scaling(presolved_lp, barrier_settings, barrier_lp, column_scales, row_scales, objective_scale);
 
   // Solve using barrier
   lp_solution_t<i_t, f_t> barrier_solution(barrier_lp.num_rows, barrier_lp.num_cols);
@@ -411,6 +420,7 @@ lp_status_t solve_linear_program_with_barrier(const user_problem_t<i_t, f_t>& us
     std::vector<f_t> unscaled_z(barrier_lp.num_cols);
     unscale_solution<i_t, f_t>(column_scales,
                                row_scales,
+                               objective_scale,
                                barrier_solution.x,
                                barrier_solution.y,
                                barrier_solution.z,
@@ -584,11 +594,16 @@ lp_status_t solve_linear_program_with_barrier(const user_problem_t<i_t, f_t>& us
     uncrush_primal_solution(user_problem, original_lp, lp_solution.x, solution.x);
     uncrush_dual_solution(
       user_problem, original_lp, lp_solution.y, lp_solution.z, solution.y, solution.z);
+    // barrier_solution objectives were computed against the theta-scaled
+    // objective; undo the objective scaling to report values in user units.
+    const f_t unscaled_user_objective = barrier_solution.user_objective / objective_scale;
     solution.objective =
-      barrier_solution.user_objective / user_problem.obj_scale - user_problem.obj_constant;
-    solution.user_objective     = barrier_solution.user_objective;
+      unscaled_user_objective / user_problem.obj_scale - user_problem.obj_constant;
+    solution.user_objective     = unscaled_user_objective;
     solution.l2_primal_residual = barrier_solution.l2_primal_residual;
-    solution.l2_dual_residual   = barrier_solution.l2_dual_residual;
+    // The dual residual was formed in theta-scaled space and scales linearly
+    // with theta; report it in user units.
+    solution.l2_dual_residual   = barrier_solution.l2_dual_residual / objective_scale;
     solution.iterations         = barrier_solution.iterations;
   }
 
