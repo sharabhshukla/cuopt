@@ -48,6 +48,11 @@ struct lp_problem_t {
   std::vector<f_t> upper;
   f_t obj_constant;
   f_t obj_scale;  // 1.0 for min, -1.0 for max
+  // Positive scalar the objective row (objective and obj_constant) has been
+  // multiplied by during scaling; 1.0 when unscaled. Used to map scaled
+  // internal objective values back to user units for logging and the MIP
+  // dual-bound callback. See apply_objective_scaling in scaling.cpp.
+  f_t objective_scaling{1.0};
   bool objective_is_integral{false};
   objective_step_t<f_t> objective_step;
   i_t cone_var_start{0};

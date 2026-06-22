@@ -63,6 +63,11 @@ f_t apply_objective_scaling(const simplex_solver_settings_t<i_t, f_t>& settings,
   for (i_t j = 0; j < n; ++j) {
     scaled.objective[j] *= theta;
   }
+  // The objective constant is part of the objective row and must scale with it,
+  // otherwise the reported objective (obj_scale * (c'x + obj_constant)) mixes a
+  // theta-scaled linear term with an unscaled constant and is wrong - on models
+  // with a large offset the constant dominates and even flips the sign.
+  scaled.obj_constant *= theta;
   // Q scales linearly with the objective (same objective row, x'Qx term).
   if (scaled.Q.m > 0) {
     for (i_t p = 0; p < scaled.Q.row_start[scaled.Q.m]; ++p) {
@@ -71,6 +76,9 @@ f_t apply_objective_scaling(const simplex_solver_settings_t<i_t, f_t>& settings,
   }
   scaled.max_abs_obj_coeff *= theta;
   scaled.min_abs_obj_coeff *= theta;
+  // Record the applied scale so downstream consumers (logging, MIP dual-bound
+  // callback) can map scaled objective values back to user units.
+  scaled.objective_scaling = theta;
 
   settings.log.printf(
     "Objective scaling: geomean %e, spread %e, applied theta %e (coeff range now [%e, %e])\n",

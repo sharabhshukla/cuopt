@@ -39,6 +39,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <map>
@@ -1592,6 +1593,67 @@ i_t compute_perturbation(const lp_problem_t<i_t, f_t>& lp,
   return 0;
 }
 
+// Anti-degeneracy cost perturbation.
+//
+// When the dual simplex stalls on a degenerate vertex - primal infeasibility
+// stops decreasing while the dual objective barely moves - exact (or
+// near-exact) ties in the dual ratio test produce zero-length steps and the
+// method cycles instead of converging. The cure is to perturb the nonbasic
+// reduced costs by a small, bounded, per-variable-distinct amount so that the
+// ties are broken and a strictly positive dual step is available again.
+//
+// The perturbation is applied in the dual-feasible direction (NONBASIC_LOWER
+// shifts the reduced cost further positive, NONBASIC_UPPER further negative),
+// so dual feasibility is preserved and only the nonbasic costs move - the basic
+// duals (y, z_B = 0) are untouched. The objective vector and the matching
+// reduced costs z are updated together so z = objective - A'y stays consistent.
+// The perturbation is later removed and validated against the true objective by
+// the existing optimality check, so the final solution is unperturbed.
+//
+// magnitude scales the perturbation; callers escalate it on repeated stalls.
+// Returns the number of reduced costs perturbed.
+template <typename i_t, typename f_t>
+i_t apply_stall_perturbation(const lp_problem_t<i_t, f_t>& lp,
+                             const simplex_solver_settings_t<i_t, f_t>& settings,
+                             const std::vector<variable_status_t>& vstatus,
+                             const std::vector<i_t>& nonbasic_list,
+                             f_t magnitude,
+                             std::vector<f_t>& objective,
+                             std::vector<f_t>& z,
+                             f_t& sum_perturb)
+{
+  const i_t n        = lp.num_cols;
+  const i_t m        = lp.num_rows;
+  const f_t dual_tol = settings.dual_tol;
+  i_t num_perturb    = 0;
+  sum_perturb        = 0.0;
+  for (i_t k = 0; k < n - m; ++k) {
+    const i_t j = nonbasic_list[k];
+    if (vstatus[j] == variable_status_t::NONBASIC_FIXED ||
+        vstatus[j] == variable_status_t::NONBASIC_FREE) {
+      continue;
+    }
+    // Deterministic per-variable factor in [1, 2): a uniform shift would move
+    // every reduced cost equally and leave the ties intact, so vary it by a
+    // cheap hash of the column index (reproducible, no RNG state).
+    const f_t vary  = 1.0 + static_cast<f_t>((static_cast<uint32_t>(j) * 2654435761u) >> 16) /
+                              static_cast<f_t>(1u << 16);
+    const f_t delta = magnitude * vary * (1e-6 * std::abs(objective[j]) + 10.0 * dual_tol);
+    if (vstatus[j] == variable_status_t::NONBASIC_LOWER) {
+      objective[j] += delta;  // keeps z[j] >= 0
+      z[j] += delta;
+      sum_perturb += delta;
+      num_perturb++;
+    } else if (vstatus[j] == variable_status_t::NONBASIC_UPPER) {
+      objective[j] -= delta;  // keeps z[j] <= 0
+      z[j] -= delta;
+      sum_perturb += delta;
+      num_perturb++;
+    }
+  }
+  return num_perturb;
+}
+
 template <typename i_t, typename f_t>
 void reset_basis_mark(const std::vector<i_t>& basic_list,
                       const std::vector<i_t>& nonbasic_list,
@@ -2383,7 +2445,7 @@ void prepare_optimality(i_t info,
       settings.log.printf("\n");
       settings.log.printf(
         "Optimal solution found in %d iterations and %.2fs\n", iter, toc(start_time));
-      settings.log.printf("Objective %+.8e\n", sol.user_objective);
+      settings.log.printf("Objective %+.8e\n", sol.user_objective / lp.objective_scaling);
       settings.log.printf("\n");
       settings.log.printf("Primal infeasibility (abs): %.2e\n", primal_infeas);
       settings.log.printf("Dual infeasibility (abs):   %.2e\n", dual_infeas);
@@ -2819,13 +2881,25 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
   if (phase == 2) {
     settings.log.printf("%5d %+.16e %7d %.8e %.2e %.2f\n",
                         iter,
-                        compute_user_objective(lp, obj),
+                        compute_user_objective(lp, obj) / lp.objective_scaling,
                         infeasibility_indices.size(),
                         primal_infeasibility_squared,
                         0.0,
                         toc(start_time));
   }
   i_t iterations_since_refactor = 0;
+
+  // Anti-degeneracy stall tracking. If the primal infeasibility fails to
+  // improve for stall_window iterations, the method is cycling on a degenerate
+  // vertex; break the ties with an escalating cost perturbation (see
+  // apply_stall_perturbation). best_primal_inf_sq is the lowest infeasibility
+  // seen so far; a meaningful drop below it resets the no-progress counter.
+  constexpr i_t stall_window          = 1000;
+  constexpr i_t max_stall_perturb     = 20;
+  constexpr f_t stall_improve_rel_tol = 1e-4;
+  f_t best_primal_inf_sq              = primal_infeasibility_squared;
+  i_t iters_since_improve             = 0;
+  i_t num_stall_perturb               = 0;
 
   while (iter < iter_limit) {
     PHASE2_NVTX_RANGE("DualSimplex::phase2_main_loop");
@@ -3678,6 +3752,42 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
     phase2_work_estimate += 3 * delta_z_indices.size();
     phase2::clear_delta_z(entering_index, leaving_index, delta_z_mark, delta_z_indices, delta_z);
 
+    // Anti-degeneracy: detect a stall (no meaningful drop in primal
+    // infeasibility) and break the degenerate ties with an escalating cost
+    // perturbation. Only in phase 2, where the perturbation-removal/optimality
+    // check that cleans this up afterward is active.
+    if (phase == 2) {
+      if (primal_infeasibility_squared < best_primal_inf_sq * (1.0 - stall_improve_rel_tol)) {
+        best_primal_inf_sq  = primal_infeasibility_squared;
+        iters_since_improve = 0;
+      } else {
+        iters_since_improve++;
+      }
+      if (iters_since_improve >= stall_window && num_stall_perturb < max_stall_perturb) {
+        // Escalate the magnitude on repeated stalls, capped so the perturbed
+        // problem stays close to the original.
+        const f_t magnitude = std::min(std::pow(f_t(4), num_stall_perturb), f_t(1e3));
+        f_t sum_stall_perturb = 0.0;
+        const i_t num_perturbed = phase2::apply_stall_perturbation(
+          lp, settings, vstatus, nonbasic_list, magnitude, objective, z, sum_stall_perturb);
+        // Reduced costs changed; refresh the tracked objective value.
+        obj = phase2::compute_perturbed_objective(objective, x);
+        settings.log.printf(
+          "Dual simplex stall at iter %d (no progress for %d iters). Applied anti-degeneracy "
+          "perturbation %.2e to %d reduced costs (magnitude %.2e, pass %d/%d).\n",
+          iter,
+          iters_since_improve,
+          sum_stall_perturb,
+          num_perturbed,
+          magnitude,
+          num_stall_perturb + 1,
+          max_stall_perturb);
+        num_stall_perturb++;
+        iters_since_improve = 0;
+        best_primal_inf_sq  = primal_infeasibility_squared;
+      }
+    }
+
     f_t now = toc(start_time);
 
     // Feature logging for regression training (every FEATURE_LOG_INTERVAL iterations)
@@ -3694,7 +3804,9 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
 
     if ((iter - start_iter) < settings.first_iteration_log ||
         (iter % settings.iteration_log_frequency) == 0) {
-      const f_t user_obj = compute_user_objective(lp, obj);
+      // Report in user units: obj and compute_user_objective are in the
+      // theta-scaled space, so divide out lp.objective_scaling (1.0 if unscaled).
+      const f_t user_obj = compute_user_objective(lp, obj) / lp.objective_scaling;
       if (phase == 1 && iter == 1) {
         settings.log.printf(" Iter     Objective           Num Inf.  Sum Inf.     Perturb  Time\n");
       }
@@ -3706,12 +3818,18 @@ dual::status_t dual_phase2_with_advanced_basis(i_t phase,
                           sum_perturb,
                           now);
       if (phase == 2 && settings.inside_mip == 1 && settings.dual_simplex_objective_callback) {
-        settings.dual_simplex_objective_callback(obj);
+        // The MIP consumes this as the live root dual bound in presolved-LP
+        // (unscaled) internal units; undo the objective scaling.
+        settings.dual_simplex_objective_callback(obj / lp.objective_scaling);
       }
     }
 
-    if (obj >= settings.cut_off) {
-      settings.log.printf("Solve cutoff. Current objecive %e. Cutoff %e\n", obj, settings.cut_off);
+    // settings.cut_off is in unscaled internal units (set by B&B from the
+    // incumbent); obj is in theta-scaled units. Compare in unscaled units.
+    const f_t unscaled_obj = obj / lp.objective_scaling;
+    if (unscaled_obj >= settings.cut_off) {
+      settings.log.printf(
+        "Solve cutoff. Current objecive %e. Cutoff %e\n", unscaled_obj, settings.cut_off);
       return dual::status_t::CUTOFF;
     }
 
